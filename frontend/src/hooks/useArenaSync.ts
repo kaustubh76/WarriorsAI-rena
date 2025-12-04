@@ -1,6 +1,9 @@
 // Frontend service to sync with command-based arena automation
 import { useState, useEffect, useCallback } from 'react';
 
+// Arena Backend URL - configured via environment variable
+const ARENA_BACKEND_URL = process.env.NEXT_PUBLIC_ARENA_BACKEND_URL || 'http://localhost:3002';
+
 interface ArenaGameState {
   battleId: string | null;
   gameState: 'idle' | 'playing' | 'finished';
@@ -26,7 +29,7 @@ export const useArenaSync = (battleId: string | null) => {
     if (!battleId) return;
 
     try {
-      const response = await fetch(`http://localhost:3002/api/arena/status?battleId=${battleId}`);
+      const response = await fetch(`${ARENA_BACKEND_URL}/api/arena/status?battleId=${battleId}`);
       if (response.ok) {
         const data = await response.json();
         // Handle both existing gameState and null gameState gracefully
@@ -58,7 +61,7 @@ export const useArenaSync = (battleId: string | null) => {
 
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3002/api/arena/commands?battleId=${battleId}`, {
+      const response = await fetch(`${ARENA_BACKEND_URL}/api/arena/commands?battleId=${battleId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,7 +119,7 @@ export const useArenaSync = (battleId: string | null) => {
     if (!battleId) return;
 
     try {
-      await fetch(`http://localhost:3002/api/arena/commands?battleId=${battleId}`, {
+      await fetch(`${ARENA_BACKEND_URL}/api/arena/commands?battleId=${battleId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,19 +133,20 @@ export const useArenaSync = (battleId: string | null) => {
     }
   }, [battleId]);
 
-  // Sync with backend every 2 seconds - ONLY uses status endpoint, never commands
+  // Sync with backend - polls status endpoint for timer updates
   useEffect(() => {
     if (!battleId) return;
 
-    // Poll status endpoint every 2 seconds for timer updates
-    // This endpoint NEVER consumes commands, only reads state
+    // Poll status endpoint for timer synchronization
+    // Using 1.5s interval - balances server load with smooth client-side countdown
+    // The GameTimer component handles smooth 1-second countdown locally
     const interval = setInterval(() => {
       fetchGameState().catch(err => {
-        console.warn('Status polling warning (non-critical):', err);
+        // Silent fail - client-side countdown continues independently
       });
-    }, 2000);
-    
-    // Initial fetch
+    }, 1500);
+
+    // Initial fetch immediately
     fetchGameState().catch(err => {
       console.warn('Initial status fetch warning (non-critical):', err);
     });

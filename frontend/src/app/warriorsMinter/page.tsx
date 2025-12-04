@@ -16,6 +16,9 @@ import { chainsToContracts, warriorsNFTAbi } from '../../constants';
 import { useUserNFTs } from '../../hooks/useUserNFTs';
 import { useWarriorsMinterMessages } from '../../hooks/useWarriorsMinterMessages';
 
+// 0G Storage service URL - configured via environment variable
+const ZG_STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+
 interface WarriorsTraits {
   strength: number;
   wit: number;
@@ -599,12 +602,12 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       // Handle 0G storage URLs with 0g:// prefix
       if (url.startsWith('0g://')) {
         const rootHash = url.replace('0g://', '');
-        return `http://localhost:3001/download/${rootHash}`;
+        return `${ZG_STORAGE_API_URL}/download/${rootHash}`;
       }
-      
+
       // Handle 0G storage root hashes (direct root hash)
       if (url.startsWith('0x')) {
-        return `http://localhost:3001/download/${url}`;
+        return `${ZG_STORAGE_API_URL}/download/${url}`;
       }
       
       // Return as-is for HTTP URLs or local paths
@@ -631,9 +634,9 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
         return true;
       }
       
-      // Use regular img for 0G storage URLs
-      if (urlToCheck.includes('localhost:3001')) {
-        console.log(`🖼️ shouldUseRegularImg: localhost:3001 detected (${urlToCheck}), using regular img`);
+      // Use regular img for 0G storage URLs (check if URL contains the storage API)
+      if (urlToCheck.includes(ZG_STORAGE_API_URL.replace('http://', '').replace('https://', ''))) {
+        console.log(`🖼️ shouldUseRegularImg: 0G Storage URL detected (${urlToCheck}), using regular img`);
         return true;
       }
       
@@ -674,7 +677,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     const handleError = useCallback(() => {
       if (!hasError) {
         // For 0G storage URLs, fall back directly to placeholder
-        if (src.startsWith('0x') || imageSrc.includes('localhost:3001')) {
+        if (src.startsWith('0x') || imageSrc.includes(ZG_STORAGE_API_URL.replace('http://', '').replace('https://', ''))) {
           console.log(`🖼️ 0G Storage failed for: ${src}, falling back to lazered.png`);
           setImageSrc('/lazered.png');
           setHasError(true);

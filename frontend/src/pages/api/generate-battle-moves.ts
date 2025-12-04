@@ -48,7 +48,16 @@ export default async function handler(
     });
 
     // Generate signature for the arena contract using the AI signer private key
-    const aiSignerPrivateKey = "0x5d9626839c7c44143e962b012eba09d8212cf7e3ab7a393c6c27cc5eb2be8765";
+    // IMPORTANT: This key should be set as an environment variable, never hardcoded
+    const aiSignerPrivateKey = process.env.AI_SIGNER_PRIVATE_KEY;
+
+    if (!aiSignerPrivateKey) {
+      console.error('AI_SIGNER_PRIVATE_KEY environment variable is not set');
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error: AI signer key not configured'
+      });
+    }
     
     // Create signature exactly as the contract expects
     const dataToSign = encodePacked(['uint8', 'uint8'], [warriorsOneMove, warriorsTwoMove]);

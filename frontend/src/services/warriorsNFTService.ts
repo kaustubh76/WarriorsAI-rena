@@ -44,8 +44,8 @@ export interface WarriorsDetails {
 // Cache for metadata to avoid repeated calls
 const metadataCache = new Map<string, WarriorsMetadata>();
 
-// 0G Storage service configuration
-const ZG_STORAGE_API_URL = 'http://localhost:3001';
+// 0G Storage service configuration - use environment variable
+const ZG_STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
 
 // Legacy IPFS gateways (fallback only)
 const IPFS_GATEWAYS = [

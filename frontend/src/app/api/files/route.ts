@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+// 0G Storage service URL - configured via environment variable
+const STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+
 export async function POST(request: NextRequest) {
   try {
     const data = await request.formData();
@@ -22,7 +25,7 @@ export async function POST(request: NextRequest) {
     const imageFormData = new FormData();
     imageFormData.append('file', file);
     
-    const imageUploadResponse = await fetch('http://localhost:3001/upload', {
+    const imageUploadResponse = await fetch(`${STORAGE_API_URL}/upload`, {
       method: 'POST',
       body: imageFormData,
     });
@@ -64,7 +67,7 @@ export async function POST(request: NextRequest) {
     const metadataFormData = new FormData();
     metadataFormData.append('file', metadataFile);
     
-    const metadataUploadResponse = await fetch('http://localhost:3001/upload', {
+    const metadataUploadResponse = await fetch(`${STORAGE_API_URL}/upload`, {
       method: 'POST',
       body: metadataFormData,
     });

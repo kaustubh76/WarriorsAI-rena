@@ -1,33 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createWalletClient, http, parseEther, createPublicClient } from 'viem';
+import { createWalletClient, http, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowPreviewnet } from 'viem/chains';
 
 // Import the contract ABI
 import { ArenaAbi } from '../../../constants';
 
-// Game Master's private key from environment
-const GAME_MASTER_PRIVATE_KEY = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY as `0x${string}`;
+// Lazy initialization of clients - only created when needed at runtime
+// This prevents build-time errors when env vars are not set
+let _gameMasterAccount: ReturnType<typeof privateKeyToAccount> | null = null;
+let _walletClient: ReturnType<typeof createWalletClient> | null = null;
+let _publicClient: ReturnType<typeof createPublicClient> | null = null;
 
-if (!GAME_MASTER_PRIVATE_KEY) {
-  console.error('NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY not found in environment variables');
+function getGameMasterAccount() {
+  if (!_gameMasterAccount) {
+    const privateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY || process.env.GAME_MASTER_PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error('GAME_MASTER_PRIVATE_KEY not found in environment variables');
+    }
+    _gameMasterAccount = privateKeyToAccount(privateKey as `0x${string}`);
+  }
+  return _gameMasterAccount;
 }
 
-// Create game master account
-const gameMasterAccount = privateKeyToAccount(GAME_MASTER_PRIVATE_KEY);
+function getWalletClient() {
+  if (!_walletClient) {
+    _walletClient = createWalletClient({
+      account: getGameMasterAccount(),
+      chain: flowPreviewnet,
+      transport: http()
+    });
+  }
+  return _walletClient;
+}
 
-// Create wallet client for transactions
-const walletClient = createWalletClient({
-  account: gameMasterAccount,
-  chain: flowPreviewnet,
-  transport: http()
-});
-
-// Create public client for reading contract state
-const publicClient = createPublicClient({
-  chain: flowPreviewnet,
-  transport: http()
-});
+function getPublicClient() {
+  if (!_publicClient) {
+    _publicClient = createPublicClient({
+      chain: flowPreviewnet,
+      transport: http()
+    });
+  }
+  return _publicClient;
+}
 
 interface ArenaState {
   address: string;
@@ -55,47 +70,47 @@ async function getArenaState(arenaAddress: string): Promise<ArenaState | null> {
       playerOneBetAddresses,
       playerTwoBetAddresses
     ] = await Promise.all([
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getInitializationStatus',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getCurrentRound',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getIsBettingPeriodGoingOn',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getGameInitializedAt',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getLastRoundEndedAt',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getMinYodhaBettingPeriod',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getMinBattleRoundsInterval',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getPlayerOneBetAddresses',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getPlayerTwoBetAddresses',
@@ -124,16 +139,16 @@ async function startGame(arenaAddress: string): Promise<boolean> {
   try {
     console.log(`Game Master: Starting game for arena ${arenaAddress}`);
     
-    const hash = await walletClient.writeContract({
+    const hash = await getWalletClient().writeContract({
       address: arenaAddress as `0x${string}`,
       abi: ArenaAbi,
       functionName: 'startGame',
     });
 
     console.log(`Game Master: Start game transaction sent: ${hash}`);
-    
+
     // Wait for transaction confirmation
-    const receipt = await publicClient.waitForTransactionReceipt({ 
+    const receipt = await getPublicClient().waitForTransactionReceipt({
       hash,
       timeout: 60000 // 60 second timeout
     });
@@ -150,27 +165,27 @@ async function generateAIMoves(arenaAddress: string): Promise<{ agent_1: { move:
   try {
     // Get current battle data from contract
     const [currentRound, damageOnYodhaOne, damageOnYodhaTwo, warriorsOneNFTId, warriorsTwoNFTId] = await Promise.all([
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getCurrentRound',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getDamageOnYodhaOne',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getDamageOnYodhaTwo',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getYodhaOneNFTId',
       }),
-      publicClient.readContract({
+      getPublicClient().readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getYodhaTwoNFTId',
@@ -335,13 +350,13 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
     );
     
     // Sign the Ethereum signed message hash
-    const signature = await gameMasterAccount.signMessage({
+    const signature = await getGameMasterAccount().signMessage({
       message: { raw: ethSignedMessageHash }
     });
 
     console.log(`Game Master: Executing battle with moves ${warriorsOneMove} vs ${warriorsTwoMove}`);
-    
-    const hash = await walletClient.writeContract({
+
+    const hash = await getWalletClient().writeContract({
       address: arenaAddress as `0x${string}`,
       abi: ArenaAbi,
       functionName: 'battle',
@@ -349,9 +364,9 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
     });
 
     console.log(`Game Master: Battle transaction sent: ${hash}`);
-    
+
     // Wait for transaction confirmation
-    const receipt = await publicClient.waitForTransactionReceipt({ 
+    const receipt = await getPublicClient().waitForTransactionReceipt({
       hash,
       timeout: 60000 // 60 second timeout
     });

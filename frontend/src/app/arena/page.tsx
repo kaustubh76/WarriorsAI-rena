@@ -29,6 +29,9 @@ import { GameTimer } from '../../components/GameTimer';
 import { useArenaSync } from '../../hooks/useArenaSync';
 import { useArenaMessages } from '../../hooks/useArenaMessages';
 
+// Arena Backend URL - configured via environment variable
+const ARENA_BACKEND_URL = process.env.NEXT_PUBLIC_ARENA_BACKEND_URL || 'http://localhost:3002';
+
 // PlayerMoves enum mapping (based on Kurukshetra.sol)
 const PlayerMoves = {
   STRIKE: 0,
@@ -1328,7 +1331,7 @@ export default function ArenaPage() {
               // Game was reset due to insufficient bets, notify backend to stop automation
               console.log('⚠️ Game was reset (insufficient bets) - stopping automation');
               
-              const response = await fetch(`http://localhost:3002/api/arena/commands?battleId=${selectedArena.address}`, {
+              const response = await fetch(`${ARENA_BACKEND_URL}/api/arena/commands?battleId=${selectedArena.address}`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -1406,11 +1409,61 @@ export default function ArenaPage() {
         return;
       }
 
+      // Fetch fresh arena data from blockchain before checking state
+      console.log('Fetching fresh arena state before betting...');
+      let freshArenaData;
+      try {
+        freshArenaData = await arenaService.getArenaDetails(selectedArena.address);
+        console.log('Fresh arena state:', {
+          isInitialized: freshArenaData.isInitialized,
+          currentRound: freshArenaData.currentRound,
+          isBettingPeriod: freshArenaData.isBettingPeriod,
+          gameInitializedAt: freshArenaData.gameInitializedAt,
+        });
+      } catch (fetchError) {
+        console.warn('Could not fetch fresh arena data, using cached state:', fetchError);
+        // Use selectedArena but map to ArenaDetails format
+        freshArenaData = {
+          isInitialized: selectedArena.gameInitializedAt > 0,
+          currentRound: selectedArena.currentRound,
+          isBettingPeriod: selectedArena.isBettingPeriod,
+          gameInitializedAt: selectedArena.gameInitializedAt,
+        } as typeof freshArenaData;
+      }
+
+      // Check if game is initialized
+      if (!freshArenaData.isInitialized) {
+        alert('Cannot bet: Game has not been initialized yet.\n\nTo initialize:\n1. Enter Warriors One NFT ID\n2. Enter Warriors Two NFT ID\n3. Click "Initialize Arena"');
+        return;
+      }
+
+      // Check if still in betting period (round 0)
+      if (freshArenaData.currentRound !== 0) {
+        alert('Cannot bet: The battle has already started. Betting is only allowed before the first round.');
+        return;
+      }
+
+      // Check if betting period is active
+      if (!freshArenaData.isBettingPeriod) {
+        alert('Cannot bet: Betting period is not active.\n\nThe betting period may have ended. The game requires bets on BOTH warriors before it can start.');
+        return;
+      }
+
       console.log(`Betting ${betAmountNum} CRwN (${betAmountNum / selectedArena.betAmount}x multiplier) on Warriors ${warriors}`);
 
       // Import the wei conversion utility
       const { toWei } = await import('../../services/arenaService');
       const betAmountWei = toWei(betAmountNum);
+
+      // Check user's CRwN balance first
+      console.log('Checking CRwN token balance...');
+      const userBalance = await arenaService.getCrwnBalance(address);
+      if (userBalance < betAmountWei) {
+        const balanceInTokens = Number(userBalance) / 1e18;
+        alert(`Insufficient CRwN balance!\n\nYou have: ${balanceInTokens.toFixed(2)} CRwN\nRequired: ${betAmountNum} CRwN\n\nPlease get more CRwN tokens to place this bet.`);
+        return;
+      }
+      console.log(`CRwN balance: ${Number(userBalance) / 1e18} (sufficient)`);
 
       // Check current allowance
       console.log('Checking CRwN token allowance...');
@@ -1463,15 +1516,36 @@ export default function ArenaPage() {
         duration: 5000
       });
 
-      // Note: In a real app you might want to update the arena state
-      // For now, we'll just close the modal and reset the form
+      // Refresh arena data to show updated bets
+      await refetch();
 
       setIsModalOpen(false);
       setBetAmount('');
       setSelectedWarriors(null);
     } catch (error) {
       console.error('Failed to place bet:', error);
-      // Handle error - maybe show a toast notification
+
+      // Parse error message for user-friendly display
+      let errorMessage = 'Failed to place bet. ';
+      if (error instanceof Error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('user rejected') || msg.includes('user denied')) {
+          errorMessage = 'Transaction was cancelled.';
+        } else if (msg.includes('insufficient funds')) {
+          errorMessage += 'Insufficient FLOW tokens for gas fees.';
+        } else if (msg.includes('gamenotstarted')) {
+          errorMessage += 'Game has not been initialized yet.';
+        } else if (msg.includes('gamealreadystarted')) {
+          errorMessage += 'The battle has already started. Betting is closed.';
+        } else if (msg.includes('bettingperiodnotactive')) {
+          errorMessage += 'Betting period is not active.';
+        } else if (msg.includes('invalidbetamount')) {
+          errorMessage += 'Invalid bet amount.';
+        } else {
+          errorMessage += 'Please check your balance and try again.';
+        }
+      }
+      alert(errorMessage);
     }
   };
 
@@ -1963,7 +2037,7 @@ export default function ArenaPage() {
 
     const pollForCommands = async () => {
       try {
-        const response = await fetch(`http://localhost:3002/api/arena/commands?battleId=${selectedArena.address}`);
+        const response = await fetch(`${ARENA_BACKEND_URL}/api/arena/commands?battleId=${selectedArena.address}`);
         
         if (response.ok) {
           const data = await response.json();
@@ -2015,10 +2089,13 @@ export default function ArenaPage() {
   // Function to execute battle moves with AI-selected moves
 
   // Event listeners for battle events using wagmi
+  // Added enabled flag and pollingInterval to prevent 429 rate limiting on Flow Testnet
   useWatchContractEvent({
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'RoundOver',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000, // Poll every 5 seconds to avoid rate limiting
     onLogs(logs) {
       console.log('RoundOver event received:', logs);
       // Refresh arena data when round is over
@@ -2030,9 +2107,11 @@ export default function ArenaPage() {
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'GameFinished',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000,
     onLogs(logs) {
       console.log('GameFinished event received:', logs);
-      
+
       // Parse the game finished event to determine winner
       if (logs && logs.length > 0 && selectedArena) {
         // The event contains winner information
@@ -2040,21 +2119,21 @@ export default function ArenaPage() {
           try {
             // Refetch arena data to get final state
             await refetch();
-            
+
             if (selectedArena) {
               // Determine winner based on damage (lower damage wins, or use winner field if available)
-              const winnerIsWarriorsOne = selectedArena.winner === 'ONE' || 
+              const winnerIsWarriorsOne = selectedArena.winner === 'ONE' ||
                 (selectedArena.winner === undefined && selectedArena.warriorsOneDamage < selectedArena.warriorsTwoDamage);
               const winnerWarriors = winnerIsWarriorsOne ? selectedArena.warriorsOne : selectedArena.warriorsTwo;
               const winnerName = winnerWarriors?.name || `Warriors #${winnerWarriors?.id || 'Unknown'}`;
-              
+
               // Show winner display
               setWinnerDisplay({
                 isVisible: true,
                 winnerName,
                 winnerNFTId: winnerWarriors?.id?.toString() || '0'
               });
-              
+
               // Hide winner display after 10 seconds
               setTimeout(() => {
                 setWinnerDisplay(null);
@@ -2065,7 +2144,7 @@ export default function ArenaPage() {
           }
         }, 500); // Small delay to ensure arena state is updated
       }
-      
+
       // Refresh arena data when game is finished
       refetch();
       console.log('Battle has ended!');
@@ -2076,6 +2155,8 @@ export default function ArenaPage() {
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'GameStarted',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000,
     onLogs(logs) {
       console.log('GameStarted event received:', logs);
       // Refresh arena data when game starts
@@ -2089,6 +2170,8 @@ export default function ArenaPage() {
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'WarriorsOneInfluenced',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000,
     onLogs(logs) {
       console.log('WarriorsOneInfluenced event received:', logs);
       // Refresh arena data to get updated influence costs
@@ -2100,6 +2183,8 @@ export default function ArenaPage() {
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'WarriorsOneDefluenced',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000,
     onLogs(logs) {
       console.log('WarriorsOneDefluenced event received:', logs);
       // Refresh arena data to get updated defluence costs
@@ -2111,6 +2196,8 @@ export default function ArenaPage() {
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'WarriorsTwoInfluenced',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000,
     onLogs(logs) {
       console.log('WarriorsTwoInfluenced event received:', logs);
       // Refresh arena data to get updated influence costs
@@ -2122,6 +2209,8 @@ export default function ArenaPage() {
     address: selectedArena?.address as `0x${string}`,
     abi: ArenaAbi,
     eventName: 'WarriorsTwoDefluenced',
+    enabled: !!selectedArena?.address,
+    pollingInterval: 5_000,
     onLogs(logs) {
       console.log('WarriorsTwoDefluenced event received:', logs);
       // Refresh arena data to get updated defluence costs
@@ -2661,16 +2750,23 @@ const ArenaModal = ({
             {arenaSync?.gameState && (
               <div className="mb-6">
                 <GameTimer
-                  gameState={arenaSync.gameState.gameState || 'idle'}
+                  gameState={
+                    // Map backend state to GameTimer state
+                    // Backend: gameState='playing', phase='startGame' -> Timer shows 'betting'
+                    // Backend: gameState='playing', phase='battle' -> Timer shows 'playing'
+                    arenaSync.gameState.gameState === 'playing'
+                      ? (arenaSync.gameState.phase === 'startGame' ? 'betting' : 'playing')
+                      : 'idle'
+                  }
                   timeRemaining={arenaSync.gameState.timeRemaining || 0}
                   totalTime={arenaSync.gameState.totalTime || 0}
                   battleNotification={battleNotification}
                 />
                 
                 {/* Manual Override Buttons */}
-                {(arenaSync.gameState.gameState === 'betting' || arenaSync.gameState.gameState === 'playing') && (
+                {arenaSync.gameState.gameState === 'playing' && (
                   <div className="mt-4 flex gap-4 justify-center">
-                    {arenaSync.gameState.gameState === 'betting' && manualStartGame && (
+                    {arenaSync.gameState.phase === 'startGame' && manualStartGame && (
                       <div className="text-center">
                         <button
                           onClick={manualStartGame}

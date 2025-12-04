@@ -27,8 +27,8 @@ interface UserWarriors {
 // Simple metadata cache to avoid repeated requests
 const metadataCache = new Map<string, any>();
 
-// 0G Storage service configuration
-const ZG_STORAGE_API_URL = 'http://localhost:3001';
+// 0G Storage service configuration - use environment variable
+const ZG_STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
 
 // Function to clear cache for debugging/testing
 const clearMetadataCache = () => {
@@ -42,13 +42,13 @@ const convertIpfsToProxyUrl = (imageUrl: string) => {
   if (imageUrl.startsWith('0g://')) {
     // Extract the root hash from the 0G URI
     const rootHash = imageUrl.replace('0g://', '').split(':')[0];
-    return `http://localhost:3001/download/${rootHash}`;
+    return `${ZG_STORAGE_API_URL}/download/${rootHash}`;
   }
-  
+
   // Handle 0G storage root hashes (direct 0x format)
   if (imageUrl.startsWith('0x')) {
     // Convert 0G root hash to download URL
-    return `http://localhost:3001/download/${imageUrl}`;
+    return `${ZG_STORAGE_API_URL}/download/${imageUrl}`;
   }
   
   // Handle IPFS URLs
