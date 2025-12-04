@@ -1,0 +1,30 @@
+{
+  "name": "warriors-ai-arena-automation",
+  "version": "1.0.0",
+  "description": "Discord and Twitter automation for Warriors AI Arena",
+  "main": "index.js",
+  "scripts": {
+    "discord": "ts-node discord/bot.ts",
+    "twitter": "ts-node twitter/bot.ts",
+    "twitter:scheduler": "ts-node twitter/scheduler.ts",
+    "start": "concurrently \"npm run discord\" \"npm run twitter:scheduler\"",
+    "dev": "nodemon --exec ts-node discord/bot.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "twitter-api-v2": "^1.15.2",
+    "node-cron": "^3.0.3",
+    "ethers": "^6.9.0",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.2",
+    "openai": "^4.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.3.2",
+    "ts-node": "^10.9.2",
+    "nodemon": "^3.0.2",
+    "concurrently": "^8.2.2"
+  }
+}
