@@ -12,3 +12,16 @@ docs/
 
 # Dotenv file
 .env
+.env*
+
+# Node modules (all directories)
+node_modules/
+**/node_modules/
+
+# Package lock files (auto-generated)
+package-lock.json
+**/package-lock.json
+
+# Screenshots and temporary files
+*.png
+.DS_Store
