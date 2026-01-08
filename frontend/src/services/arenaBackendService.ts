@@ -27,9 +27,10 @@ class ArenaBackendService {
       process.env.NEXT_PUBLIC_RPC_URL || 'https://rpc.ankr.com/polygon'
     );
     
-    const gameMasterPrivateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY;
+    // Server-side only - NEVER use NEXT_PUBLIC_ prefix for private keys
+    const gameMasterPrivateKey = process.env.GAME_MASTER_PRIVATE_KEY;
     if (!gameMasterPrivateKey) {
-      throw new Error('Game master private key not found');
+      throw new Error('GAME_MASTER_PRIVATE_KEY not found. This service should only be used in server-side code.');
     }
     
     this.gameMasterWallet = new ethers.Wallet(gameMasterPrivateKey, this.provider);

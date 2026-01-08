@@ -14,9 +14,10 @@ let _publicClient: ReturnType<typeof createPublicClient> | null = null;
 
 function getGameMasterAccount() {
   if (!_gameMasterAccount) {
-    const privateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY || process.env.GAME_MASTER_PRIVATE_KEY;
+    // Server-side only - private keys should never have NEXT_PUBLIC_ prefix
+    const privateKey = process.env.GAME_MASTER_PRIVATE_KEY;
     if (!privateKey) {
-      throw new Error('GAME_MASTER_PRIVATE_KEY not found in environment variables');
+      throw new Error('GAME_MASTER_PRIVATE_KEY not found in environment variables. This is a server-side only variable.');
     }
     _gameMasterAccount = privateKeyToAccount(privateKey as `0x${string}`);
   }

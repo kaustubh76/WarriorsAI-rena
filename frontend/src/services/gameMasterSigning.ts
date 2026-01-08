@@ -19,11 +19,13 @@ export class GameMasterSigningService {
   private _gamemaster_private_key: `0x${string}` | null = null;
 
   // Lazy initialization of private key - only accessed when needed at runtime
+  // NOTE: This service should only be used in server-side code (API routes)
   private get gamemaster_private_key(): `0x${string}` {
     if (!this._gamemaster_private_key) {
-      const privateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY || process.env.GAME_MASTER_PRIVATE_KEY;
+      // Server-side only - NEVER use NEXT_PUBLIC_ prefix for private keys
+      const privateKey = process.env.GAME_MASTER_PRIVATE_KEY;
       if (!privateKey) {
-        throw new Error('GAME_MASTER_PRIVATE_KEY not found in environment variables');
+        throw new Error('GAME_MASTER_PRIVATE_KEY not found in environment variables. Ensure this service is only used in server-side code.');
       }
       this._gamemaster_private_key = privateKey.startsWith('0x')
         ? privateKey as `0x${string}`

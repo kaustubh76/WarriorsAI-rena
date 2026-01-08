@@ -27,10 +27,10 @@ export const config = {
   // WalletConnect Project ID
   walletConnectProjectId: process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || '',
 
-  // Game Master (server-side only - should not have NEXT_PUBLIC prefix in production)
-  // For client-side signing (development only), use NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY
-  // For production, move signing to server-side API routes
-  gameMasterPrivateKey: process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY || process.env.GAME_MASTER_PRIVATE_KEY || '',
+  // Game Master (server-side only - NEVER expose to client)
+  // All signing operations must go through API routes (/api/game-master, /api/generate-battle-moves)
+  // This value will only be available in server-side code (API routes, Server Components)
+  gameMasterPrivateKey: process.env.GAME_MASTER_PRIVATE_KEY || '',
 
   // AI Signer Private Key (server-side only)
   aiSignerPrivateKey: process.env.AI_SIGNER_PRIVATE_KEY || '',
