@@ -3,16 +3,17 @@
 import { ethers } from "ethers";
 import { createZGComputeNetworkBroker } from "@0glabs/0g-serving-broker";
 import OpenAI from "openai";
-import dotenv from "dotenv";
 
-// Load environment variables
-dotenv.config();
+// Note: In Next.js API routes, process.env already has access to .env.local variables
+// dotenv.config() is only needed when running this file directly as a script
 
-// Official 0G providers
-const OFFICIAL_PROVIDERS = {
-  "llama-3.3-70b-instruct": "0xf07240Efa67755B5311bc75784a061eDB47165Dd",
-  "deepseek-r1-70b": "0x3feE5a4dd5FDb8a32dDA97Bed899830605dBD9D3"
-};
+// 0G Galileo Testnet Configuration
+const TESTNET_RPC = "https://evmrpc-testnet.0g.ai";
+const TESTNET_CHAIN_ID = 16602;
+
+// Minimum fund amounts required by 0G Compute Network (SDK 0.6.2)
+// New contracts require minimum 3 OG deposit to create ledger
+const MINIMUM_LEDGER_DEPOSIT = 3.0; // Initial ledger deposit (in OG) - minimum required by contract
 
 // Test configuration
 const FIXED_PROMPT = `Return ONLY the JSON object. No additional text, explanations, or sentences. Only pure JSON in this exact format: {"name": "Full Name", "bio": "Brief biography in one sentence", "life_history": "0: First major life event in one sentence. 1: Second major life event in one sentence. 2: Third major life event in one sentence. 3: Fourth major life event in one sentence. 4: Fifth major life event in one sentence", "personality": ["Trait1", "Trait2", "Trait3", "Trait4", "Trait5"], "knowledge_areas": ["Area1", "Area2", "Area3", "Area4", "Area5"]}`;
@@ -22,54 +23,78 @@ function createQuery(userInput: string): string {
   return `<${userInput}> ${FIXED_PROMPT}`;
 }
 
+// Helper function to setup ledger account (required before inference)
+async function setupLedger(broker: any, logPrefix: string = ""): Promise<void> {
+  // Check if ledger exists, if not create and fund it
+  try {
+    const ledger = await broker.ledger.getLedger();
+    console.log(`${logPrefix}✅ Ledger account exists`);
+  } catch (error: any) {
+    console.log(`${logPrefix}⚠️  Ledger not found, depositing funds...`);
+    try {
+      await broker.ledger.depositFund(MINIMUM_LEDGER_DEPOSIT);
+      console.log(`${logPrefix}✅ Deposited ${MINIMUM_LEDGER_DEPOSIT} OG tokens to ledger`);
+    } catch (depositError: any) {
+      if (depositError.message?.includes('already exists') || depositError.message?.includes('Ledger')) {
+        console.log(`${logPrefix}ℹ️  Ledger already exists, continuing...`);
+      } else {
+        throw depositError;
+      }
+    }
+  }
+}
+
+// Helper function to get a chatbot provider dynamically (tries multiple if first fails)
+async function getFirstChatbotProvider(broker: any, logPrefix: string = "", preferredIndex: number = 0): Promise<string> {
+  const services = await broker.inference.listService();
+  const chatbotServices = services.filter((s: any) => s.serviceType === 'chatbot');
+
+  if (chatbotServices.length === 0) {
+    throw new Error('No chatbot services available');
+  }
+
+  // Use preferred index or fall back to first available
+  const index = Math.min(preferredIndex, chatbotServices.length - 1);
+  const service = chatbotServices[index];
+  console.log(`${logPrefix}✅ Selected provider: ${service.provider} (${service.model || 'unknown model'})`);
+  return service.provider;
+}
+
 // New exported function for Warriors Minter integration
 export async function generateWarriorAttributes(userInput: string): Promise<string> {
   console.log("🚀 Generating warrior attributes with 0G AI");
   console.log(`💬 User Input: "${userInput}"`);
-  
+
   try {
     // Step 1: Initialize wallet and provider
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       throw new Error('PRIVATE_KEY is required in .env file');
     }
-    
-    const provider = new ethers.JsonRpcProvider("https://evmrpc-testnet.0g.ai");
+
+    const provider = new ethers.JsonRpcProvider(TESTNET_RPC);
     const wallet = new ethers.Wallet(privateKey, provider);
-    
+
     // Step 2: Create broker instance
     const broker = await createZGComputeNetworkBroker(wallet);
-    
-    // Step 3: Check/Setup ledger account
-    try {
-      const existingLedger = await broker.ledger.getLedger();
-      console.log("✅ Warrior attributes - Ledger account exists");
-    } catch (error: any) {
-      console.log("⚠️  Warrior attributes - Ledger account does not exist, creating...");
-      try {
-        await broker.ledger.addLedger(0.1);
-        console.log("✅ Warrior attributes - Ledger created successfully");
-      } catch (createError: any) {
-        if (createError.message && createError.message.includes('Ledger already exists')) {
-          console.log("ℹ️  Warrior attributes - Ledger already exists, continuing...");
-        } else {
-          throw createError;
-        }
-      }
-    }
-    
-    // Step 4: Select provider and acknowledge
-    const selectedProvider = OFFICIAL_PROVIDERS["llama-3.3-70b-instruct"];
-    
+
+    // Step 3: Setup ledger (REQUIRED per 0G docs)
+    await setupLedger(broker, "Warrior attributes - ");
+
+    // Step 4: Get chatbot provider dynamically (preferring index 1 - openai/gpt-oss-20b)
+    const selectedProvider = await getFirstChatbotProvider(broker, "Warrior attributes - ", 1);
+
+    // Step 5: Acknowledge provider signer
     try {
       await broker.inference.acknowledgeProviderSigner(selectedProvider);
+      console.log("✅ Provider acknowledged");
     } catch (error: any) {
-      if (!error.message.includes('already acknowledged')) {
-        throw error;
+      if (!error.message?.includes('already acknowledged')) {
+        console.log("⚠️  Provider acknowledge error (may already be acknowledged):", error.message);
       }
     }
-    
-    // Step 5: Get service metadata
+
+    // Step 6: Get service metadata
     const { endpoint, model } = await broker.inference.getServiceMetadata(selectedProvider);
     
     // Step 6: Generate authentication headers
@@ -186,50 +211,37 @@ CRITICAL: Return ONLY the JSON object. NO other text, explanations, or formattin
 export async function generateWarriorTraitsAndMoves(personalityAttributes: any): Promise<string> {
   console.log("🚀 Generating warrior traits and moves with 0G AI");
   console.log(`💬 Personality Attributes:`, personalityAttributes);
-  
+
   try {
     // Step 1: Initialize wallet and provider
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       throw new Error('PRIVATE_KEY is required in .env file');
     }
-    
-    const provider = new ethers.JsonRpcProvider("https://evmrpc-testnet.0g.ai");
+
+    const provider = new ethers.JsonRpcProvider(TESTNET_RPC);
     const wallet = new ethers.Wallet(privateKey, provider);
-    
+
     // Step 2: Create broker instance
     const broker = await createZGComputeNetworkBroker(wallet);
-    
-    // Step 3: Check/Setup ledger account
-    try {
-      const existingLedger = await broker.ledger.getLedger();
-      console.log("✅ Warrior traits - Ledger account exists");
-    } catch (error: any) {
-      console.log("⚠️  Warrior traits - Ledger account does not exist, creating...");
-      try {
-        await broker.ledger.addLedger(0.1);
-        console.log("✅ Warrior traits - Ledger created successfully");
-      } catch (createError: any) {
-        if (createError.message && createError.message.includes('Ledger already exists')) {
-          console.log("ℹ️  Warrior traits - Ledger already exists, continuing...");
-        } else {
-          throw createError;
-        }
-      }
-    }
-    
-    // Step 4: Select provider and acknowledge
-    const selectedProvider = OFFICIAL_PROVIDERS["llama-3.3-70b-instruct"];
-    
+
+    // Step 3: Setup ledger (REQUIRED per 0G docs)
+    await setupLedger(broker, "Warrior traits - ");
+
+    // Step 4: Get chatbot provider dynamically (preferring index 1 - openai/gpt-oss-20b)
+    const selectedProvider = await getFirstChatbotProvider(broker, "Warrior traits - ", 1);
+
+    // Step 5: Acknowledge provider signer
     try {
       await broker.inference.acknowledgeProviderSigner(selectedProvider);
+      console.log("✅ Provider acknowledged");
     } catch (error: any) {
-      if (!error.message.includes('already acknowledged')) {
-        throw error;
+      if (!error.message?.includes('already acknowledged')) {
+        console.log("⚠️  Provider acknowledge error (may already be acknowledged):", error.message);
       }
     }
-    
-    // Step 5: Get service metadata
+
+    // Step 6: Get service metadata
     const { endpoint, model } = await broker.inference.getServiceMetadata(selectedProvider);
     
     // Step 6: Generate authentication headers
@@ -414,50 +426,37 @@ THINK STRATEGICALLY. EVERY CHOICE MUST BE OPTIMAL.`;
 export async function generateBattleMoves(battlePrompt: any): Promise<string> {
   console.log("🚀 Generating battle moves with 0G AI");
   console.log(`💬 Battle Prompt:`, battlePrompt);
-  
+
   try {
     // Step 1: Initialize wallet and provider with Arena Contract AI Signer
-    const privateKey = process.env.PRIVATE_KEY || "0x5d9626839c7c44143e962b012eba09d8212cf7e3ab7a393c6c27cc5eb2be8765";
+    const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      throw new Error('PRIVATE_KEY is required for arena contract signatures');
+      throw new Error('PRIVATE_KEY environment variable is required for arena contract signatures. Please set it in your .env file.');
     }
-    
-    const provider = new ethers.JsonRpcProvider("https://evmrpc-testnet.0g.ai");
+
+    const provider = new ethers.JsonRpcProvider(TESTNET_RPC);
     const wallet = new ethers.Wallet(privateKey, provider);
-    
+
     // Step 2: Create broker instance
     const broker = await createZGComputeNetworkBroker(wallet);
-    
-    // Step 3: Check/Setup ledger account
-    try {
-      const existingLedger = await broker.ledger.getLedger();
-      console.log("✅ Battle moves - Ledger account exists with balance:", existingLedger);
-    } catch (error: any) {
-      console.log("⚠️  Battle moves - Ledger account does not exist, creating...");
-      try {
-        await broker.ledger.addLedger(0.1);
-        console.log("✅ Battle moves - Ledger created successfully");
-      } catch (createError: any) {
-        if (createError.message && createError.message.includes('Ledger already exists')) {
-          console.log("ℹ️  Battle moves - Ledger already exists, continuing...");
-        } else {
-          throw createError;
-        }
-      }
-    }
-    
-    // Step 4: Select provider and acknowledge
-    const selectedProvider = OFFICIAL_PROVIDERS["llama-3.3-70b-instruct"];
-    
+
+    // Step 3: Setup ledger (REQUIRED per 0G docs)
+    await setupLedger(broker, "Battle moves - ");
+
+    // Step 4: Get chatbot provider dynamically (preferring index 1 - openai/gpt-oss-20b)
+    const selectedProvider = await getFirstChatbotProvider(broker, "Battle moves - ", 1);
+
+    // Step 5: Acknowledge provider signer
     try {
       await broker.inference.acknowledgeProviderSigner(selectedProvider);
+      console.log("✅ Provider acknowledged");
     } catch (error: any) {
-      if (!error.message.includes('already acknowledged')) {
-        throw error;
+      if (!error.message?.includes('already acknowledged')) {
+        console.log("⚠️  Provider acknowledge error (may already be acknowledged):", error.message);
       }
     }
-    
-    // Step 5: Get service metadata
+
+    // Step 6: Get service metadata
     const { endpoint, model } = await broker.inference.getServiceMetadata(selectedProvider);
     
     // Step 6: Generate authentication headers
@@ -558,8 +557,6 @@ export async function generateBattleMoves(battlePrompt: any): Promise<string> {
 // Default user input - change this to test different subjects
 const USER_INPUT = "Albert Einstein";
 const TEST_QUERY = createQuery(USER_INPUT);
-const FALLBACK_FEE = 0.01;
-const INITIAL_FUND_AMOUNT = 0.1; // 0.1 OG tokens
 
 async function testComputeFlow() {
   console.log("🚀 Starting 0G Compute Network Flow Demo");
@@ -585,11 +582,11 @@ async function testComputeFlow() {
       throw new Error('PRIVATE_KEY is required in .env file');
     }
     
-    const provider = new ethers.JsonRpcProvider("https://evmrpc-testnet.0g.ai");
+    const provider = new ethers.JsonRpcProvider(TESTNET_RPC);
     const wallet = new ethers.Wallet(privateKey, provider);
     
     console.log(`✅ Wallet Address: ${wallet.address}`);
-    console.log(`✅ RPC URL: https://evmrpc-testnet.0g.ai`);
+    console.log(`✅ RPC URL: ${TESTNET_RPC} (Galileo Testnet, Chain ID: ${TESTNET_CHAIN_ID})`);
     
     // Check wallet balance
     const balance = await provider.getBalance(wallet.address);
@@ -603,26 +600,25 @@ async function testComputeFlow() {
     const broker = await createZGComputeNetworkBroker(wallet);
     console.log("✅ Broker created successfully");
 
-    // Step 3: Check/Setup ledger account
-    console.log("\n📋 Step 3: Check/Setup Ledger Account");
+    // Step 3: Setup ledger (REQUIRED per 0G docs)
+    console.log("\n📋 Step 3: Setup Ledger");
     console.log("-".repeat(30));
-    
-    let ledgerInfo;
-    try {
-      ledgerInfo = await broker.ledger.getLedger();
-      console.log("✅ Ledger account exists");
-      console.log(ledgerInfo);
-    } catch (error) {
-      console.log("⚠️  Ledger account does not exist, creating...");
-      await broker.ledger.addLedger(0.1);
-      console.log(`✅ Ledger created with ${INITIAL_FUND_AMOUNT} OG tokens`);
-      
-      // Get updated balance
-      ledgerInfo = await broker.ledger.getLedger();
-      console.log(ledgerInfo);
-    }
 
-    // Step 4: List available services
+    await setupLedger(broker, "Demo - ");
+
+    // Step 4: Get first available chatbot provider dynamically
+    console.log("\n📋 Step 4: Select Provider");
+    console.log("-".repeat(30));
+
+    // Try provider index 1 (openai/gpt-oss-20b) as primary
+    const selectedProvider = await getFirstChatbotProvider(broker, "Demo - ", 1);
+    console.log(`🎯 Selected Provider: ${selectedProvider}`);
+
+    // Get ledger info for cost calculation later
+    let ledgerInfo = await broker.ledger.getLedger();
+    console.log("Ledger info:", ledgerInfo);
+
+    // Step 5: List available services
     console.log("\n📋 Step 4: List Available Services");
     console.log("-".repeat(30));
     
@@ -631,9 +627,8 @@ async function testComputeFlow() {
     console.log(`✅ Found ${services.length} available services`);
     
     services.forEach((service: any, index: number) => {
-      const modelName = Object.entries(OFFICIAL_PROVIDERS).find(([_, addr]) => addr === service.provider)?.[0] || 'Unknown';
       console.log(`\n🤖 Service ${index + 1}:`);
-      console.log(`   Model: ${modelName}`);
+      console.log(`   Model: ${service.model || 'Unknown'}`);
       console.log(`   Provider: ${service.provider}`);
       console.log(`   Service Type: ${service.serviceType}`);
       console.log(`   URL: ${service.url}`);
@@ -642,24 +637,19 @@ async function testComputeFlow() {
       console.log(`   Verifiability: ${service.verifiability || 'None'}`);
     });
 
-    // Step 5: Select provider and acknowledge
-    // Note: This step is only required for the first time you use a provider. No need to run it again.
-    console.log("\n📋 Step 5: Select Provider and Acknowledge");
+    // Step 5: Acknowledge provider signer
+    console.log("\n📋 Step 5: Acknowledge Provider Signer");
     console.log("-".repeat(30));
-    
-    // Use the first official provider (llama-3.3-70b-instruct)
-    const selectedProvider = OFFICIAL_PROVIDERS["llama-3.3-70b-instruct"];
-    console.log(`🎯 Selected Provider: ${selectedProvider} (llama-3.3-70b-instruct)`);
-    
+
     console.log("⏳ Acknowledging provider...");
     try {
       await broker.inference.acknowledgeProviderSigner(selectedProvider);
       console.log("✅ Provider acknowledged successfully");
     } catch (error: any) {
-      if (error.message.includes('already acknowledged')) {
+      if (error.message?.includes('already acknowledged')) {
         console.log("✅ Provider already acknowledged");
       } else {
-        throw error;
+        console.log("⚠️  Provider acknowledge warning:", error.message);
       }
     }
 
@@ -818,15 +808,18 @@ async function testComputeFlow() {
     
     const finalBalance = await broker.ledger.getLedger();
     console.log(finalBalance);
-    
-    // Calculate approximate cost
-    // ledgerInfo structure: { ledgerInfo: [balance, ...], infers: [...], fines: [...] }
-    const initialBalanceNum = parseFloat(ethers.formatEther(ledgerInfo.ledgerInfo[0]));
-    const finalBalanceNum = parseFloat(ethers.formatEther(finalBalance.ledgerInfo[0]));
-    cost = initialBalanceNum - finalBalanceNum;
-    
-    if (cost > 0) {
-      console.log(`💸 Approximate Query Cost: ${cost.toFixed(6)} OG`);
+
+    // Calculate approximate cost - API structure varies by version
+    try {
+      const initialBalanceNum = parseFloat(ethers.formatEther((ledgerInfo as any).balance || (ledgerInfo as any).ledgerInfo?.[0] || ledgerInfo[0] || 0));
+      const finalBalanceNum = parseFloat(ethers.formatEther((finalBalance as any).balance || (finalBalance as any).ledgerInfo?.[0] || finalBalance[0] || 0));
+      cost = initialBalanceNum - finalBalanceNum;
+
+      if (cost > 0) {
+        console.log(`💸 Approximate Query Cost: ${cost.toFixed(6)} OG`);
+      }
+    } catch (costError) {
+      console.log("⚠️  Could not calculate cost");
     }
 
     // Step 11: Summary

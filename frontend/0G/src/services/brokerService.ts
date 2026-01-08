@@ -137,20 +137,12 @@ class BrokerService {
   }
 
   /**
-   * Manually settle a fee
-   * @param providerAddress Provider address
-   * @param fee Fee amount
+   * @deprecated This method is no longer supported in SDK v0.6.4+
+   * Fee settlement is now handled automatically by processResponse()
    */
-  async settleFee(providerAddress: string, fee: number): Promise<string> {
-    await this.ensureInitialized();
-    
-    try {
-      // Note: settleFee API might have changed in current SDK version
-      // Using the broker's ledger to settle fee instead
-      throw new Error("settleFee method may not be available in current SDK version. Please check the latest SDK documentation.");
-    } catch (error: any) {
-      throw new Error(`Failed to settle fee: ${error.message}`);
-    }
+  async settleFee(_providerAddress: string, _fee: number): Promise<string> {
+    console.warn("settleFee is deprecated. Fee settlement is now automatic via processResponse()");
+    return "Fee settlement is now automatic - no action needed";
   }
 
   /**
