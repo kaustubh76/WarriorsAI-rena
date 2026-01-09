@@ -8,49 +8,53 @@ import {
   parseEther,
   formatEther,
   type Address,
+  parseAbiItem,
 } from 'viem';
-import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
-import { chainsToContracts } from '../constants';
+import { readContractWithRateLimit, batchReadContractsWithRateLimit, getPublicClient } from '../lib/rpcClient';
+import { getContracts, getChainId } from '../constants';
 
-// Market status enum matching the contract
+// Market status enum matching the contract (IPredictionMarket.sol)
 export enum MarketStatus {
-  Active = 0,
-  Paused = 1,
-  Resolved = 2,
-  Cancelled = 3
+  Active = 0,    // ACTIVE
+  Resolved = 1,  // RESOLVED
+  Cancelled = 2  // CANCELLED
 }
 
-// Market outcome enum
+// Market outcome enum matching the contract (IPredictionMarket.sol)
 export enum MarketOutcome {
-  Unresolved = 0,
-  Yes = 1,
-  No = 2,
-  Draw = 3
+  Undecided = 0, // UNDECIDED
+  Yes = 1,       // YES
+  No = 2,        // NO
+  Invalid = 3    // INVALID
 }
 
-// Market interface matching the contract struct
+// Market interface matching the contract struct EXACTLY (IPredictionMarket.sol lines 24-40)
+// Field order MUST match contract: id, question, endTime, resolutionTime, status, outcome,
+// yesTokens, noTokens, liquidity, totalVolume, creator, battleId, warrior1Id, warrior2Id, createdAt
 export interface Market {
   id: bigint;
   question: string;
   endTime: bigint;
+  resolutionTime: bigint;
   status: MarketStatus;
   outcome: MarketOutcome;
-  totalYesShares: bigint;
-  totalNoShares: bigint;
-  totalLiquidity: bigint;
+  yesTokens: bigint;
+  noTokens: bigint;
+  liquidity: bigint;
+  totalVolume: bigint;
   creator: Address;
-  resolutionTime: bigint;
   battleId: bigint;
   warrior1Id: bigint;
   warrior2Id: bigint;
+  createdAt: bigint;
 }
 
-// User position interface
+// User position interface matching contract (IPredictionMarket.sol lines 42-47)
 export interface Position {
-  yesShares: bigint;
-  noShares: bigint;
+  yesTokens: bigint;
+  noTokens: bigint;
   lpShares: bigint;
-  claimed: boolean;
+  totalInvested: bigint;
 }
 
 // Trade quote interface
@@ -60,7 +64,20 @@ export interface TradeQuote {
   effectivePrice: number;
 }
 
+// Market activity interface for event-based history
+export interface MarketActivity {
+  type: 'buy' | 'sell' | 'add_liquidity' | 'remove_liquidity' | 'claim';
+  user: Address;
+  amount: bigint;
+  tokens: bigint;
+  isYes?: boolean;
+  timestamp: number;
+  txHash: string;
+  blockNumber: bigint;
+}
+
 // PredictionMarketAMM ABI (key functions)
+// CRITICAL: Field order MUST match IPredictionMarket.sol Market struct exactly
 export const PredictionMarketABI = [
   // Read functions
   {
@@ -73,16 +90,18 @@ export const PredictionMarketABI = [
         { name: 'id', type: 'uint256' },
         { name: 'question', type: 'string' },
         { name: 'endTime', type: 'uint256' },
+        { name: 'resolutionTime', type: 'uint256' },
         { name: 'status', type: 'uint8' },
         { name: 'outcome', type: 'uint8' },
-        { name: 'totalYesShares', type: 'uint256' },
-        { name: 'totalNoShares', type: 'uint256' },
-        { name: 'totalLiquidity', type: 'uint256' },
+        { name: 'yesTokens', type: 'uint256' },
+        { name: 'noTokens', type: 'uint256' },
+        { name: 'liquidity', type: 'uint256' },
+        { name: 'totalVolume', type: 'uint256' },
         { name: 'creator', type: 'address' },
-        { name: 'resolutionTime', type: 'uint256' },
         { name: 'battleId', type: 'uint256' },
         { name: 'warrior1Id', type: 'uint256' },
-        { name: 'warrior2Id', type: 'uint256' }
+        { name: 'warrior2Id', type: 'uint256' },
+        { name: 'createdAt', type: 'uint256' }
       ]
     }],
     stateMutability: 'view'
@@ -97,16 +116,18 @@ export const PredictionMarketABI = [
         { name: 'id', type: 'uint256' },
         { name: 'question', type: 'string' },
         { name: 'endTime', type: 'uint256' },
+        { name: 'resolutionTime', type: 'uint256' },
         { name: 'status', type: 'uint8' },
         { name: 'outcome', type: 'uint8' },
-        { name: 'totalYesShares', type: 'uint256' },
-        { name: 'totalNoShares', type: 'uint256' },
-        { name: 'totalLiquidity', type: 'uint256' },
+        { name: 'yesTokens', type: 'uint256' },
+        { name: 'noTokens', type: 'uint256' },
+        { name: 'liquidity', type: 'uint256' },
+        { name: 'totalVolume', type: 'uint256' },
         { name: 'creator', type: 'address' },
-        { name: 'resolutionTime', type: 'uint256' },
         { name: 'battleId', type: 'uint256' },
         { name: 'warrior1Id', type: 'uint256' },
-        { name: 'warrior2Id', type: 'uint256' }
+        { name: 'warrior2Id', type: 'uint256' },
+        { name: 'createdAt', type: 'uint256' }
       ]
     }],
     stateMutability: 'view'
@@ -138,10 +159,10 @@ export const PredictionMarketABI = [
     outputs: [{
       type: 'tuple',
       components: [
-        { name: 'yesShares', type: 'uint256' },
-        { name: 'noShares', type: 'uint256' },
+        { name: 'yesTokens', type: 'uint256' },
+        { name: 'noTokens', type: 'uint256' },
         { name: 'lpShares', type: 'uint256' },
-        { name: 'claimed', type: 'bool' }
+        { name: 'totalInvested', type: 'uint256' }
       ]
     }],
     stateMutability: 'view'
@@ -255,7 +276,7 @@ export const PredictionMarketABI = [
     outputs: [{ type: 'uint256' }],
     stateMutability: 'nonpayable'
   },
-  // Events
+  // Events (matching IPredictionMarket.sol)
   {
     type: 'event',
     name: 'MarketCreated',
@@ -263,19 +284,52 @@ export const PredictionMarketABI = [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'question', type: 'string', indexed: false },
       { name: 'endTime', type: 'uint256', indexed: false },
-      { name: 'creator', type: 'address', indexed: true }
+      { name: 'creator', type: 'address', indexed: true },
+      { name: 'battleId', type: 'uint256', indexed: false }
     ]
   },
   {
     type: 'event',
-    name: 'Trade',
+    name: 'TokensPurchased',
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
-      { name: 'trader', type: 'address', indexed: true },
-      { name: 'isBuy', type: 'bool', indexed: false },
+      { name: 'buyer', type: 'address', indexed: true },
       { name: 'isYes', type: 'bool', indexed: false },
-      { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'shares', type: 'uint256', indexed: false }
+      { name: 'collateralAmount', type: 'uint256', indexed: false },
+      { name: 'tokensReceived', type: 'uint256', indexed: false }
+    ]
+  },
+  {
+    type: 'event',
+    name: 'TokensSold',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'seller', type: 'address', indexed: true },
+      { name: 'isYes', type: 'bool', indexed: false },
+      { name: 'tokenAmount', type: 'uint256', indexed: false },
+      { name: 'collateralReceived', type: 'uint256', indexed: false }
+    ]
+  },
+  {
+    type: 'event',
+    name: 'LiquidityAdded',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'provider', type: 'address', indexed: true },
+      { name: 'collateralAmount', type: 'uint256', indexed: false },
+      { name: 'lpTokensReceived', type: 'uint256', indexed: false }
+    ]
+  },
+  {
+    type: 'event',
+    name: 'LiquidityRemoved',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'provider', type: 'address', indexed: true },
+      { name: 'lpTokensBurned', type: 'uint256', indexed: false },
+      { name: 'collateralReturned', type: 'uint256', indexed: false },
+      { name: 'yesTokens', type: 'uint256', indexed: false },
+      { name: 'noTokens', type: 'uint256', indexed: false }
     ]
   },
   {
@@ -283,7 +337,17 @@ export const PredictionMarketABI = [
     name: 'MarketResolved',
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
-      { name: 'outcome', type: 'uint8', indexed: false }
+      { name: 'outcome', type: 'uint8', indexed: false },
+      { name: 'resolver', type: 'address', indexed: true }
+    ]
+  },
+  {
+    type: 'event',
+    name: 'WinningsClaimed',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'claimer', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false }
     ]
   }
 ] as const;
@@ -334,13 +398,13 @@ const CACHE_TTL = {
 class PredictionMarketService {
   private predictionMarketAddress: Address;
   private crownTokenAddress: Address;
-  private chainId: number = 545; // Flow Testnet
+  private chainId: number = getChainId(); // Flow Testnet
 
   constructor() {
     // Load contract addresses from constants
-    const contracts = chainsToContracts[this.chainId];
-    this.predictionMarketAddress = (contracts?.predictionMarketAMM || ZERO_ADDRESS) as Address;
-    this.crownTokenAddress = (contracts?.crownToken || '0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6') as Address;
+    const contracts = getContracts();
+    this.predictionMarketAddress = (contracts.predictionMarketAMM || ZERO_ADDRESS) as Address;
+    this.crownTokenAddress = (contracts.crownToken || ZERO_ADDRESS) as Address;
   }
 
   /**
@@ -373,7 +437,15 @@ class PredictionMarketService {
         abi: PredictionMarketABI,
         functionName: 'getAllMarkets'
       }, { cacheTTL: CACHE_TTL.MARKETS_LIST }) as Market[];
-      return markets;
+
+      // Filter out uninitialized/invalid markets (creator is zero address)
+      const validMarkets = markets.filter(market =>
+        market.creator !== ZERO_ADDRESS &&
+        market.question &&
+        market.question.length > 0
+      );
+
+      return validMarkets;
     } catch (error) {
       console.error('Error fetching markets:', error);
       return [];
@@ -393,6 +465,12 @@ class PredictionMarketService {
         functionName: 'getMarket',
         args: [marketId]
       }, { cacheTTL: CACHE_TTL.MARKET }) as Market;
+
+      // Return null if market is uninitialized (creator is zero address)
+      if (market.creator === ZERO_ADDRESS || !market.question || market.question.length === 0) {
+        return null;
+      }
+
       return market;
     } catch (error) {
       console.error('Error fetching market:', error);
@@ -421,37 +499,35 @@ class PredictionMarketService {
 
   /**
    * Get market prices (YES/NO probabilities)
+   * Returns actual blockchain data - NO fallbacks to fake data
    */
   async getPrice(marketId: bigint): Promise<{ yesPrice: bigint; noPrice: bigint }> {
     if (!this.isContractDeployed()) {
-      return { yesPrice: BigInt(5000), noPrice: BigInt(5000) }; // 50/50 default
+      throw new Error('PredictionMarket contract not deployed');
     }
 
-    try {
-      const [yesPrice, noPrice] = await readContractWithRateLimit({
-        address: this.predictionMarketAddress,
-        abi: PredictionMarketABI,
-        functionName: 'getPrice',
-        args: [marketId]
-      }, { cacheTTL: CACHE_TTL.PRICE }) as [bigint, bigint];
-      return { yesPrice, noPrice };
-    } catch (error) {
-      console.error('Error fetching price:', error);
-      return { yesPrice: BigInt(5000), noPrice: BigInt(5000) }; // 50/50 default
-    }
+    const [yesPrice, noPrice] = await readContractWithRateLimit({
+      address: this.predictionMarketAddress,
+      abi: PredictionMarketABI,
+      functionName: 'getPrice',
+      args: [marketId]
+    }, { cacheTTL: CACHE_TTL.PRICE }) as [bigint, bigint];
+    return { yesPrice, noPrice };
   }
 
   /**
    * Get user position in a market
    */
   async getPosition(marketId: bigint, userAddress: Address): Promise<Position> {
+    const emptyPosition: Position = {
+      yesTokens: BigInt(0),
+      noTokens: BigInt(0),
+      lpShares: BigInt(0),
+      totalInvested: BigInt(0)
+    };
+
     if (!this.isContractDeployed()) {
-      return {
-        yesShares: BigInt(0),
-        noShares: BigInt(0),
-        lpShares: BigInt(0),
-        claimed: false
-      };
+      return emptyPosition;
     }
 
     try {
@@ -464,12 +540,7 @@ class PredictionMarketService {
       return position;
     } catch (error) {
       console.error('Error fetching position:', error);
-      return {
-        yesShares: BigInt(0),
-        noShares: BigInt(0),
-        lpShares: BigInt(0),
-        claimed: false
-      };
+      return emptyPosition;
     }
   }
 
@@ -610,8 +681,6 @@ class PredictionMarketService {
     switch (status) {
       case MarketStatus.Active:
         return 'Active';
-      case MarketStatus.Paused:
-        return 'Paused';
       case MarketStatus.Resolved:
         return 'Resolved';
       case MarketStatus.Cancelled:
@@ -626,14 +695,14 @@ class PredictionMarketService {
    */
   getOutcomeText(outcome: MarketOutcome): string {
     switch (outcome) {
-      case MarketOutcome.Unresolved:
+      case MarketOutcome.Undecided:
         return 'Pending';
       case MarketOutcome.Yes:
         return 'Yes';
       case MarketOutcome.No:
         return 'No';
-      case MarketOutcome.Draw:
-        return 'Draw';
+      case MarketOutcome.Invalid:
+        return 'Invalid';
       default:
         return 'Unknown';
     }
@@ -655,6 +724,146 @@ class PredictionMarketService {
       predictionMarket: this.predictionMarketAddress,
       crownToken: this.crownTokenAddress
     };
+  }
+
+  /**
+   * Get market activity from blockchain events
+   * Fetches TokensPurchased, TokensSold, LiquidityAdded, LiquidityRemoved, WinningsClaimed events
+   * Note: Flow testnet RPC has limitations, so we use a conservative approach
+   */
+  async getMarketActivity(marketId: bigint, limit: number = 50): Promise<MarketActivity[]> {
+    if (!this.isContractDeployed()) {
+      return [];
+    }
+
+    try {
+      const publicClient = getPublicClient();
+      const activities: MarketActivity[] = [];
+
+      // Get current block for fromBlock calculation
+      const currentBlock = await publicClient.getBlockNumber();
+      // Use a small block range to avoid RPC limitations (1000 blocks ~30 min)
+      const fromBlock = currentBlock - BigInt(1000);
+
+      // Helper function to safely fetch logs with error handling
+      const safeFetchLogs = async (eventSignature: string, eventName: string) => {
+        try {
+          const logs = await publicClient.getLogs({
+            address: this.predictionMarketAddress,
+            event: parseAbiItem(eventSignature),
+            args: { marketId },
+            fromBlock: fromBlock > 0n ? fromBlock : 0n,
+            toBlock: 'latest'
+          });
+          return logs;
+        } catch (err) {
+          console.warn(`Failed to fetch ${eventName} events:`, err);
+          return [];
+        }
+      };
+
+      // Fetch events sequentially to avoid overwhelming the RPC
+      const purchaseLogs = await safeFetchLogs(
+        'event TokensPurchased(uint256 indexed marketId, address indexed buyer, bool isYes, uint256 collateralAmount, uint256 tokensReceived)',
+        'TokensPurchased'
+      );
+
+      const sellLogs = await safeFetchLogs(
+        'event TokensSold(uint256 indexed marketId, address indexed seller, bool isYes, uint256 tokenAmount, uint256 collateralReceived)',
+        'TokensSold'
+      );
+
+      const addLiquidityLogs = await safeFetchLogs(
+        'event LiquidityAdded(uint256 indexed marketId, address indexed provider, uint256 collateralAmount, uint256 lpTokensReceived)',
+        'LiquidityAdded'
+      );
+
+      // Process TokensPurchased events
+      for (const log of purchaseLogs) {
+        activities.push({
+          type: 'buy',
+          user: log.args.buyer as Address,
+          amount: log.args.collateralAmount as bigint,
+          tokens: log.args.tokensReceived as bigint,
+          isYes: log.args.isYes as boolean,
+          timestamp: Math.floor(Date.now() / 1000) - Number(currentBlock - log.blockNumber) * 2, // Estimate timestamp
+          txHash: log.transactionHash,
+          blockNumber: log.blockNumber
+        });
+      }
+
+      // Process TokensSold events
+      for (const log of sellLogs) {
+        activities.push({
+          type: 'sell',
+          user: log.args.seller as Address,
+          amount: log.args.collateralReceived as bigint,
+          tokens: log.args.tokenAmount as bigint,
+          isYes: log.args.isYes as boolean,
+          timestamp: Math.floor(Date.now() / 1000) - Number(currentBlock - log.blockNumber) * 2,
+          txHash: log.transactionHash,
+          blockNumber: log.blockNumber
+        });
+      }
+
+      // Process LiquidityAdded events
+      for (const log of addLiquidityLogs) {
+        activities.push({
+          type: 'add_liquidity',
+          user: log.args.provider as Address,
+          amount: log.args.collateralAmount as bigint,
+          tokens: log.args.lpTokensReceived as bigint,
+          timestamp: Math.floor(Date.now() / 1000) - Number(currentBlock - log.blockNumber) * 2,
+          txHash: log.transactionHash,
+          blockNumber: log.blockNumber
+        });
+      }
+
+      // Sort by block number (most recent first) and limit
+      activities.sort((a, b) => Number(b.blockNumber - a.blockNumber));
+      return activities.slice(0, limit);
+
+    } catch (error) {
+      console.error('Error fetching market activity:', error);
+      // Return empty array on error - UI will show "No activity yet"
+      return [];
+    }
+  }
+
+  /**
+   * Get user's trading activity across all markets they have positions in
+   * Used for portfolio performance history
+   */
+  async getUserActivityAcrossMarkets(
+    userAddress: Address,
+    marketIds: bigint[],
+    limit: number = 100
+  ): Promise<MarketActivity[]> {
+    if (!this.isContractDeployed() || !userAddress || marketIds.length === 0) {
+      return [];
+    }
+
+    try {
+      const allActivities: MarketActivity[] = [];
+
+      // Fetch activities for each market the user has positions in
+      for (const marketId of marketIds) {
+        const marketActivities = await this.getMarketActivity(marketId, 50);
+        // Filter for user's activities only
+        const userActivities = marketActivities.filter(
+          activity => activity.user.toLowerCase() === userAddress.toLowerCase()
+        );
+        allActivities.push(...userActivities);
+      }
+
+      // Sort by timestamp ascending (chronological order for P&L calculation)
+      allActivities.sort((a, b) => a.timestamp - b.timestamp);
+
+      return allActivities.slice(0, limit);
+    } catch (error) {
+      console.error('Error fetching user activity across markets:', error);
+      return [];
+    }
   }
 }
 

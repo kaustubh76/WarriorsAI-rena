@@ -1,6 +1,6 @@
 // Backend service for synchronized arena automation
 import { ethers } from 'ethers';
-import { ArenaAbi } from '../constants';
+import { ArenaAbi, getFlowRpcUrl } from '../constants';
 
 interface ArenaGameState {
   battleId: number | null;
@@ -24,7 +24,7 @@ class ArenaBackendService {
   constructor() {
     // Initialize provider and game master wallet
     this.provider = new ethers.providers.JsonRpcProvider(
-      process.env.NEXT_PUBLIC_RPC_URL || 'https://rpc.ankr.com/polygon'
+      process.env.NEXT_PUBLIC_RPC_URL || getFlowRpcUrl()
     );
     
     // Server-side only - NEVER use NEXT_PUBLIC_ prefix for private keys

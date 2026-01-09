@@ -12,6 +12,7 @@ import type {
   WarriorTraits
 } from '../types/zeroG';
 import { serializeBattleData, createEmptyBattleData } from '../types/zeroG';
+import { logger } from '../lib/logger';
 
 // Types for battle resolution
 export interface BattleResult {
@@ -110,37 +111,13 @@ class OracleService {
         }
       }
     } catch (error) {
-      console.error('Failed to load 0G providers:', error);
+      logger.error('Failed to load 0G providers:', error);
     }
 
-    // Fallback to default providers if loading fails
+    // No fallback demo providers - the system should rely on real 0G providers
+    // If no providers are available, UI should show "No providers available"
     if (this.aiProviders.length === 0) {
-      this.aiProviders = [
-        {
-          address: '0x0000000000000000000000000000000000000001' as Address,
-          name: '0G-GPT-4',
-          modelEndpoint: 'https://0g-compute.network/api/gpt4',
-          isActive: true,
-          accuracy: 95,
-          totalResolutions: 1000
-        },
-        {
-          address: '0x0000000000000000000000000000000000000002' as Address,
-          name: '0G-Claude',
-          modelEndpoint: 'https://0g-compute.network/api/claude',
-          isActive: true,
-          accuracy: 94,
-          totalResolutions: 850
-        },
-        {
-          address: '0x0000000000000000000000000000000000000003' as Address,
-          name: '0G-Gemini',
-          modelEndpoint: 'https://0g-compute.network/api/gemini',
-          isActive: true,
-          accuracy: 93,
-          totalResolutions: 720
-        }
-      ];
+      logger.warn('No 0G AI providers available. Resolution may be limited.');
     }
   }
 
@@ -149,7 +126,7 @@ class OracleService {
    * Queries 0G Compute Network for AI-powered resolution
    */
   async requestResolution(battleResult: BattleResult): Promise<ResolutionProof> {
-    console.log('Requesting resolution for battle:', battleResult.battleId.toString());
+    logger.info('Requesting resolution for battle:', battleResult.battleId.toString());
 
     if (this.use0GCompute) {
       return this.requestResolutionWith0G(battleResult);

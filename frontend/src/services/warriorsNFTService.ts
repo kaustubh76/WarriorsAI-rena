@@ -1,5 +1,5 @@
 import { readContract } from '@wagmi/core';
-import { chainsToContracts, warriorsNFTAbi } from '../constants';
+import { getContracts, warriorsNFTAbi } from '../constants';
 import rainbowKitConfig from '../rainbowKitConfig';
 
 export interface WarriorsTraits {
@@ -259,39 +259,39 @@ export const warriorsNFTService = {
       // Fetch basic contract data including traits from contract
       const [encryptedURI, ranking, winnings, owner, contractTraits] = await Promise.all([
         readContract(rainbowKitConfig, {
-          address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+          address: getContracts().warriorsNFT as `0x${string}`,
           abi: warriorsNFTAbi,
           functionName: 'getEncryptedURI',
           args: [BigInt(tokenId)],
-          chainId: 545,
+          chainId: getChainId(),
         }),
         readContract(rainbowKitConfig, {
-          address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+          address: getContracts().warriorsNFT as `0x${string}`,
           abi: warriorsNFTAbi,
           functionName: 'getRanking',
           args: [BigInt(tokenId)],
-          chainId: 545,
+          chainId: getChainId(),
         }),
         readContract(rainbowKitConfig, {
-          address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+          address: getContracts().warriorsNFT as `0x${string}`,
           abi: warriorsNFTAbi,
           functionName: 'getWinnings',
           args: [BigInt(tokenId)],
-          chainId: 545,
+          chainId: getChainId(),
         }),
         readContract(rainbowKitConfig, {
-          address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+          address: getContracts().warriorsNFT as `0x${string}`,
           abi: warriorsNFTAbi,
           functionName: 'ownerOf',
           args: [BigInt(tokenId)],
-          chainId: 545,
+          chainId: getChainId(),
         }),
         readContract(rainbowKitConfig, {
-          address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+          address: getContracts().warriorsNFT as `0x${string}`,
           abi: warriorsNFTAbi,
           functionName: 'getTraits',
           args: [BigInt(tokenId)],
-          chainId: 545,
+          chainId: getChainId(),
         })
       ]);
 

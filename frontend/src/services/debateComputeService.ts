@@ -22,6 +22,8 @@ export interface DebatePredictionResult extends PredictionResult {
   debateId: bigint;
   reasoningHash: string;
   timestamp: number;
+  isVerified?: boolean;    // Whether this came from verified 0G compute
+  fallbackMode?: boolean;  // Whether this is a fallback prediction (not verified)
 }
 
 export interface DebateReasoningResult extends ReasoningResult {
@@ -102,19 +104,21 @@ class DebateComputeService {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`0G inference failed: ${response.statusText}`);
-      }
-
       const result = await response.json();
 
-      if (!result.success) {
-        throw new Error(result.error || '0G inference failed');
+      // CRITICAL: Check if this is a verified response from 0G
+      // Fallback/unverified responses should NOT be used for on-chain decisions
+      if (!response.ok || !result.success || result.fallbackMode || result.isVerified === false) {
+        console.warn('0G inference unavailable or unverified, using fallback');
+        // Use async fallback for proper cryptographic hashing
+        const fallback = await this.generateFallbackPredictionAsync(debateId, agentId, battleData);
+        return fallback;
       }
 
-      // Parse prediction
+      // Parse prediction from verified response
       const parsed = this.parseJSONResponse(result.response);
-      const reasoningHash = this.hashString(parsed.reasoning || result.response);
+      // Use cryptographic hash for on-chain verifiable proofs
+      const reasoningHash = await this.hashStringAsync(parsed.reasoning || result.response);
 
       return {
         agentId,
@@ -125,11 +129,15 @@ class DebateComputeService {
         chatId: result.chatId,
         proof: result.proof,
         reasoningHash,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        isVerified: true,
+        fallbackMode: false
       };
     } catch (error) {
       console.error('Prediction generation failed:', error);
-      return this.generateFallbackPrediction(debateId, agentId, battleData);
+      // Use async fallback for proper cryptographic hashing
+      const fallback = await this.generateFallbackPredictionAsync(debateId, agentId, battleData);
+      return fallback;
     }
   }
 
@@ -552,13 +560,63 @@ Provide your rebuttal:
 
   /**
    * Generate fallback prediction when 0G fails
+   * IMPORTANT: Fallback predictions are NOT verified and should NOT be submitted on-chain
+   */
+  private async generateFallbackPredictionAsync(
+    debateId: bigint,
+    agentId: bigint,
+    battleData: BattleDataIndex
+  ): Promise<DebatePredictionResult> {
+    // Simple stat-based prediction
+    const w1 = battleData.warriors[0];
+    const w2 = battleData.warriors[1];
+
+    const power1 = w1 ? this.calculatePowerScore(w1.traits) : 0;
+    const power2 = w2 ? this.calculatePowerScore(w2.traits) : 0;
+
+    let outcome: 'yes' | 'no' | 'draw';
+    if (power1 > power2 * 1.1) {
+      outcome = 'yes';
+    } else if (power2 > power1 * 1.1) {
+      outcome = 'no';
+    } else {
+      outcome = 'draw';
+    }
+
+    const confidence = Math.abs(power1 - power2) / Math.max(power1, power2) * 100;
+    const reasoning = 'Prediction based on statistical analysis of warrior traits. WARNING: This is a fallback prediction without 0G verification.';
+    const reasoningHash = await this.hashStringAsync(reasoning);
+
+    return {
+      agentId,
+      debateId,
+      outcome,
+      confidence: Math.min(Math.max(confidence, 30), 90),
+      reasoning,
+      chatId: `fallback_${Date.now()}`,
+      proof: {
+        signature: '',
+        modelHash: 'fallback',
+        inputHash: '',
+        outputHash: '',
+        providerAddress: '0x0000000000000000000000000000000000000000' as any
+      },
+      reasoningHash,
+      timestamp: Date.now(),
+      isVerified: false,
+      fallbackMode: true
+    };
+  }
+
+  /**
+   * Synchronous fallback for when async is not possible
+   * @deprecated Use generateFallbackPredictionAsync instead
    */
   private generateFallbackPrediction(
     debateId: bigint,
     agentId: bigint,
     battleData: BattleDataIndex
   ): DebatePredictionResult {
-    // Simple stat-based prediction
     const w1 = battleData.warriors[0];
     const w2 = battleData.warriors[1];
 
@@ -581,7 +639,7 @@ Provide your rebuttal:
       debateId,
       outcome,
       confidence: Math.min(Math.max(confidence, 30), 90),
-      reasoning: 'Prediction based on statistical analysis of warrior traits.',
+      reasoning: 'Prediction based on statistical analysis of warrior traits. WARNING: This is a fallback prediction without 0G verification.',
       chatId: `fallback_${Date.now()}`,
       proof: {
         signature: '',
@@ -591,7 +649,9 @@ Provide your rebuttal:
         providerAddress: '0x0000000000000000000000000000000000000000' as any
       },
       reasoningHash: this.hashString('fallback'),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      isVerified: false,
+      fallbackMode: true
     };
   }
 
@@ -641,16 +701,30 @@ Provide your rebuttal:
   }
 
   /**
-   * Simple string hash
+   * Cryptographic hash using keccak256 for on-chain verifiable proofs
+   * Must be async due to dynamic ethers import
+   */
+  private async hashStringAsync(str: string): Promise<string> {
+    const { ethers } = await import('ethers');
+    return ethers.keccak256(ethers.toUtf8Bytes(str));
+  }
+
+  /**
+   * Synchronous hash fallback using Web Crypto API
+   * Used when async is not possible
    */
   private hashString(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
+    // For synchronous contexts, use a placeholder that will be replaced
+    // In production, always use hashStringAsync
+    const encoder = new TextEncoder();
+    const data = encoder.encode(str);
+    let hash = 0x811c9dc5; // FNV offset basis
+    for (let i = 0; i < data.length; i++) {
+      hash ^= data[i];
+      hash = Math.imul(hash, 0x01000193); // FNV prime
     }
-    return '0x' + Math.abs(hash).toString(16).padStart(64, '0');
+    // Note: This is NOT cryptographically secure - use hashStringAsync for on-chain proofs
+    return '0x' + (hash >>> 0).toString(16).padStart(64, '0');
   }
 
   /**

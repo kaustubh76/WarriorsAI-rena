@@ -1,5 +1,5 @@
 import { readContract } from '@wagmi/core';
-import { chainsToContracts, ArenaFactoryAbi } from '../constants';
+import { getContracts, ArenaFactoryAbi } from '../constants';
 import rainbowKitConfig from '../rainbowKitConfig';
 
 export interface RankingArenas {
@@ -26,11 +26,11 @@ export const arenaFactoryService = {
   async getArenasOfRanking(ranking: Ranking): Promise<string[]> {
     try {
       const result = await readContract(rainbowKitConfig, {
-        address: chainsToContracts[545].ArenaFactory as `0x${string}`,
+        address: getContracts().ArenaFactory as `0x${string}`,
         abi: ArenaFactoryAbi,
         functionName: 'getArenasOfARanking',
         args: [ranking],
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       return result as string[];
@@ -84,10 +84,10 @@ export const arenaFactoryService = {
   async getAllArenas(): Promise<string[]> {
     try {
       const result = await readContract(rainbowKitConfig, {
-        address: chainsToContracts[545].ArenaFactory as `0x${string}`,
+        address: getContracts().ArenaFactory as `0x${string}`,
         abi: ArenaFactoryAbi,
         functionName: 'getArenas',
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       return result as string[];
@@ -103,11 +103,11 @@ export const arenaFactoryService = {
   async getArenaRanking(arenaAddress: string): Promise<Ranking | null> {
     try {
       const result = await readContract(rainbowKitConfig, {
-        address: chainsToContracts[545].ArenaFactory as `0x${string}`,
+        address: getContracts().ArenaFactory as `0x${string}`,
         abi: ArenaFactoryAbi,
         functionName: 'getArenaRanking',
         args: [arenaAddress as `0x${string}`],
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       return result as Ranking;
@@ -123,11 +123,11 @@ export const arenaFactoryService = {
   async isArenaAddress(address: string): Promise<boolean> {
     try {
       const result = await readContract(rainbowKitConfig, {
-        address: chainsToContracts[545].ArenaFactory as `0x${string}`,
+        address: getContracts().ArenaFactory as `0x${string}`,
         abi: ArenaFactoryAbi,
         functionName: 'isArenaAddress',
         args: [address as `0x${string}`],
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       return result as boolean;

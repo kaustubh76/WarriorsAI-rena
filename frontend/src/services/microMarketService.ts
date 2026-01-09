@@ -10,7 +10,7 @@ import {
   type Address,
 } from 'viem';
 import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
-import { chainsToContracts, MicroMarketFactoryAbi, crownTokenAbi } from '../constants';
+import { chainsToContracts, MicroMarketFactoryAbi, crownTokenAbi , getChainId } from '../constants';
 import type {
   MicroMarket,
   MicroMarketPosition,
@@ -48,7 +48,7 @@ const CACHE_TTL = {
 class MicroMarketService {
   private microMarketAddress: Address;
   private crownTokenAddress: Address;
-  private chainId: number = 545;
+  private chainId: number = getChainId();
 
   constructor() {
     const contracts = chainsToContracts[this.chainId];

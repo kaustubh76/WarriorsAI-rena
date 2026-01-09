@@ -10,7 +10,7 @@ import {
   type Address,
 } from 'viem';
 import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
-import { chainsToContracts, AIAgentRegistryAbi, crownTokenAbi } from '../constants';
+import { chainsToContracts, AIAgentRegistryAbi, crownTokenAbi , getChainId } from '../constants';
 import type {
   AIAgent,
   AgentPerformance,
@@ -45,7 +45,7 @@ const CACHE_TTL = {
 class AIAgentService {
   private aiAgentRegistryAddress: Address;
   private crownTokenAddress: Address;
-  private chainId: number = 545; // Flow Testnet
+  private chainId: number = getChainId(); // Flow Testnet
 
   constructor() {
     const contracts = chainsToContracts[this.chainId];
@@ -344,10 +344,16 @@ class AIAgentService {
     const agent = await this.getAgent(agentId);
     if (!agent) return null;
 
-    const performance = await this.getAgentPerformance(agentId);
+    const [performance, officialAgents, followers] = await Promise.all([
+      this.getAgentPerformance(agentId),
+      this.getOfficialAgents(),
+      this.getAgentFollowers(agentId)
+    ]);
     const winRate = performance ? calculateWinRate(performance) : 0;
     const pnl = performance?.totalPnL ?? BigInt(0);
+    const totalTrades = performance?.totalTrades ?? BigInt(0);
     const isOnline = agent.lastTradeAt > BigInt(Math.floor(Date.now() / 1000) - 86400);
+    const isOfficial = officialAgents.some(id => id === agentId);
 
     return {
       ...agent,
@@ -358,7 +364,11 @@ class AIAgentService {
       strategyLabel: getStrategyLabel(agent.strategy),
       riskLabel: getRiskLabel(agent.riskProfile),
       specializationLabel: getSpecializationLabel(agent.specialization),
-      isOnline
+      isOnline,
+      totalTrades,
+      isOfficial,
+      personaTraits: agent.traits,
+      followerCount: followers.length
     };
   }
 
@@ -446,7 +456,11 @@ class AIAgentService {
           strategyLabel: getStrategyLabel(agent.strategy),
           riskLabel: getRiskLabel(agent.riskProfile),
           specializationLabel: getSpecializationLabel(agent.specialization),
-          isOnline
+          isOnline,
+          totalTrades: performance?.totalTrades ?? BigInt(0),
+          isOfficial: false, // Will be computed separately if needed
+          personaTraits: agent.traits,
+          followerCount: 0 // Will be fetched separately if needed for display
         });
       }
     }
