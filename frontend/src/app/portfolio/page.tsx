@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { useMarkets, useUserPositions, useTokenBalance } from '@/hooks/useMarkets';
-import { MarketStatus, MarketOutcome, type Market } from '@/services/predictionMarketService';
+import { MarketStatus, MarketOutcome, type Market, type Position } from '@/services/predictionMarketService';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import PortfolioPerformanceChart from '@/components/portfolio/PortfolioPerformanceChart';
 
 type PositionTab = 'active' | 'resolved' | 'liquidity';
 
@@ -41,6 +42,12 @@ export default function PortfolioPage() {
     (m) => positions.has(m.id.toString())
   );
 
+  // Get market IDs for portfolio history (memoized)
+  const userMarketIds = useMemo(() =>
+    userMarkets.map(m => m.id),
+    [userMarkets]
+  );
+
   // Separate by status
   const activePositions = userMarkets.filter(
     (m) => m.status === MarketStatus.Active
@@ -63,17 +70,17 @@ export default function PortfolioPage() {
     const pos = positions.get(market.id.toString());
     if (!pos) return;
 
-    const yesValue = pos.yesShares;
-    const noValue = pos.noShares;
+    const yesValue = pos.yesTokens;
+    const noValue = pos.noTokens;
     totalInvested += yesValue + noValue;
 
     if (market.status === MarketStatus.Resolved) {
       if (market.outcome === MarketOutcome.Yes) {
-        totalWinnings += pos.yesShares;
-        totalLosses += pos.noShares;
+        totalWinnings += pos.yesTokens;
+        totalLosses += pos.noTokens;
       } else if (market.outcome === MarketOutcome.No) {
-        totalWinnings += pos.noShares;
-        totalLosses += pos.yesShares;
+        totalWinnings += pos.noTokens;
+        totalLosses += pos.yesTokens;
       }
     } else {
       totalPotentialPayout += yesValue > noValue ? yesValue : noValue;
@@ -157,16 +164,12 @@ export default function PortfolioPage() {
           </div>
         </div>
 
-        {/* Performance Chart Placeholder */}
-        <div className="bg-gray-900 rounded-xl p-6 border border-gray-700 mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4">Performance History</h2>
-          <div className="h-48 flex items-center justify-center text-gray-500">
-            <div className="text-center">
-              <div className="text-4xl mb-2">📈</div>
-              <p>Performance chart coming soon</p>
-              <p className="text-sm">Track your P&L over time</p>
-            </div>
-          </div>
+        {/* Performance History Chart */}
+        <div className="mb-8">
+          <PortfolioPerformanceChart
+            markets={markets}
+            userMarketIds={userMarketIds}
+          />
         </div>
 
         {/* Position Tabs */}
@@ -284,12 +287,7 @@ export default function PortfolioPage() {
 
 interface PositionCardProps {
   market: Market;
-  position: {
-    yesShares: bigint;
-    noShares: bigint;
-    lpShares: bigint;
-    claimed: boolean;
-  };
+  position: Position;
   showLiquidity?: boolean;
 }
 
@@ -302,12 +300,12 @@ function PositionCard({ market, position, showLiquidity }: PositionCardProps) {
   let winningAmount = BigInt(0);
 
   if (isResolved) {
-    if (market.outcome === MarketOutcome.Yes && position.yesShares > BigInt(0)) {
+    if (market.outcome === MarketOutcome.Yes && position.yesTokens > BigInt(0)) {
       isWinning = true;
-      winningAmount = position.yesShares;
-    } else if (market.outcome === MarketOutcome.No && position.noShares > BigInt(0)) {
+      winningAmount = position.yesTokens;
+    } else if (market.outcome === MarketOutcome.No && position.noTokens > BigInt(0)) {
       isWinning = true;
-      winningAmount = position.noShares;
+      winningAmount = position.noTokens;
     }
   }
 
@@ -353,13 +351,13 @@ function PositionCard({ market, position, showLiquidity }: PositionCardProps) {
                 <div className="text-center">
                   <span className="text-sm text-gray-400">YES</span>
                   <p className="text-lg font-bold text-green-400">
-                    {formatEther(position.yesShares)}
+                    {formatEther(position.yesTokens)}
                   </p>
                 </div>
                 <div className="text-center">
                   <span className="text-sm text-gray-400">NO</span>
                   <p className="text-lg font-bold text-red-400">
-                    {formatEther(position.noShares)}
+                    {formatEther(position.noTokens)}
                   </p>
                 </div>
               </>
@@ -381,9 +379,9 @@ function PositionCard({ market, position, showLiquidity }: PositionCardProps) {
                 {isResolved
                   ? `${formatEther(winningAmount)} CRwN`
                   : `${formatEther(
-                      position.yesShares > position.noShares
-                        ? position.yesShares
-                        : position.noShares
+                      position.yesTokens > position.noTokens
+                        ? position.yesTokens
+                        : position.noTokens
                     )} CRwN`
                 }
               </p>
@@ -392,17 +390,11 @@ function PositionCard({ market, position, showLiquidity }: PositionCardProps) {
         </div>
 
         {/* Claim Button for Resolved Markets */}
-        {isResolved && isWinning && !position.claimed && (
+        {isResolved && isWinning && winningAmount > BigInt(0) && (
           <div className="mt-4 pt-4 border-t border-gray-800">
             <button className="w-full py-2 bg-green-500 hover:bg-green-600 text-white font-medium rounded-lg transition-colors">
               Claim {formatEther(winningAmount)} CRwN
             </button>
-          </div>
-        )}
-
-        {isResolved && position.claimed && (
-          <div className="mt-4 pt-4 border-t border-gray-800 text-center text-green-400 text-sm">
-            ✓ Claimed
           </div>
         )}
       </div>

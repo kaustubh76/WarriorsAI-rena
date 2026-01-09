@@ -12,12 +12,12 @@ import '../home-glass.css';
 
 import { gameMasterSigningService } from '../../services/gameMasterSigning';
 import { ipfsService } from '../../services/ipfsService';
-import { chainsToContracts, warriorsNFTAbi } from '../../constants';
+import { getContracts, warriorsNFTAbi, getStorageApiUrl } from '../../constants';
 import { useUserNFTs } from '../../hooks/useUserNFTs';
 import { useWarriorsMinterMessages } from '../../hooks/useWarriorsMinterMessages';
 
 // 0G Storage service URL - configured via environment variable
-const ZG_STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+const ZG_STORAGE_API_URL = getStorageApiUrl();
 
 interface WarriorsTraits {
   strength: number;
@@ -328,7 +328,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       // Step 3: Call contract to mint NFT
       try {
         writeContract({
-          address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+          address: getContracts().warriorsNFT as `0x${string}`,
           abi: warriorsNFTAbi,
           functionName: 'mintNft',
           args: [encryptedURI, metadataHash],
@@ -511,7 +511,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
             console.log("🔗 Calling assignTraitsAndMoves on WarriorsNFT contract...");
             
             writeContract({
-              address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+              address: getContracts().warriorsNFT as `0x${string}`,
               abi: warriorsNFTAbi,
               functionName: 'assignTraitsAndMoves',
               args: [

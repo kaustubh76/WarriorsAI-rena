@@ -41,9 +41,9 @@ export default function MarketsPage() {
   const sortedMarkets = [...filteredMarkets].sort((a, b) => {
     switch (sortBy) {
       case 'volume':
-        return Number(b.totalYesShares + b.totalNoShares) - Number(a.totalYesShares + a.totalNoShares);
+        return Number(b.yesTokens + b.noTokens) - Number(a.yesTokens + a.noTokens);
       case 'liquidity':
-        return Number(b.totalLiquidity) - Number(a.totalLiquidity);
+        return Number(b.liquidity) - Number(a.liquidity);
       case 'endTime':
         return Number(a.endTime) - Number(b.endTime);
       case 'newest':
@@ -54,8 +54,8 @@ export default function MarketsPage() {
   });
 
   // Stats
-  const totalVolume = markets.reduce((acc, m) => acc + Number(m.totalYesShares + m.totalNoShares), 0);
-  const totalLiquidity = markets.reduce((acc, m) => acc + Number(m.totalLiquidity), 0);
+  const totalVolume = markets.reduce((acc, m) => acc + Number(m.yesTokens + m.noTokens), 0);
+  const totalLiquidity = markets.reduce((acc, m) => acc + Number(m.liquidity), 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">

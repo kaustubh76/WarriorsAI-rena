@@ -23,78 +23,15 @@ interface LeaderboardEntry {
   bestStreak: number;
 }
 
-// Mock data - in production, fetch from contract or backend
-const mockLeaderboard: LeaderboardEntry[] = [
-  {
-    rank: 1,
-    address: '0x1234567890123456789012345678901234567890',
-    username: 'CryptoWarrior',
-    totalTrades: 156,
-    totalVolume: '2500.5',
-    marketsWon: 98,
-    marketsLost: 42,
-    totalProfit: '+845.32',
-    winRate: 70,
-    streak: 5,
-    bestStreak: 12
-  },
-  {
-    rank: 2,
-    address: '0x2345678901234567890123456789012345678901',
-    username: 'PredictionKing',
-    totalTrades: 234,
-    totalVolume: '4200.0',
-    marketsWon: 142,
-    marketsLost: 78,
-    totalProfit: '+612.45',
-    winRate: 65,
-    streak: 3,
-    bestStreak: 8
-  },
-  {
-    rank: 3,
-    address: '0x3456789012345678901234567890123456789012',
-    totalTrades: 89,
-    totalVolume: '1850.25',
-    marketsWon: 52,
-    marketsLost: 31,
-    totalProfit: '+423.18',
-    winRate: 63,
-    streak: 0,
-    bestStreak: 6
-  },
-  {
-    rank: 4,
-    address: '0x4567890123456789012345678901234567890123',
-    username: 'OracleReader',
-    totalTrades: 312,
-    totalVolume: '5600.0',
-    marketsWon: 178,
-    marketsLost: 120,
-    totalProfit: '+398.67',
-    winRate: 60,
-    streak: 2,
-    bestStreak: 10
-  },
-  {
-    rank: 5,
-    address: '0x5678901234567890123456789012345678901234',
-    totalTrades: 67,
-    totalVolume: '980.5',
-    marketsWon: 38,
-    marketsLost: 25,
-    totalProfit: '+256.89',
-    winRate: 60,
-    streak: 4,
-    bestStreak: 7
-  }
-];
+// Leaderboard data will be populated from on-chain events
+// Currently showing empty state until event indexing is implemented
 
 export default function LeaderboardPage() {
   const { address, isConnected } = useAccount();
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [category, setCategory] = useState<Category>('profit');
-  const [leaderboard] = useState<LeaderboardEntry[]>(mockLeaderboard);
+  const [leaderboard] = useState<LeaderboardEntry[]>([]);
+  const [loading] = useState(false);
 
   // Sort leaderboard based on category
   const sortedLeaderboard = [...leaderboard].sort((a, b) => {
@@ -216,7 +153,26 @@ export default function LeaderboardPage() {
           </div>
         </div>
 
+        {/* Empty State */}
+        {!loading && sortedLeaderboard.length === 0 && (
+          <div className="text-center py-16 bg-gray-900 rounded-xl border border-gray-700 mb-12">
+            <div className="text-6xl mb-4">📊</div>
+            <h3 className="text-xl font-semibold text-white mb-2">No Leaderboard Data Yet</h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">
+              The leaderboard will be populated as traders participate in prediction markets.
+              Start trading to appear on the leaderboard!
+            </p>
+            <Link
+              href="/markets"
+              className="inline-block bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all"
+            >
+              Browse Markets
+            </Link>
+          </div>
+        )}
+
         {/* Top 3 Podium */}
+        {sortedLeaderboard.length >= 3 && (
         <div className="flex justify-center items-end gap-4 mb-12">
           {/* 2nd Place */}
           {sortedLeaderboard[1] && (
@@ -278,8 +234,10 @@ export default function LeaderboardPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Full Leaderboard Table */}
+        {sortedLeaderboard.length > 0 && (
         <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -359,6 +317,7 @@ export default function LeaderboardPage() {
             </table>
           </div>
         </div>
+        )}
 
         {/* Rewards Info */}
         <div className="mt-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border border-gray-700">

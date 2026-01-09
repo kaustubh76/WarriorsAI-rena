@@ -6,6 +6,8 @@ import Header from "../components/Header";
 import Footer from "@/components/Footer";
 import WarriorAssistant from "@/components/WarriorAssistant";
 import { WarriorMessageProvider } from "@/contexts/WarriorMessageContext";
+import { TestModeProvider } from "@/contexts/TestModeContext";
+import { TestModeBanner } from "@/components/0g/TestModeBanner";
 
 export const metadata: Metadata = {
   title: "WarriorsAI-rena",
@@ -25,12 +27,15 @@ export default function RootLayout(props: {children: ReactNode}) {
       </head>
       <body suppressHydrationWarning>
         <Providers>
-          <WarriorMessageProvider>
-            <Header />
-            {props.children}
-            <Footer />
-            <WarriorAssistant />
-          </WarriorMessageProvider>
+          <TestModeProvider>
+            <WarriorMessageProvider>
+              <Header />
+              <TestModeBanner />
+              {props.children}
+              <Footer />
+              <WarriorAssistant />
+            </WarriorMessageProvider>
+          </TestModeProvider>
         </Providers>
       </body>
     </html>

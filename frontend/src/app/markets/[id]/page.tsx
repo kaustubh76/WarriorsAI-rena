@@ -1,10 +1,10 @@
 'use client';
 
-import React, { use } from 'react';
+import React, { use, useCallback } from 'react';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 import { useAccount } from 'wagmi';
-import { useMarket, usePosition, useClaimWinnings } from '@/hooks/useMarkets';
+import { useMarket, usePosition, useClaimWinnings, useMarketActivity, useMarketPrice, clearMarketCache, type MarketActivity } from '@/hooks/useMarkets';
 import { MarketStatus, MarketOutcome } from '@/services/predictionMarketService';
 import { TradePanel } from '@/components/markets/TradePanel';
 import { LiquidityPanel } from '@/components/markets/LiquidityPanel';
@@ -25,7 +25,20 @@ export default function MarketDetailPage({ params }: PageProps) {
 
   const { market, loading, error, refetch } = useMarket(isValidId ? marketId : BigInt(0));
   const { position, hasPosition, refetch: refetchPosition } = usePosition(marketId);
+  const { activities, loading: activitiesLoading, error: activitiesError, refetch: refetchActivity } = useMarketActivity(isValidId ? marketId : null);
+  const { refetch: refetchPrice } = useMarketPrice(isValidId ? marketId : null);
   const { isConnected } = useAccount();
+
+  // Callback to refresh ALL market data after a trade completes
+  const handleTradeComplete = useCallback(() => {
+    // Clear cache to ensure fresh blockchain data
+    clearMarketCache();
+    // Refetch all data
+    refetch();
+    refetchPosition();
+    refetchPrice();
+    refetchActivity();
+  }, [refetch, refetchPosition, refetchPrice, refetchActivity]);
 
   const {
     claim,
@@ -93,12 +106,13 @@ export default function MarketDetailPage({ params }: PageProps) {
   const isEnded = endDate < new Date();
 
   // Check if user can claim winnings
-  const canClaim = isResolved && hasPosition && position && !position.claimed;
-  const winningShares = market.outcome === MarketOutcome.Yes
-    ? position?.yesShares || BigInt(0)
+  // Note: Contract doesn't have 'claimed' field, so we check if position has winning tokens
+  const winningTokens = market.outcome === MarketOutcome.Yes
+    ? position?.yesTokens || BigInt(0)
     : market.outcome === MarketOutcome.No
-    ? position?.noShares || BigInt(0)
+    ? position?.noTokens || BigInt(0)
     : BigInt(0);
+  const canClaim = isResolved && hasPosition && winningTokens > BigInt(0);
 
   const handleClaim = async () => {
     await claim();
@@ -170,19 +184,19 @@ export default function MarketDetailPage({ params }: PageProps) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard
               label="Total Volume"
-              value={`${formatEther(market.totalYesShares + market.totalNoShares)} CRwN`}
+              value={`${formatEther(market.yesTokens + market.noTokens)} CRwN`}
             />
             <StatCard
               label="Liquidity"
-              value={`${formatEther(market.totalLiquidity)} CRwN`}
+              value={`${formatEther(market.liquidity)} CRwN`}
             />
             <StatCard
-              label="YES Shares"
-              value={formatEther(market.totalYesShares)}
+              label="YES Tokens"
+              value={formatEther(market.yesTokens)}
             />
             <StatCard
-              label="NO Shares"
-              value={formatEther(market.totalNoShares)}
+              label="NO Tokens"
+              value={formatEther(market.noTokens)}
             />
           </div>
         </div>
@@ -209,10 +223,10 @@ export default function MarketDetailPage({ params }: PageProps) {
                 </div>
 
                 {/* Claim Winnings */}
-                {canClaim && winningShares > BigInt(0) && (
+                {canClaim && winningTokens > BigInt(0) && (
                   <div className="mt-6 p-4 bg-gray-800 rounded-lg">
                     <p className="text-white mb-3">
-                      You won! Claim your {formatEther(winningShares)} CRwN
+                      You won! Claim your {formatEther(winningTokens)} CRwN
                     </p>
                     <button
                       onClick={handleClaim}
@@ -231,7 +245,7 @@ export default function MarketDetailPage({ params }: PageProps) {
                   </div>
                 )}
 
-                {position?.claimed && (
+                {isClaimSuccess && (
                   <div className="mt-4 text-green-400">
                     ✓ You have claimed your winnings
                   </div>
@@ -245,15 +259,15 @@ export default function MarketDetailPage({ params }: PageProps) {
                 <h3 className="text-lg font-semibold text-white mb-4">Your Position</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
-                    <span className="text-gray-400 text-sm">YES Shares</span>
+                    <span className="text-gray-400 text-sm">YES Tokens</span>
                     <p className="text-green-400 font-bold text-xl">
-                      {formatEther(position.yesShares)}
+                      {formatEther(position.yesTokens)}
                     </p>
                   </div>
                   <div>
-                    <span className="text-gray-400 text-sm">NO Shares</span>
+                    <span className="text-gray-400 text-sm">NO Tokens</span>
                     <p className="text-red-400 font-bold text-xl">
-                      {formatEther(position.noShares)}
+                      {formatEther(position.noTokens)}
                     </p>
                   </div>
                   <div>
@@ -266,9 +280,9 @@ export default function MarketDetailPage({ params }: PageProps) {
                     <span className="text-gray-400 text-sm">Potential Payout</span>
                     <p className="text-white font-bold text-xl">
                       {formatEther(
-                        position.yesShares > position.noShares
-                          ? position.yesShares
-                          : position.noShares
+                        position.yesTokens > position.noTokens
+                          ? position.yesTokens
+                          : position.noTokens
                       )}{' '}
                       CRwN
                     </p>
@@ -280,18 +294,34 @@ export default function MarketDetailPage({ params }: PageProps) {
             {/* Market Activity */}
             <div className="bg-gray-900 rounded-xl p-6 border border-gray-700">
               <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
-              <div className="text-center py-8 text-gray-400">
-                <p>Activity history will be populated from blockchain events.</p>
-                <p className="text-sm mt-2">Coming soon...</p>
-              </div>
+              {activitiesLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500" />
+                </div>
+              ) : activitiesError ? (
+                <div className="text-center py-8 text-red-400">
+                  <p>Failed to load activity</p>
+                </div>
+              ) : activities.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <p>No activity yet for this market.</p>
+                  <p className="text-sm mt-2">Be the first to trade!</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {activities.map((activity, index) => (
+                    <ActivityItem key={`${activity.txHash}-${index}`} activity={activity} />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Right Column - Trade Panel */}
           <div className="space-y-6">
-            {isActive && <TradePanel market={market} onTradeComplete={refetch} />}
+            {isActive && <TradePanel market={market} onTradeComplete={handleTradeComplete} />}
 
-            {isActive && <LiquidityPanel market={market} onComplete={refetch} />}
+            {isActive && <LiquidityPanel market={market} onComplete={handleTradeComplete} />}
 
             {!isConnected && (
               <div className="bg-gray-900 rounded-xl p-6 border border-gray-700 text-center">
@@ -366,16 +396,17 @@ function MarketStatusBadge({ status, outcome }: { status: MarketStatus; outcome:
       </span>
     );
   }
-  if (status === MarketStatus.Paused) {
+  if (status === MarketStatus.Cancelled) {
     return (
-      <span className="px-3 py-1.5 text-sm font-medium bg-yellow-500/20 text-yellow-400 rounded-full">
-        ⏸ Paused
+      <span className="px-3 py-1.5 text-sm font-medium bg-gray-500/20 text-gray-400 rounded-full">
+        ✕ Cancelled
       </span>
     );
   }
+  // Default/unknown status
   return (
-    <span className="px-3 py-1.5 text-sm font-medium bg-gray-500/20 text-gray-400 rounded-full">
-      ✕ Cancelled
+    <span className="px-3 py-1.5 text-sm font-medium bg-yellow-500/20 text-yellow-400 rounded-full">
+      Unknown
     </span>
   );
 }
@@ -386,8 +417,8 @@ function getOutcomeLabel(outcome: MarketOutcome): string {
       return 'YES';
     case MarketOutcome.No:
       return 'NO';
-    case MarketOutcome.Draw:
-      return 'DRAW';
+    case MarketOutcome.Invalid:
+      return 'INVALID';
     default:
       return 'Pending';
   }
@@ -395,4 +426,100 @@ function getOutcomeLabel(outcome: MarketOutcome): string {
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function ActivityItem({ activity }: { activity: MarketActivity }) {
+  const getActivityIcon = () => {
+    switch (activity.type) {
+      case 'buy':
+        return activity.isYes ? '🟢' : '🔴';
+      case 'sell':
+        return '💰';
+      case 'add_liquidity':
+        return '💧';
+      case 'remove_liquidity':
+        return '🔥';
+      case 'claim':
+        return '🏆';
+      default:
+        return '📝';
+    }
+  };
+
+  const getActivityLabel = () => {
+    switch (activity.type) {
+      case 'buy':
+        return `Bought ${activity.isYes ? 'YES' : 'NO'}`;
+      case 'sell':
+        return `Sold ${activity.isYes ? 'YES' : 'NO'}`;
+      case 'add_liquidity':
+        return 'Added Liquidity';
+      case 'remove_liquidity':
+        return 'Removed Liquidity';
+      case 'claim':
+        return 'Claimed Winnings';
+      default:
+        return 'Activity';
+    }
+  };
+
+  const getActivityColor = () => {
+    switch (activity.type) {
+      case 'buy':
+        return activity.isYes ? 'text-green-400' : 'text-red-400';
+      case 'sell':
+        return 'text-yellow-400';
+      case 'add_liquidity':
+        return 'text-blue-400';
+      case 'remove_liquidity':
+        return 'text-orange-400';
+      case 'claim':
+        return 'text-purple-400';
+      default:
+        return 'text-gray-400';
+    }
+  };
+
+  const timeAgo = (timestamp: number) => {
+    const seconds = Math.floor((Date.now() / 1000) - timestamp);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors">
+      <div className="flex items-center gap-3">
+        <span className="text-xl">{getActivityIcon()}</span>
+        <div>
+          <p className={`font-medium ${getActivityColor()}`}>
+            {getActivityLabel()}
+          </p>
+          <p className="text-sm text-gray-500">
+            {truncateAddress(activity.user)}
+          </p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className="text-white font-medium">
+          {formatEther(activity.tokens)} tokens
+        </p>
+        <p className="text-sm text-gray-500">
+          {timeAgo(activity.timestamp)}
+        </p>
+      </div>
+      <a
+        href={`https://evm-testnet.flowscan.io/tx/${activity.txHash}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="ml-3 text-purple-400 hover:text-purple-300 text-sm"
+      >
+        View
+      </a>
+    </div>
+  );
 }

@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/button';
 // import { Badge } from '../../components/ui/badge';
 import { useArenas, type RankCategory, type ArenaWithDetails } from '../../hooks/useArenas';
 import { arenaService, isValidBettingAmount, getClosestValidBettingAmount } from '../../services/arenaService';
-import { ArenaAbi, chainsToContracts, warriorsNFTAbi } from '../../constants';
+import { ArenaAbi, warriorsNFTAbi, getChainId, getContracts, getArenaBackendUrl } from '../../constants';
 import { waitForTransactionReceipt, readContract } from '@wagmi/core';
 import rainbowKitConfig from '../../rainbowKitConfig';
 import {
@@ -28,9 +28,10 @@ import {
 import { GameTimer } from '../../components/GameTimer';
 import { useArenaSync } from '../../hooks/useArenaSync';
 import { useArenaMessages } from '../../hooks/useArenaMessages';
+import { useBattleDataSync } from '../../hooks/useBattleDataSync';
 
 // Arena Backend URL - configured via environment variable
-const ARENA_BACKEND_URL = process.env.NEXT_PUBLIC_ARENA_BACKEND_URL || 'http://localhost:3002';
+const ARENA_BACKEND_URL = getArenaBackendUrl();
 
 // PlayerMoves enum mapping (based on Kurukshetra.sol)
 const PlayerMoves = {
@@ -551,6 +552,19 @@ export default function ArenaPage() {
     gameState: selectedArena?.state
   });
 
+  // 0G Storage sync for battle data
+  const { isSyncing: isBattleSyncing, lastSyncedBattleId, errors: battleSyncErrors } = useBattleDataSync({
+    arenaAddress: selectedArena?.address as `0x${string}` | undefined,
+    chainId: getChainId(),
+    autoSync: true,
+    onBattleStored: (battleId, rootHash) => {
+      console.log(`🔗 Battle ${battleId} stored to 0G Storage. Root hash: ${rootHash}`);
+    },
+    onError: (error) => {
+      console.error('❌ Failed to sync battle to 0G:', error);
+    }
+  });
+
   // Function to fetch move names from WarriorsNFT contract
   const fetchWarriorsMoves = useCallback(async (tokenId: number): Promise<WarriorsMoves | null> => {
     try {
@@ -563,11 +577,11 @@ export default function ArenaPage() {
 
       // Fetch from contract
       const moves = await readContract(rainbowKitConfig, {
-        address: chainsToContracts[545].warriorsNFT as `0x${string}`,
+        address: getContracts().warriorsNFT as `0x${string}`,
         abi: warriorsNFTAbi,
         functionName: 'getMoves',
         args: [tokenId],
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       const movesData = moves as { strike?: string; taunt?: string; dodge?: string; special?: string; recover?: string };
@@ -697,7 +711,7 @@ export default function ArenaPage() {
       const { defineChain } = await import('viem');
       
       const flowTestnet = defineChain({
-        id: 545,
+        id: getChainId(),
         name: 'Flow Testnet',
         network: 'flow-testnet',
         nativeCurrency: {
@@ -870,7 +884,7 @@ export default function ArenaPage() {
       const { privateKeyToAccount } = await import('viem/accounts');
       
       const flowTestnet = defineChain({
-        id: 545,
+        id: getChainId(),
         name: 'Flow Testnet',
         network: 'flow-testnet',
         nativeCurrency: {
@@ -1266,7 +1280,7 @@ export default function ArenaPage() {
       const { defineChain } = await import('viem');
       
       const flowTestnet = defineChain({
-        id: 545,
+        id: getChainId(),
         name: 'Flow Testnet',
         network: 'flow-testnet',
         nativeCurrency: {
@@ -1483,7 +1497,7 @@ export default function ArenaPage() {
         // Wait for approval confirmation
         await waitForTransactionReceipt(rainbowKitConfig, {
           hash: approvalHash as `0x${string}`,
-          chainId: 545,
+          chainId: getChainId(),
         });
 
         console.log('CRwN token approval confirmed!');
@@ -1504,7 +1518,7 @@ export default function ArenaPage() {
       // Wait for confirmation
       await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       console.log('Bet confirmed!');
@@ -1580,7 +1594,7 @@ export default function ArenaPage() {
         // Wait for approval confirmation
         await waitForTransactionReceipt(rainbowKitConfig, {
           hash: approvalHash as `0x${string}`,
-          chainId: 545,
+          chainId: getChainId(),
         });
 
         console.log('CRwN token approval confirmed!');
@@ -1600,7 +1614,7 @@ export default function ArenaPage() {
       // Wait for confirmation
       await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       console.log('Influence confirmed!');
@@ -1646,7 +1660,7 @@ export default function ArenaPage() {
         // Wait for approval confirmation
         await waitForTransactionReceipt(rainbowKitConfig, {
           hash: approvalHash as `0x${string}`,
-          chainId: 545,
+          chainId: getChainId(),
         });
 
         console.log('CRwN token approval confirmed!');
@@ -1666,7 +1680,7 @@ export default function ArenaPage() {
       // Wait for confirmation
       await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       console.log('Defluence confirmed!');
@@ -1709,7 +1723,7 @@ export default function ArenaPage() {
       // Wait for transaction confirmation
       const receipt = await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: 545,
+        chainId: getChainId(),
       });
 
       console.log('Transaction confirmed:', receipt);
@@ -2370,6 +2384,29 @@ export default function ArenaPage() {
             >
               THE ULTIMATE BATTLEFIELD WHERE LEGENDS CLASH
             </p>
+            {/* 0G Storage Sync Status */}
+            {(isBattleSyncing || lastSyncedBattleId || battleSyncErrors.length > 0) && (
+              <div className="mt-3 flex items-center justify-center gap-2">
+                {isBattleSyncing && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-purple-500/20 text-purple-300 rounded-full">
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></span>
+                    Syncing to 0G...
+                  </span>
+                )}
+                {lastSyncedBattleId && !isBattleSyncing && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-500/20 text-green-300 rounded-full">
+                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                    0G Synced
+                  </span>
+                )}
+                {battleSyncErrors.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-red-500/20 text-red-300 rounded-full" title={battleSyncErrors[battleSyncErrors.length - 1]}>
+                    <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                    Sync Error
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
