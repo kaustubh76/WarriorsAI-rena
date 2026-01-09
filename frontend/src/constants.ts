@@ -2,6 +2,96 @@
 export const IPFS_UPLOAD_MAX_SIZE = 10 * 1024 * 1024; // 10MB
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 
+// ============================================================================
+// Chain Configuration - Environment-driven for mainnet migration
+// ============================================================================
+
+/**
+ * Get the current chain ID from environment or default to Flow Testnet (545)
+ * Use this instead of hardcoding chain IDs throughout the codebase
+ */
+export const getChainId = (): number => {
+  return parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '545', 10);
+};
+
+/**
+ * Get Flow RPC URL from environment or default to testnet
+ */
+export const getFlowRpcUrl = (): string => {
+  return process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org';
+};
+
+/**
+ * Get Flow Explorer URL from environment or default to testnet
+ */
+export const getFlowExplorerUrl = (): string => {
+  return process.env.NEXT_PUBLIC_FLOW_EXPLORER_URL || 'https://evm-testnet.flowscan.io';
+};
+
+/**
+ * Get 0G Compute RPC URL from environment
+ */
+export const getZeroGComputeRpc = (): string => {
+  return process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai';
+};
+
+/**
+ * Get 0G Chain ID from environment
+ */
+export const getZeroGChainId = (): number => {
+  return parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '16602', 10);
+};
+
+/**
+ * Check if 0G indexer is enabled
+ */
+export const isZeroGIndexerEnabled = (): boolean => {
+  return process.env.NEXT_PUBLIC_0G_INDEXER_ENABLED === 'true';
+};
+
+/**
+ * Get 0G Indexer URL if enabled
+ */
+export const getZeroGIndexerUrl = (): string | null => {
+  if (!isZeroGIndexerEnabled()) return null;
+  return process.env.NEXT_PUBLIC_0G_INDEXER_URL || null;
+};
+
+/**
+ * Get 0G Storage API URL from environment
+ * Used for battle data storage and file uploads
+ */
+export const getStorageApiUrl = (): string => {
+  return process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+};
+
+/**
+ * Get Arena Backend URL from environment
+ * Used for battle automation and game master operations
+ */
+export const getArenaBackendUrl = (): string => {
+  return process.env.NEXT_PUBLIC_ARENA_BACKEND_URL || 'http://localhost:3002';
+};
+
+/**
+ * Get the base API URL for internal API calls
+ */
+export const getApiBaseUrl = (): string => {
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+};
+
+// Default chain ID constant for backwards compatibility
+export const DEFAULT_CHAIN_ID = 545;
+
+/**
+ * Get contracts for the current chain
+ * Use this instead of chainsToContracts[getChainId()] for type safety
+ */
+export const getContracts = () => {
+  const chainId = getChainId();
+  return chainsToContracts[chainId] || chainsToContracts[DEFAULT_CHAIN_ID];
+};
+
 // 0G AI Configuration - All AI functionality now uses 0G AI instead of NEAR AI
 
 // Contract Configuration Types
@@ -26,16 +116,19 @@ interface ContractsConfig {
 export const chainsToContracts: ContractsConfig = {
     // Production/Testnet
     545: {
+        // Deployed to Flow Testnet (Chain ID: 545) - January 2026
         mockOracle: "0x56d7060B080A6d5bF77aB610600e5ab70365696A",
         crownToken: "0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6",
         warriorsNFT: "0x3838510eCa30EdeF7b264499F2B590ab4ED4afB1",
         ArenaFactory: "0xf77840febD42325F83cB93F9deaE0F8b14Eececf",
-        // Placeholder addresses - update after deployment
-        aiAgentRegistry: "0x3Ca84D579d5c9e1b0561bEcb5c7fbAa5209636e8",
-        microMarketFactory: "0x79816F6D052ADBA4499F39556fa4744A40e29BFb",
-        aiDebateOracle: "0x04E633c34C3de0731A333Aea17D041DCEA41Df49",
-        creatorRevenueShare: "0x0597a86619246Eb3776883BEEAd4ECEa4f0d9b21",
-        predictionMarketAMM: "0xDB0B6C90970940fAfC582cc786ec260fc3c4508E"
+        
+        outcomeToken: "0xb9BbdB84EaA159166B2c4eFE713F7Ea87700a81e",
+        aiAgentRegistry: "0xdc2b123Ec17c36E10c2Ca4628473E879194153D0",
+        microMarketFactory: "0xbF5286313cf5022c21c385ce3A87de600F616415",
+        aiDebateOracle: "0x31037D0EfB3E43E2914CCD21bE7A3AC4E52a1988",
+        creatorRevenueShare: "0x8B096E9b9D800BDbD353386865F55c1E2B3928aA",
+        predictionMarketAMM: "0x1b26203A2752557ecD4763a9A8A26119AC5e18e4",
+        zeroGOracle: "0xe796D8D16475C92c30caa59E9De2147726a80DF0"
     }
 }
 

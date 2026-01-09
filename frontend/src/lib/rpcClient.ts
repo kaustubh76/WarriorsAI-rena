@@ -18,15 +18,16 @@ import {
   type ReadContractReturnType,
 } from 'viem';
 import { flowTestnet } from 'viem/chains';
+import { getChainId, getFlowRpcUrl } from '@/constants';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 const CONFIG = {
-  // RPC Configuration
-  RPC_URL: 'https://testnet.evm.nodes.onflow.org',
-  CHAIN_ID: 545,
+  // RPC Configuration - Using environment-driven URLs
+  RPC_URL: getFlowRpcUrl(),
+  CHAIN_ID: getChainId(),
 
   // Rate Limiting - Keep well under 40 req/sec limit
   MAX_REQUESTS_PER_SECOND: 25, // Conservative limit (40 is max)

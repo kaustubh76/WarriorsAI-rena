@@ -103,6 +103,10 @@ export interface AIAgentDisplay extends AIAgent {
   riskLabel: string;         // Human readable risk profile
   specializationLabel: string;
   isOnline: boolean;         // Has traded in last 24h
+  totalTrades: bigint;       // Total trades from performance data
+  isOfficial: boolean;       // Whether this is an official protocol agent
+  personaTraits: PersonaTraits; // Persona traits (alias for traits)
+  followerCount: number;     // Number of followers
 }
 
 /**
