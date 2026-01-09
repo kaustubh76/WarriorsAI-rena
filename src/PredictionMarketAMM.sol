@@ -4,8 +4,12 @@ pragma solidity ^0.8.24;
 import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC1155Receiver} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {IERC165} from "../lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol";
 import {IPredictionMarket} from "./Interfaces/IPredictionMarket.sol";
 import {IZeroGOracle} from "./Interfaces/IZeroGOracle.sol";
+import {IAIAgentRegistry} from "./Interfaces/IAIAgentRegistry.sol";
+import {ICreatorRevenueShare} from "./Interfaces/ICreatorRevenueShare.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
 
 /**
@@ -20,7 +24,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
  * - 0G AI Oracle integration for trustless resolution
  * - CRwN token as collateral
  */
-contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
+contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IERC1155Receiver {
     // Errors
     error PredictionMarket__InvalidMarket();
     error PredictionMarket__MarketNotActive();
@@ -45,9 +49,15 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
     IERC20 public immutable crownToken;
     OutcomeToken public immutable outcomeToken;
     IZeroGOracle public oracle;
+    IAIAgentRegistry public aiAgentRegistry;
+    ICreatorRevenueShare public creatorRevenueShare;
 
     uint256 public nextMarketId = 1;
     uint256 public totalFeeCollected;
+
+    // AI Agent tracking
+    mapping(uint256 => mapping(uint256 => bool)) public isAIAgentTrade; // marketId => tradeId => isAgent
+    uint256 public nextTradeId = 1;
 
     // Mappings
     mapping(uint256 => Market) public markets;
@@ -62,6 +72,10 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
     // Events (additional to interface)
     event OracleUpdated(address indexed oldOracle, address indexed newOracle);
     event FeesCollected(uint256 amount, address indexed collector);
+    event AIAgentRegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
+    event CreatorRevenueShareUpdated(address indexed oldRevenue, address indexed newRevenue);
+    event AgentTrade(uint256 indexed marketId, uint256 indexed agentId, bool isYes, uint256 amount, uint256 tokensReceived);
+    event CopyTradeExecuted(uint256 indexed marketId, uint256 indexed agentId, address indexed follower, uint256 amount);
 
     constructor(
         address _crownToken,
@@ -107,6 +121,8 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
             totalVolume: 0,
             creator: msg.sender,
             battleId: 0,
+            warrior1Id: 0,
+            warrior2Id: 0,
             createdAt: block.timestamp
         });
 
@@ -119,6 +135,11 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
 
         activeMarketIds.push(marketId);
         userMarketIds[msg.sender].push(marketId);
+
+        // Register creator with revenue share
+        if (address(creatorRevenueShare) != address(0)) {
+            creatorRevenueShare.setMarketCreator(marketId, msg.sender);
+        }
 
         emit MarketCreated(marketId, question, endTime, msg.sender, 0);
         emit LiquidityAdded(marketId, msg.sender, initialLiquidity, initialLiquidity);
@@ -170,6 +191,8 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
             totalVolume: 0,
             creator: msg.sender,
             battleId: battleId,
+            warrior1Id: warrior1Id,
+            warrior2Id: warrior2Id,
             createdAt: block.timestamp
         });
 
@@ -182,6 +205,11 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
 
         activeMarketIds.push(marketId);
         userMarketIds[msg.sender].push(marketId);
+
+        // Register creator with revenue share
+        if (address(creatorRevenueShare) != address(0)) {
+            creatorRevenueShare.setMarketCreator(marketId, msg.sender);
+        }
 
         emit MarketCreated(marketId, question, endTime, msg.sender, battleId);
         emit LiquidityAdded(marketId, msg.sender, initialLiquidity, initialLiquidity);
@@ -239,6 +267,11 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
             pos.noTokens += tokensReceived;
         }
         pos.totalInvested += collateralAmount;
+
+        // Record trade fee for creator revenue share
+        if (address(creatorRevenueShare) != address(0)) {
+            creatorRevenueShare.recordTradeFee(marketId, collateralAmount, fee);
+        }
 
         emit TokensPurchased(marketId, msg.sender, isYes, collateralAmount, tokensReceived);
     }
@@ -331,7 +364,7 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
         outcomeToken.mintCompleteSet(marketId, additionalTokens, address(this));
 
         // Update position
-        positions[marketId][msg.sender].lpTokens += lpTokens;
+        positions[marketId][msg.sender].lpShares += lpTokens;
 
         emit LiquidityAdded(marketId, msg.sender, collateralAmount, lpTokens);
     }
@@ -388,7 +421,7 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
         }
 
         // Update position
-        positions[marketId][msg.sender].lpTokens -= lpTokenAmount;
+        positions[marketId][msg.sender].lpShares -= lpTokenAmount;
 
         emit LiquidityRemoved(marketId, msg.sender, lpTokenAmount, collateral, excessYes, excessNo);
     }
@@ -514,6 +547,23 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
         return lpBalances[marketId][user];
     }
 
+    function getYesTokenId(uint256 marketId) external view returns (uint256) {
+        return outcomeToken.getTokenId(marketId, true);
+    }
+
+    function getNoTokenId(uint256 marketId) external view returns (uint256) {
+        return outcomeToken.getTokenId(marketId, false);
+    }
+
+    function getAllMarkets() external view returns (Market[] memory) {
+        uint256 count = nextMarketId - 1;
+        Market[] memory allMarkets = new Market[](count);
+        for (uint256 i = 1; i <= count; i++) {
+            allMarkets[i - 1] = markets[i];
+        }
+        return allMarkets;
+    }
+
     // ============ Admin ============
 
     function setOracle(address _oracle) external onlyOwner {
@@ -527,6 +577,166 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
         totalFeeCollected = 0;
         crownToken.transfer(to, amount);
         emit FeesCollected(amount, to);
+    }
+
+    function setAIAgentRegistry(address _registry) external onlyOwner {
+        address oldRegistry = address(aiAgentRegistry);
+        aiAgentRegistry = IAIAgentRegistry(_registry);
+        emit AIAgentRegistryUpdated(oldRegistry, _registry);
+    }
+
+    function setCreatorRevenueShare(address _revenue) external onlyOwner {
+        address oldRevenue = address(creatorRevenueShare);
+        creatorRevenueShare = ICreatorRevenueShare(_revenue);
+        emit CreatorRevenueShareUpdated(oldRevenue, _revenue);
+    }
+
+    // ============ AI Agent Trading ============
+
+    /**
+     * @notice Buy outcome tokens as an AI agent
+     * @param agentId The AI agent's ID
+     * @param marketId The market to trade in
+     * @param isYes Whether to buy YES or NO tokens
+     * @param collateralAmount Amount of CRwN to spend
+     * @param minTokensOut Minimum tokens to receive (slippage protection)
+     */
+    function buyAsAgent(
+        uint256 agentId,
+        uint256 marketId,
+        bool isYes,
+        uint256 collateralAmount,
+        uint256 minTokensOut
+    ) external nonReentrant returns (uint256 tokensReceived) {
+        // Verify agent is active
+        if (address(aiAgentRegistry) != address(0)) {
+            require(aiAgentRegistry.isAgentActive(agentId), "Agent not active");
+            IAIAgentRegistry.AIAgent memory agent = aiAgentRegistry.getAgent(agentId);
+            require(agent.operator == msg.sender, "Not agent operator");
+        }
+
+        Market storage market = markets[marketId];
+        if (market.status != MarketStatus.ACTIVE) revert PredictionMarket__MarketNotActive();
+        if (block.timestamp >= market.endTime) revert PredictionMarket__MarketNotActive();
+        if (collateralAmount == 0) revert PredictionMarket__InvalidAmount();
+
+        // Calculate fee
+        uint256 fee = (collateralAmount * PLATFORM_FEE) / FEE_DENOMINATOR;
+        uint256 amountAfterFee = collateralAmount - fee;
+        totalFeeCollected += fee;
+
+        // Calculate tokens out
+        tokensReceived = _calculateBuyTokens(market, isYes, amountAfterFee);
+        if (tokensReceived < minTokensOut) revert PredictionMarket__SlippageExceeded();
+
+        // Transfer collateral
+        crownToken.transferFrom(msg.sender, address(this), collateralAmount);
+
+        // Update pool state
+        if (isYes) {
+            market.yesTokens -= tokensReceived;
+            market.noTokens += amountAfterFee;
+        } else {
+            market.noTokens -= tokensReceived;
+            market.yesTokens += amountAfterFee;
+        }
+
+        market.totalVolume += collateralAmount;
+
+        // Mint tokens
+        outcomeToken.mint(marketId, isYes, tokensReceived, msg.sender);
+
+        // Update position
+        Position storage pos = positions[marketId][msg.sender];
+        if (isYes) {
+            pos.yesTokens += tokensReceived;
+        } else {
+            pos.noTokens += tokensReceived;
+        }
+        pos.totalInvested += collateralAmount;
+
+        // Track AI agent trade
+        uint256 tradeId = nextTradeId++;
+        isAIAgentTrade[marketId][tradeId] = true;
+
+        // Record to creator revenue share
+        if (address(creatorRevenueShare) != address(0)) {
+            creatorRevenueShare.recordTradeFee(marketId, collateralAmount, fee);
+        }
+
+        emit AgentTrade(marketId, agentId, isYes, collateralAmount, tokensReceived);
+        emit TokensPurchased(marketId, msg.sender, isYes, collateralAmount, tokensReceived);
+    }
+
+    /**
+     * @notice Execute a copy trade following an AI agent
+     * @param agentId The AI agent to copy
+     * @param marketId The market to trade in
+     * @param isYes Whether to buy YES or NO tokens
+     * @param collateralAmount Amount of CRwN to spend
+     */
+    function executeCopyTrade(
+        uint256 agentId,
+        uint256 marketId,
+        bool isYes,
+        uint256 collateralAmount
+    ) external nonReentrant returns (uint256 tokensReceived) {
+        // Verify user is following the agent
+        if (address(aiAgentRegistry) != address(0)) {
+            IAIAgentRegistry.CopyTradeConfig memory config = aiAgentRegistry.getCopyTradeConfig(msg.sender, agentId);
+            require(config.isActive, "Not following agent");
+            require(collateralAmount <= config.maxAmountPerTrade, "Exceeds max amount");
+        }
+
+        Market storage market = markets[marketId];
+        if (market.status != MarketStatus.ACTIVE) revert PredictionMarket__MarketNotActive();
+        if (block.timestamp >= market.endTime) revert PredictionMarket__MarketNotActive();
+        if (collateralAmount == 0) revert PredictionMarket__InvalidAmount();
+
+        // Calculate fees (including copy trade fee for agent operator)
+        uint256 platformFee = (collateralAmount * PLATFORM_FEE) / FEE_DENOMINATOR;
+        uint256 copyTradeFee = (collateralAmount * 50) / FEE_DENOMINATOR; // 0.5% to agent
+        uint256 totalFee = platformFee + copyTradeFee;
+        uint256 amountAfterFee = collateralAmount - totalFee;
+
+        totalFeeCollected += platformFee;
+
+        // Record copy trade fee for agent operator
+        if (address(aiAgentRegistry) != address(0)) {
+            aiAgentRegistry.recordCopyTradeFee(agentId, copyTradeFee);
+        }
+
+        // Calculate tokens out
+        tokensReceived = _calculateBuyTokens(market, isYes, amountAfterFee);
+
+        // Transfer collateral
+        crownToken.transferFrom(msg.sender, address(this), collateralAmount);
+
+        // Update pool state
+        if (isYes) {
+            market.yesTokens -= tokensReceived;
+            market.noTokens += amountAfterFee;
+        } else {
+            market.noTokens -= tokensReceived;
+            market.yesTokens += amountAfterFee;
+        }
+
+        market.totalVolume += collateralAmount;
+
+        // Mint tokens
+        outcomeToken.mint(marketId, isYes, tokensReceived, msg.sender);
+
+        // Update position
+        Position storage pos = positions[marketId][msg.sender];
+        if (isYes) {
+            pos.yesTokens += tokensReceived;
+        } else {
+            pos.noTokens += tokensReceived;
+        }
+        pos.totalInvested += collateralAmount;
+
+        emit CopyTradeExecuted(marketId, agentId, msg.sender, collateralAmount);
+        emit TokensPurchased(marketId, msg.sender, isYes, collateralAmount, tokensReceived);
     }
 
     // ============ Internal ============
@@ -589,5 +799,32 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard {
             value /= 10;
         }
         return string(buffer);
+    }
+
+    // ============ ERC1155Receiver ============
+
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
+        return interfaceId == type(IERC1155Receiver).interfaceId ||
+               interfaceId == type(IERC165).interfaceId;
     }
 }

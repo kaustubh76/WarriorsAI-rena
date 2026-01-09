@@ -6,6 +6,7 @@ import {ECDSA} from "../lib/openzeppelin-contracts/contracts/utils/cryptography/
 import {MessageHashUtils} from "../lib/openzeppelin-contracts/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IZeroGOracle} from "./Interfaces/IZeroGOracle.sol";
 import {IPredictionMarket} from "./Interfaces/IPredictionMarket.sol";
+import {IAIDebateOracle} from "./Interfaces/IAIDebateOracle.sol";
 
 /**
  * @title ZeroGOracle
@@ -45,6 +46,7 @@ contract ZeroGOracle is IZeroGOracle, Ownable {
 
     // State
     IPredictionMarket public predictionMarket;
+    IAIDebateOracle public aiDebateOracle;
     mapping(uint256 => ResolutionRequest) public resolutionRequests;
     mapping(address => AIProvider) public aiProviders;
     address[] public providerAddresses;
@@ -54,8 +56,15 @@ contract ZeroGOracle is IZeroGOracle, Ownable {
     mapping(uint256 => uint256) public disputeStakes;
     mapping(uint256 => bytes) public disputeEvidence;
 
+    // Debate-based resolution tracking
+    mapping(uint256 => uint256) public marketToDebate; // marketId => debateId
+    mapping(uint256 => bool) public debateBasedResolution; // marketId => was resolved via debate
+
     // Events (additional to interface)
     event PredictionMarketUpdated(address indexed oldAddress, address indexed newAddress);
+    event AIDebateOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event DebateResolutionRequested(uint256 indexed marketId, uint256 indexed debateId, bytes32 dataHash);
+    event DebateResolutionSubmitted(uint256 indexed marketId, uint256 indexed debateId, uint8 outcome, uint256 confidence);
 
     constructor(address _predictionMarket) Ownable(msg.sender) {
         predictionMarket = IPredictionMarket(_predictionMarket);
@@ -262,6 +271,117 @@ contract ZeroGOracle is IZeroGOracle, Ownable {
         emit DisputeResolved(marketId, finalOutcome, upholdDispute);
     }
 
+    // ============ Debate-Based Resolution ============
+
+    /**
+     * @notice Request resolution using AI debate system
+     * @param marketId The market to resolve
+     * @param battleId The associated battle ID
+     * @param battleData Encoded battle outcome data for AI debate
+     */
+    function requestResolutionWithDebate(
+        uint256 marketId,
+        uint256 battleId,
+        bytes calldata battleData
+    ) external {
+        if (address(aiDebateOracle) == address(0)) revert ZeroGOracle__Unauthorized();
+
+        IPredictionMarket.Market memory market = predictionMarket.getMarket(marketId);
+        if (market.id == 0) revert ZeroGOracle__InvalidMarket();
+        if (block.timestamp < market.endTime) revert ZeroGOracle__InvalidMarket();
+
+        bytes32 dataHash = keccak256(battleData);
+
+        // Initialize resolution request
+        resolutionRequests[marketId] = ResolutionRequest({
+            marketId: marketId,
+            battleId: battleId,
+            requestTime: block.timestamp,
+            resolveTime: 0,
+            status: ResolutionStatus.PENDING,
+            dataHash: dataHash,
+            aiSigners: new address[](0),
+            aiSignatures: new bytes[](0),
+            outcome: 0,
+            disputeDeadline: 0
+        });
+
+        // Start debate in AIDebateOracle
+        uint256 debateId = aiDebateOracle.startDebate(marketId, battleId);
+        marketToDebate[marketId] = debateId;
+
+        emit DebateResolutionRequested(marketId, debateId, dataHash);
+    }
+
+    /**
+     * @notice Submit resolution from finalized debate consensus
+     * @param marketId The market being resolved
+     * @param debateId The debate ID that reached consensus
+     */
+    function submitResolutionFromDebate(
+        uint256 marketId,
+        uint256 debateId
+    ) external {
+        if (address(aiDebateOracle) == address(0)) revert ZeroGOracle__Unauthorized();
+        if (marketToDebate[marketId] != debateId) revert ZeroGOracle__InvalidMarket();
+
+        ResolutionRequest storage request = resolutionRequests[marketId];
+        if (request.status != ResolutionStatus.PENDING) revert ZeroGOracle__AlreadyResolved();
+
+        // Get debate phase and consensus from AIDebateOracle
+        IAIDebateOracle.DebatePhase phase = aiDebateOracle.getDebatePhase(debateId);
+
+        // Verify debate is finalized
+        if (phase != IAIDebateOracle.DebatePhase.FINALIZED) {
+            revert ZeroGOracle__InsufficientConsensus();
+        }
+
+        // Get consensus result
+        IAIDebateOracle.ConsensusResult memory consensus = aiDebateOracle.getDebateConsensus(debateId);
+
+        // Verify consensus confidence meets minimum threshold
+        if (consensus.confidence < 6000) { // 60% minimum confidence
+            revert ZeroGOracle__InsufficientConsensus();
+        }
+
+        // Map debate outcome to market outcome
+        uint8 outcome;
+        if (consensus.outcome == IAIDebateOracle.PredictionOutcome.YES) {
+            outcome = 1;
+        } else if (consensus.outcome == IAIDebateOracle.PredictionOutcome.NO) {
+            outcome = 2;
+        } else {
+            outcome = 3; // INVALID/DRAW
+        }
+
+        // Update resolution request
+        request.status = ResolutionStatus.SUBMITTED;
+        request.outcome = outcome;
+        request.resolveTime = block.timestamp;
+        request.disputeDeadline = block.timestamp + DISPUTE_PERIOD;
+
+        // Mark as debate-based resolution
+        debateBasedResolution[marketId] = true;
+
+        emit DebateResolutionSubmitted(marketId, debateId, outcome, consensus.confidence);
+    }
+
+    /**
+     * @notice Check if a market was resolved via debate
+     * @param marketId The market to check
+     */
+    function isDebateBasedResolution(uint256 marketId) external view returns (bool) {
+        return debateBasedResolution[marketId];
+    }
+
+    /**
+     * @notice Get the debate ID for a market
+     * @param marketId The market to check
+     */
+    function getMarketDebateId(uint256 marketId) external view returns (uint256) {
+        return marketToDebate[marketId];
+    }
+
     // ============ AI Provider Management ============
 
     /**
@@ -368,6 +488,23 @@ contract ZeroGOracle is IZeroGOracle, Ownable {
         address oldAddress = address(predictionMarket);
         predictionMarket = IPredictionMarket(_predictionMarket);
         emit PredictionMarketUpdated(oldAddress, _predictionMarket);
+    }
+
+    /**
+     * @notice Set the AI Debate Oracle address
+     * @param _aiDebateOracle The address of the AIDebateOracle contract
+     */
+    function setAIDebateOracle(address _aiDebateOracle) external onlyOwner {
+        address oldOracle = address(aiDebateOracle);
+        aiDebateOracle = IAIDebateOracle(_aiDebateOracle);
+        emit AIDebateOracleUpdated(oldOracle, _aiDebateOracle);
+    }
+
+    /**
+     * @notice Get the AI Debate Oracle address
+     */
+    function getAIDebateOracle() external view returns (address) {
+        return address(aiDebateOracle);
     }
 
     /**

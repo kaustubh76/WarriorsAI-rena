@@ -1,19 +1,16 @@
 /**
  * Prediction Market Service
  * Handles all interactions with the PredictionMarketAMM smart contract
+ * Uses shared RPC client with rate limiting and caching
  */
 
 import {
-  createPublicClient,
-  createWalletClient,
-  http,
   parseEther,
   formatEther,
   type Address,
-  type PublicClient,
-  type WalletClient
 } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
+import { chainsToContracts } from '../constants';
 
 // Market status enum matching the contract
 export enum MarketStatus {
@@ -322,20 +319,35 @@ export const ERC20ABI = [
   }
 ] as const;
 
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
+
+// Cache TTL configurations (in ms)
+const CACHE_TTL = {
+  MARKET: 15000,          // 15 seconds - market data
+  MARKETS_LIST: 30000,    // 30 seconds - all markets list
+  PRICE: 5000,            // 5 seconds - prices change frequently
+  POSITION: 10000,        // 10 seconds - user positions
+  STATIC: 300000,         // 5 minutes - static data
+  SHORT: 5000,            // 5 seconds
+};
+
 class PredictionMarketService {
-  private publicClient: PublicClient;
   private predictionMarketAddress: Address;
   private crownTokenAddress: Address;
+  private chainId: number = 545; // Flow Testnet
 
   constructor() {
-    this.publicClient = createPublicClient({
-      chain: flowTestnet,
-      transport: http()
-    });
+    // Load contract addresses from constants
+    const contracts = chainsToContracts[this.chainId];
+    this.predictionMarketAddress = (contracts?.predictionMarketAMM || ZERO_ADDRESS) as Address;
+    this.crownTokenAddress = (contracts?.crownToken || '0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6') as Address;
+  }
 
-    // These will be updated once contracts are deployed
-    this.predictionMarketAddress = '0x0000000000000000000000000000000000000000' as Address;
-    this.crownTokenAddress = '0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6' as Address;
+  /**
+   * Check if the prediction market contract is deployed
+   */
+  isContractDeployed(): boolean {
+    return this.predictionMarketAddress !== ZERO_ADDRESS;
   }
 
   /**
@@ -349,12 +361,18 @@ class PredictionMarketService {
    * Get all markets
    */
   async getAllMarkets(): Promise<Market[]> {
+    // Return empty array if contract not deployed
+    if (!this.isContractDeployed()) {
+      console.log('PredictionMarket contract not deployed yet. Returning empty markets.');
+      return [];
+    }
+
     try {
-      const markets = await this.publicClient.readContract({
+      const markets = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'getAllMarkets'
-      }) as Market[];
+      }, { cacheTTL: CACHE_TTL.MARKETS_LIST }) as Market[];
       return markets;
     } catch (error) {
       console.error('Error fetching markets:', error);
@@ -366,13 +384,15 @@ class PredictionMarketService {
    * Get a single market by ID
    */
   async getMarket(marketId: bigint): Promise<Market | null> {
+    if (!this.isContractDeployed()) return null;
+
     try {
-      const market = await this.publicClient.readContract({
+      const market = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'getMarket',
         args: [marketId]
-      }) as Market;
+      }, { cacheTTL: CACHE_TTL.MARKET }) as Market;
       return market;
     } catch (error) {
       console.error('Error fetching market:', error);
@@ -384,12 +404,14 @@ class PredictionMarketService {
    * Get active market IDs
    */
   async getActiveMarketIds(): Promise<bigint[]> {
+    if (!this.isContractDeployed()) return [];
+
     try {
-      const marketIds = await this.publicClient.readContract({
+      const marketIds = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'getActiveMarkets'
-      }) as bigint[];
+      }, { cacheTTL: CACHE_TTL.MARKET }) as bigint[];
       return marketIds;
     } catch (error) {
       console.error('Error fetching active markets:', error);
@@ -401,13 +423,17 @@ class PredictionMarketService {
    * Get market prices (YES/NO probabilities)
    */
   async getPrice(marketId: bigint): Promise<{ yesPrice: bigint; noPrice: bigint }> {
+    if (!this.isContractDeployed()) {
+      return { yesPrice: BigInt(5000), noPrice: BigInt(5000) }; // 50/50 default
+    }
+
     try {
-      const [yesPrice, noPrice] = await this.publicClient.readContract({
+      const [yesPrice, noPrice] = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'getPrice',
         args: [marketId]
-      }) as [bigint, bigint];
+      }, { cacheTTL: CACHE_TTL.PRICE }) as [bigint, bigint];
       return { yesPrice, noPrice };
     } catch (error) {
       console.error('Error fetching price:', error);
@@ -419,13 +445,22 @@ class PredictionMarketService {
    * Get user position in a market
    */
   async getPosition(marketId: bigint, userAddress: Address): Promise<Position> {
+    if (!this.isContractDeployed()) {
+      return {
+        yesShares: BigInt(0),
+        noShares: BigInt(0),
+        lpShares: BigInt(0),
+        claimed: false
+      };
+    }
+
     try {
-      const position = await this.publicClient.readContract({
+      const position = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'getPosition',
         args: [marketId, userAddress]
-      }) as Position;
+      }, { cacheTTL: CACHE_TTL.POSITION }) as Position;
       return position;
     } catch (error) {
       console.error('Error fetching position:', error);
@@ -446,13 +481,15 @@ class PredictionMarketService {
     isYes: boolean,
     collateralAmount: bigint
   ): Promise<bigint> {
+    if (!this.isContractDeployed()) return BigInt(0);
+
     try {
-      const shares = await this.publicClient.readContract({
+      const shares = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'calculateBuyAmount',
         args: [marketId, isYes, collateralAmount]
-      }) as bigint;
+      }, { cacheTTL: CACHE_TTL.SHORT }) as bigint;
       return shares;
     } catch (error) {
       console.error('Error calculating buy amount:', error);
@@ -468,13 +505,15 @@ class PredictionMarketService {
     isYes: boolean,
     shareAmount: bigint
   ): Promise<bigint> {
+    if (!this.isContractDeployed()) return BigInt(0);
+
     try {
-      const collateral = await this.publicClient.readContract({
+      const collateral = await readContractWithRateLimit({
         address: this.predictionMarketAddress,
         abi: PredictionMarketABI,
         functionName: 'calculateSellAmount',
         args: [marketId, isYes, shareAmount]
-      }) as bigint;
+      }, { cacheTTL: CACHE_TTL.SHORT }) as bigint;
       return collateral;
     } catch (error) {
       console.error('Error calculating sell amount:', error);
@@ -512,12 +551,12 @@ class PredictionMarketService {
    */
   async checkAllowance(ownerAddress: Address): Promise<bigint> {
     try {
-      const allowance = await this.publicClient.readContract({
+      const allowance = await readContractWithRateLimit({
         address: this.crownTokenAddress,
         abi: ERC20ABI,
         functionName: 'allowance',
         args: [ownerAddress, this.predictionMarketAddress]
-      }) as bigint;
+      }, { cacheTTL: CACHE_TTL.SHORT }) as bigint;
       return allowance;
     } catch (error) {
       console.error('Error checking allowance:', error);
@@ -530,12 +569,12 @@ class PredictionMarketService {
    */
   async getBalance(address: Address): Promise<bigint> {
     try {
-      const balance = await this.publicClient.readContract({
+      const balance = await readContractWithRateLimit({
         address: this.crownTokenAddress,
         abi: ERC20ABI,
         functionName: 'balanceOf',
         args: [address]
-      }) as bigint;
+      }, { cacheTTL: CACHE_TTL.SHORT }) as bigint;
       return balance;
     } catch (error) {
       console.error('Error checking balance:', error);

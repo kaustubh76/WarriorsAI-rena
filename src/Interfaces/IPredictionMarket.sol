@@ -34,13 +34,15 @@ interface IPredictionMarket {
         uint256 totalVolume;     // Total trading volume
         address creator;
         uint256 battleId;        // If linked to a battle (0 if custom)
+        uint256 warrior1Id;      // Warrior 1 ID for battle markets
+        uint256 warrior2Id;      // Warrior 2 ID for battle markets
         uint256 createdAt;
     }
 
     struct Position {
         uint256 yesTokens;
         uint256 noTokens;
-        uint256 lpTokens;
+        uint256 lpShares;        // LP shares for liquidity providers
         uint256 totalInvested;
     }
 
