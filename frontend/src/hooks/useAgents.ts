@@ -2,7 +2,7 @@
  * Custom hooks for AI Agent functionality
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import aiAgentService, {
@@ -23,6 +23,7 @@ import aiAgentService, {
 
 /**
  * Hook to fetch all active agents
+ * Uses stable serialization to prevent infinite re-renders
  */
 export function useAgents(options?: {
   filters?: AgentFilters;
@@ -32,11 +33,15 @@ export function useAgents(options?: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Serialize options to create stable dependency
+  const filtersKey = useMemo(() => JSON.stringify(options?.filters ?? {}), [options?.filters]);
+  const sortKey = useMemo(() => JSON.stringify(options?.sort ?? { field: 'winRate', direction: 'desc' }), [options?.sort]);
+
   const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
-      const filters = options?.filters ?? {};
-      const sort = options?.sort ?? { field: 'winRate', direction: 'desc' };
+      const filters = JSON.parse(filtersKey) as AgentFilters;
+      const sort = JSON.parse(sortKey) as AgentSortOptions;
       const allAgents = await aiAgentService.getFilteredAgents(filters, sort);
       setAgents(allAgents);
       setError(null);
@@ -46,7 +51,7 @@ export function useAgents(options?: {
     } finally {
       setLoading(false);
     }
-  }, [options?.filters, options?.sort]);
+  }, [filtersKey, sortKey]);
 
   useEffect(() => {
     fetchAgents();

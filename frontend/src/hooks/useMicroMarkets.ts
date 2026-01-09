@@ -2,7 +2,7 @@
  * Custom hooks for Micro-Market functionality
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import microMarketService, {
@@ -281,6 +281,7 @@ export function useActiveMicroMarkets() {
 
 /**
  * Hook to filter and sort micro markets
+ * Uses stable serialization to prevent infinite re-renders
  */
 export function useFilteredMicroMarkets(
   filters: MicroMarketFilters,
@@ -289,17 +290,23 @@ export function useFilteredMicroMarkets(
   const [markets, setMarkets] = useState<MicroMarketDisplay[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Serialize to create stable dependencies
+  const filtersKey = useMemo(() => JSON.stringify(filters), [filters]);
+  const sortKey = useMemo(() => JSON.stringify(sort), [sort]);
+
   const fetchMarkets = useCallback(async () => {
     try {
       setLoading(true);
-      const filteredMarkets = await microMarketService.getFilteredMarkets(filters, sort);
+      const parsedFilters = JSON.parse(filtersKey) as MicroMarketFilters;
+      const parsedSort = JSON.parse(sortKey) as MicroMarketSortOptions;
+      const filteredMarkets = await microMarketService.getFilteredMarkets(parsedFilters, parsedSort);
       setMarkets(filteredMarkets);
     } catch (err) {
       console.error('Error fetching filtered micro markets:', err);
     } finally {
       setLoading(false);
     }
-  }, [filters, sort]);
+  }, [filtersKey, sortKey]);
 
   useEffect(() => {
     fetchMarkets();

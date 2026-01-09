@@ -2,7 +2,7 @@
  * Custom hooks for AI Debate functionality
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import debateService, {
@@ -150,6 +150,7 @@ export function useDebateConsensus(debateId: bigint | null) {
 
 /**
  * Hook to get predictions for a debate
+ * Uses refs for Maps to avoid infinite re-renders
  */
 export function useDebatePredictions(
   debateId: bigint | null,
@@ -160,6 +161,16 @@ export function useDebatePredictions(
   const [participants, setParticipants] = useState<bigint[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Use refs for Maps to avoid triggering re-renders
+  const nameMapRef = useRef(agentNameMap);
+  const tierMapRef = useRef(agentTierMap);
+
+  // Update refs when props change
+  useEffect(() => {
+    nameMapRef.current = agentNameMap;
+    tierMapRef.current = agentTierMap;
+  }, [agentNameMap, agentTierMap]);
+
   const fetchPredictions = useCallback(async () => {
     if (debateId === null) return;
 
@@ -168,8 +179,8 @@ export function useDebatePredictions(
       const participantIds = await debateService.getDebateParticipants(debateId);
       setParticipants(participantIds);
 
-      const nameMap = agentNameMap ?? new Map();
-      const tierMap = agentTierMap ?? new Map();
+      const nameMap = nameMapRef.current ?? new Map();
+      const tierMap = tierMapRef.current ?? new Map();
       const predictionData = await debateService.getPredictionsWithDisplay(debateId, nameMap, tierMap);
       setPredictions(predictionData);
     } catch (err) {
@@ -177,7 +188,7 @@ export function useDebatePredictions(
     } finally {
       setLoading(false);
     }
-  }, [debateId, agentNameMap, agentTierMap]);
+  }, [debateId]);
 
   useEffect(() => {
     fetchPredictions();
