@@ -74,11 +74,51 @@ const Header: React.FC = () => {
                   Warriors AI-rena
                 </h1>
               </a>
-              <div className="hidden md:block border-l-2 border-red-500 pl-6">
-                {/* <h5 className="text-xs text-red-300 tracking-wide" style={{fontFamily: 'Press Start 2P, monospace'}}>
-                  LEGENDARY ARENA AWAITS
-                </h5> */}
-              </div>
+              {/* Navigation Links */}
+              <nav className="hidden md:flex items-center gap-4 ml-8">
+                <a
+                  href="/arena"
+                  className="text-gray-300 hover:text-red-400 transition-colors text-sm font-medium"
+                >
+                  Arena
+                </a>
+                <a
+                  href="/markets"
+                  className="text-gray-300 hover:text-red-400 transition-colors text-sm font-medium"
+                >
+                  Markets
+                </a>
+                <a
+                  href="/ai-agents"
+                  className="text-gray-300 hover:text-purple-400 transition-colors text-sm font-medium"
+                >
+                  AI Agents
+                </a>
+                <a
+                  href="/leaderboard"
+                  className="text-gray-300 hover:text-red-400 transition-colors text-sm font-medium"
+                >
+                  Leaderboard
+                </a>
+                <a
+                  href="/social/copy-trading"
+                  className="text-gray-300 hover:text-purple-400 transition-colors text-sm font-medium"
+                >
+                  Copy Trade
+                </a>
+                <a
+                  href="/creator-dashboard"
+                  className="text-gray-300 hover:text-green-400 transition-colors text-sm font-medium"
+                >
+                  Creator
+                </a>
+                <a
+                  href="/warriorsMinter"
+                  className="text-gray-300 hover:text-red-400 transition-colors text-sm font-medium"
+                >
+                  Mint
+                </a>
+              </nav>
             </div>
           </div>
           

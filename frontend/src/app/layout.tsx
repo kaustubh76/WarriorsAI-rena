@@ -21,7 +21,7 @@ export default function RootLayout(props: {children: ReactNode}) {
           href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
           rel="stylesheet"
         />
-        <link rel="icon" href="/Rann1.png" type="image/png" />
+        <link rel="icon" href="/warrior/Warrior_Idle_1.png" type="image/png" />
       </head>
       <body suppressHydrationWarning>
         <Providers>

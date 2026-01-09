@@ -8,6 +8,7 @@ import {ECDSA} from "../lib/openzeppelin-contracts/contracts/utils/cryptography/
 import {MessageHashUtils} from "../lib/openzeppelin-contracts/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IWarriorsNFT} from "./Interfaces/IWarriorsNFT.sol";
 import {IArenaFactory} from "./Interfaces/IArenaFactory.sol";
+import {IMicroMarketFactory} from "./Interfaces/IMicroMarketFactory.sol";
 
 /**
  * @title Arena
@@ -91,6 +92,7 @@ contract Arena {
     error Arena__Locked();
     error Arena__InvalidAddress();
     error Arena__BettingPeriodNotActive();
+    error Arena__Unauthorized();
 
     enum RankCategory {
         UNRANKED,
@@ -154,6 +156,10 @@ contract Arena {
     uint8 private constant MIN_Warriors_BETTING_PERIOD = 60;
     uint8 private constant MIN_BATTLE_ROUNDS_INTERVAL = 30;
     uint8 private constant Warriors_ONE_CUT = 5; // 5 % of the total bet amounts
+
+    // Micro-market factory for round-by-round betting
+    IMicroMarketFactory public microMarketFactory;
+    uint256 private s_battleId; // Unique battle ID for micro-market integration
 
     /**
      * @notice Constructor to initialize the Arena game.
@@ -259,6 +265,13 @@ contract Arena {
         address[] indexed playerBetAddresses, uint256 indexed WarriorsNFTId
     );
 
+    // Micro-market integration events
+    event MicroMarketFactoryUpdated(address indexed oldFactory, address indexed newFactory);
+    event BattleIdAssigned(uint256 indexed battleId, uint256 indexed warriorsOneId, uint256 indexed warriorsTwoId);
+    event RoundStartedForMicroMarket(uint256 indexed battleId, uint8 indexed round, uint256 timestamp);
+    event MoveSelectedForMicroMarket(uint256 indexed battleId, uint256 indexed warriorId, PlayerMoves move, uint8 round);
+    event DamageDealtForMicroMarket(uint256 indexed battleId, uint256 indexed attackerId, uint256 damage, uint8 round);
+
     /**
      * @notice Initializes the game with the given parameters.
      * @param _WarriorsOneNFTId The NFT ID of Warriors One.
@@ -295,7 +308,16 @@ contract Arena {
         s_gameInitializedAt = block.timestamp;
         s_isBettingPeriod = true;
 
+        // Generate unique battle ID for micro-market integration
+        s_battleId = uint256(keccak256(abi.encodePacked(
+            _WarriorsOneNFTId,
+            _WarriorsTwoNFTId,
+            block.timestamp,
+            address(this)
+        )));
+
         emit GameInitialized(_WarriorsOneNFTId, _WarriorsTwoNFTId, s_gameInitializedAt);
+        emit BattleIdAssigned(s_battleId, _WarriorsOneNFTId, _WarriorsTwoNFTId);
     }
 
     /**
@@ -495,11 +517,29 @@ contract Arena {
 
         s_isBattleOngoing = true;
 
+        // Emit round start for micro-markets
+        emit RoundStartedForMicroMarket(s_battleId, s_currentRound, block.timestamp);
+
+        // Notify micro-market factory of round start
+        if (address(microMarketFactory) != address(0)) {
+            microMarketFactory.onRoundStart(s_battleId, s_currentRound);
+        }
+
         //Logic to detemine the winner of the battle
         (uint256 damageOnWarriorsTwo, uint256 recoveryOfWarriorsOne, bool WarriorsOneDodged) =
             _executeWarriorsMove(_WarriorsOneMove, s_WarriorsOneNFTId, s_WarriorsTwoNFTId);
         (uint256 damageOnWarriorsOne, uint256 recoveryOfWarriorsTwo, bool WarriorsTwoDodged) =
             _executeWarriorsMove(_WarriorsTwoMove, s_WarriorsTwoNFTId, s_WarriorsOneNFTId);
+
+        // Emit move selections for micro-markets
+        emit MoveSelectedForMicroMarket(s_battleId, s_WarriorsOneNFTId, _WarriorsOneMove, s_currentRound);
+        emit MoveSelectedForMicroMarket(s_battleId, s_WarriorsTwoNFTId, _WarriorsTwoMove, s_currentRound);
+
+        // Notify micro-market factory of moves
+        if (address(microMarketFactory) != address(0)) {
+            microMarketFactory.onMoveExecuted(s_battleId, s_WarriorsOneNFTId, IMicroMarketFactory.PlayerMoves(uint8(_WarriorsOneMove)), s_currentRound);
+            microMarketFactory.onMoveExecuted(s_battleId, s_WarriorsTwoNFTId, IMicroMarketFactory.PlayerMoves(uint8(_WarriorsTwoMove)), s_currentRound);
+        }
 
         if (s_damageOnWarriorsOne < recoveryOfWarriorsOne) recoveryOfWarriorsOne = s_damageOnWarriorsOne;
         if (s_damageOnWarriorsTwo < recoveryOfWarriorsTwo) recoveryOfWarriorsTwo = s_damageOnWarriorsTwo;
@@ -507,6 +547,14 @@ contract Arena {
         if (!WarriorsOneDodged && !WarriorsTwoDodged) {
             s_damageOnWarriorsOne = s_damageOnWarriorsOne + damageOnWarriorsOne;
             s_damageOnWarriorsTwo = s_damageOnWarriorsTwo + damageOnWarriorsTwo;
+
+            // Emit damage dealt events for micro-markets
+            if (damageOnWarriorsOne > 0) {
+                emit DamageDealtForMicroMarket(s_battleId, s_WarriorsTwoNFTId, damageOnWarriorsOne, s_currentRound);
+            }
+            if (damageOnWarriorsTwo > 0) {
+                emit DamageDealtForMicroMarket(s_battleId, s_WarriorsOneNFTId, damageOnWarriorsTwo, s_currentRound);
+            }
         }
 
         if (s_damageOnWarriorsOne < recoveryOfWarriorsOne) {
@@ -518,6 +566,20 @@ contract Arena {
             s_damageOnWarriorsTwo = 0;
         } else {
             s_damageOnWarriorsTwo -= recoveryOfWarriorsTwo;
+        }
+
+        // Resolve micro-markets for this round
+        if (address(microMarketFactory) != address(0)) {
+            microMarketFactory.resolveRound(
+                s_battleId,
+                s_currentRound,
+                damageOnWarriorsOne,
+                damageOnWarriorsTwo,
+                IMicroMarketFactory.PlayerMoves(uint8(_WarriorsOneMove)),
+                IMicroMarketFactory.PlayerMoves(uint8(_WarriorsTwoMove)),
+                WarriorsOneDodged,
+                WarriorsTwoDodged
+            );
         }
 
         s_currentRound++;
@@ -1025,5 +1087,29 @@ contract Arena {
 
     function getMinBattleRoundsInterval() external pure returns (uint8) {
         return MIN_BATTLE_ROUNDS_INTERVAL;
+    }
+
+    function getBattleId() external view returns (uint256) {
+        return s_battleId;
+    }
+
+    function getMicroMarketFactory() external view returns (address) {
+        return address(microMarketFactory);
+    }
+
+    // ============ Admin Functions ============
+
+    /**
+     * @notice Set the micro-market factory address
+     * @param _microMarketFactory The address of the MicroMarketFactory contract
+     * @dev Can only be called by the ArenaFactory contract
+     */
+    function setMicroMarketFactory(address _microMarketFactory) external {
+        if (msg.sender != i_ArenaFactory) {
+            revert Arena__Unauthorized();
+        }
+        address oldFactory = address(microMarketFactory);
+        microMarketFactory = IMicroMarketFactory(_microMarketFactory);
+        emit MicroMarketFactoryUpdated(oldFactory, _microMarketFactory);
     }
 }
