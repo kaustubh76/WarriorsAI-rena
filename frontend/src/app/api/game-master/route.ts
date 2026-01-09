@@ -3,8 +3,8 @@ import { createWalletClient, http, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowPreviewnet } from 'viem/chains';
 
-// Import the contract ABI
-import { ArenaAbi } from '../../../constants';
+// Import the contract ABI and helpers
+import { ArenaAbi, getApiBaseUrl } from '../../../constants';
 
 // Lazy initialization of clients - only created when needed at runtime
 // This prevents build-time errors when env vars are not set
@@ -235,7 +235,7 @@ async function generateAIMoves(arenaAddress: string): Promise<{ agent_1: { move:
 
     // Call 0G AI for move selection
     console.log('Game Master: Calling 0G AI for move selection...');
-    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/generate-battle-moves`, {
+    const response = await fetch(`${getApiBaseUrl()}/api/generate-battle-moves`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

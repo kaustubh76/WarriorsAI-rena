@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getStorageApiUrl } from '@/constants';
 
 // 0G Storage service URL - configured via environment variable
-const STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+const STORAGE_API_URL = getStorageApiUrl();
 
 export async function POST(request: NextRequest) {
   try {

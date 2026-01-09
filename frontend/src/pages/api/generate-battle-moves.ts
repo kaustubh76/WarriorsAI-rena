@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { generateBattleMoves } from '../../../0G/demo-compute-flow';
 import { encodePacked, keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { getApiBaseUrl } from '../../constants';
+import { logger } from '../../lib/logger';
 
 export default async function handler(
   req: NextApiRequest,
@@ -18,12 +19,35 @@ export default async function handler(
       return res.status(400).json({ error: 'battlePrompt is required and must be an object' });
     }
 
-    console.log('API: Generating battle moves for battle prompt:', battlePrompt);
-    
-    // Call the 0G AI function
-    const battleMoves = await generateBattleMoves(battlePrompt);
-    
-    console.log('API: Generated battle moves:', battleMoves);
+    logger.debug('Generating battle moves for battle prompt');
+
+    // Call the 0G AI inference API
+    const inferenceResponse = await fetch(`${getApiBaseUrl()}/api/0g/inference`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: `You are a battle AI. Given the following warriors and their stats, determine what move each warrior should make.
+
+Warrior 1: ${JSON.stringify(battlePrompt.warrior1)}
+Warrior 2: ${JSON.stringify(battlePrompt.warrior2)}
+
+Available moves: ${battlePrompt.availableMoves?.join(', ') || 'strike, taunt, dodge, recover, special_move'}
+
+Respond with JSON only: {"agent_1": "<move>", "agent_2": "<move>"}`,
+        model: 'gpt-4',
+        maxTokens: 100,
+        temperature: 0.7
+      })
+    });
+
+    if (!inferenceResponse.ok) {
+      throw new Error(`0G inference failed: ${inferenceResponse.statusText}`);
+    }
+
+    const inferenceResult = await inferenceResponse.json();
+    const battleMoves = inferenceResult.content || inferenceResult.response;
+
+    logger.debug('Generated battle moves');
     
     // Parse the AI response to get the moves
     const parsedMoves = JSON.parse(battleMoves);
@@ -40,7 +64,7 @@ export default async function handler(
     const warriorsOneMove = moveMapping[parsedMoves.agent_1.toLowerCase()] ?? 0;
     const warriorsTwoMove = moveMapping[parsedMoves.agent_2.toLowerCase()] ?? 0;
 
-    console.log('API: Mapped moves:', { 
+    logger.debug('API: Mapped moves:', { 
       agent_1: parsedMoves.agent_1, 
       agent_2: parsedMoves.agent_2,
       warriorsOneMove, 
@@ -52,7 +76,7 @@ export default async function handler(
     const aiSignerPrivateKey = process.env.AI_SIGNER_PRIVATE_KEY;
 
     if (!aiSignerPrivateKey) {
-      console.error('AI_SIGNER_PRIVATE_KEY environment variable is not set');
+      logger.error('AI_SIGNER_PRIVATE_KEY environment variable is not set');
       return res.status(500).json({
         success: false,
         error: 'Server configuration error: AI signer key not configured'
@@ -69,7 +93,7 @@ export default async function handler(
       message: { raw: dataHash }
     });
 
-    console.log('API: Generated signature for arena contract:', signature);
+    logger.debug('API: Generated signature for arena contract:', signature);
     
     // Return the response in the expected format with signature
     res.status(200).json({ 
@@ -87,7 +111,7 @@ export default async function handler(
     });
     
   } catch (error) {
-    console.error('API: Error generating battle moves:', error);
+    logger.error('API: Error generating battle moves:', error);
     
     res.status(500).json({ 
       success: false, 

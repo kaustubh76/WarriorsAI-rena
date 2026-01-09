@@ -54,13 +54,50 @@ interface MatchupHistory {
 
 // 0G Storage Configuration
 const STORAGE_CONFIG = {
-  apiUrl: process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001'
+  apiUrl: process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001',
+  indexerUrl: process.env.NEXT_PUBLIC_0G_INDEXER_URL || '',
+  indexerEnabled: process.env.NEXT_PUBLIC_0G_INDEXER_ENABLED === 'true'
 };
 
-// In-memory battle index (would be backed by 0G storage indexer in production)
-// This is a simplified version - production would use 0G's indexing capabilities
+// In-memory battle index (fallback when 0G indexer is unavailable)
+// Production should use 0G's indexing capabilities via NEXT_PUBLIC_0G_INDEXER_URL
 const battleIndex = new Map<string, any>();
 const warriorBattles = new Map<string, string[]>();
+
+/**
+ * Query battles from 0G indexer if enabled, otherwise use local index
+ */
+async function queryBattlesFromSource(query: BattleQuery): Promise<{ battles: any[]; total: number; fromIndexer: boolean }> {
+  // Try 0G indexer first if enabled
+  if (STORAGE_CONFIG.indexerEnabled && STORAGE_CONFIG.indexerUrl) {
+    try {
+      const response = await fetch(`${STORAGE_CONFIG.indexerUrl}/battles/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(query),
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          battles: data.battles || [],
+          total: data.total || 0,
+          fromIndexer: true
+        };
+      }
+    } catch (indexerError) {
+      console.warn('0G Indexer query failed, falling back to local index:', indexerError);
+    }
+  }
+
+  // Fallback to local in-memory index
+  return {
+    battles: Array.from(battleIndex.values()),
+    total: battleIndex.size,
+    fromIndexer: false
+  };
+}
 
 /**
  * POST: Query battles based on criteria
@@ -70,8 +107,9 @@ export async function POST(request: NextRequest) {
     const body: BattleQuery = await request.json();
     const { warriorIds, dateRange, outcome, minVolume, limit = 50, offset = 0 } = body;
 
-    // Get all battles from index
-    let results = Array.from(battleIndex.values());
+    // Query battles from 0G indexer or local index
+    const { battles: allBattles, fromIndexer } = await queryBattlesFromSource(body);
+    let results = allBattles;
 
     // Filter by warrior IDs
     if (warriorIds && warriorIds.length > 0) {
