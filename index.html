@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WarriorsAI-rena Analytics Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8fafc;
+            color: #2d3748;
+            line-height: 1.6;
+        }
+        
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .grid-2 {
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+        
+        .grid-3 {
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+        }
+        
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #2d3748;
+            text-align: center;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 10px;
+        }
+        
+        .chart-container.tall {
+            height: 400px;
+        }
+        
+        .chart-container.short {
+            height: 250px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .metric {
+            text-align: center;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2b6cb0;
+            margin-bottom: 5px;
+        }
+        
+        .metric-label {
+            font-size: 0.85rem;
+            color: #718096;
+            font-weight: 500;
+        }
+        
+        .timeline {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .timeline-phase {
+            font-weight: 600;
+            margin-right: 15px;
+            min-width: 80px;
+            color: #2b6cb0;
+        }
+        
+        .timeline-content {
+            flex: 1;
+        }
+        
+        .timeline-amount {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .flow-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .flow-step {
+            background: #667eea;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 25px;
+            font-weight: 500;
+            text-align: center;
+            min-width: 200px;
+            position: relative;
+        }
+        
+        .flow-step:not(:last-child)::after {
+            content: '↓';
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.2rem;
+            color: #667eea;
+        }
+        
+        .architecture-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .arch-component {
+            background: #f0f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+        
+        .arch-component:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .arch-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+        
+        .arch-tech {
+            font-size: 0.85rem;
+            color: #718096;
+            margin-bottom: 5px;
+        }
+        
+        .arch-level {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #667eea;
+            color: white;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .section-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            text-align: center;
+            margin: 40px 0 25px 0;
+            color: #2d3748;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .chart-container {
+                height: 250px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>WarriorsAI-rena</h1>
+            <p>Next-Gen AI GameFi - Project Analytics Dashboard</p>
+        </div>
+
+        <!-- Funding Allocation Section -->
+        <div class="section-title">💰 Funding Strategy ($165K)</div>
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Budget Allocation</div>
+                <div class="chart-container">
+                    <canvas id="budgetChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Fund Release Timeline</div>
+                <div class="timeline">
+                    <div class="timeline-item">
+                        <div class="timeline-phase">Phase 1</div>
+                        <div class="timeline-content">
+                            Foundation (Months 1-2)
+                            <div class="timeline-amount">$49,500 (30%)</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-phase">Phase 2</div>
+                        <div class="timeline-content">
+                            Core Development (Months 3-4)
+                            <div class="timeline-amount">$57,750 (35%)</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-phase">Phase 3</div>
+                        <div class="timeline-content">
+                            Integration & Testing (Months 5-6)
+                            <div class="timeline-amount">$41,250 (25%)</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-phase">Phase 4</div>
+                        <div class="timeline-content">
+                            Launch & Scale (Months 7-8)
+                            <div class="timeline-amount">$16,500 (10%)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Revenue Projections -->
+        <div class="section-title">📈 Revenue Model & Growth</div>
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Revenue Growth Trajectory</div>
+                <div class="chart-container tall">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Revenue Stream Distribution (Year 1)</div>
+                <div class="chart-container">
+                    <canvas id="revenueStreamChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-3">
+            <div class="card">
+                <div class="card-title">3-Year ROI Projections</div>
+                <div class="chart-container short">
+                    <canvas id="roiChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Market Opportunity</div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-value">$196B</div>
+                        <div class="metric-label">Global Gaming</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">$8.2B</div>
+                        <div class="metric-label">GameFi Segment</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">35%</div>
+                        <div class="metric-label">CAGR</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">$450M</div>
+                        <div class="metric-label">SAM</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Token Distribution</div>
+                <div class="chart-container short">
+                    <canvas id="tokenChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Technical Architecture -->
+        <div class="section-title">⚙️ Technical Architecture</div>
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Core Technical Modules</div>
+                <div class="architecture-grid">
+                    <div class="arch-component">
+                        <div class="arch-title">Gurukul Training</div>
+                        <div class="arch-tech">0G Storage + Compute</div>
+                        <div class="arch-level">High Innovation</div>
+                    </div>
+                    <div class="arch-component">
+                        <div class="arch-title">Real-Time Arena</div>
+                        <div class="arch-tech">0G API + Storage</div>
+                        <div class="arch-level">Medium Innovation</div>
+                    </div>
+                    <div class="arch-component">
+                        <div class="arch-title">Meme Engine</div>
+                        <div class="arch-tech">0G Compute + Storage</div>
+                        <div class="arch-level">High Innovation</div>
+                    </div>
+                    <div class="arch-component">
+                        <div class="arch-title">Custom RNG</div>
+                        <div class="arch-tech">0G Chain L1</div>
+                        <div class="arch-level">Medium Innovation</div>
+                    </div>
+                    <div class="arch-component">
+                        <div class="arch-title">DeFi Suite</div>
+                        <div class="arch-tech">Smart Contracts</div>
+                        <div class="arch-level">High Innovation</div>
+                    </div>
+                    <div class="arch-component">
+                        <div class="arch-title">Social Trading</div>
+                        <div class="arch-tech">On-chain + 0G DA</div>
+                        <div class="arch-level">High Innovation</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">AI-Powered Meme Generation Flow</div>
+                <div class="flow-diagram">
+                    <div class="flow-step">Battle Completion</div>
+                    <div class="flow-step">Data Extraction</div>
+                    <div class="flow-step">0G Compute: AI Processing</div>
+                    <div class="flow-step">Image Generation</div>
+                    <div class="flow-step">0G Storage: Asset Storage</div>
+                    <div class="flow-step">Social Sharing Interface</div>
+                    <div class="flow-step">Viral Distribution + Rewards</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="section-title">📊 Success Metrics & KPIs</div>
+        <div class="grid grid-2">
+            <div class="card">
+                <div class="card-title">User Engagement Targets</div>
+                <div class="chart-container">
+                    <canvas id="engagementChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Technical Performance Standards</div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-value">99.5%</div>
+                        <div class="metric-label">Uptime Target</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">&lt;5s</div>
+                        <div class="metric-label">Transaction Speed</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">&lt;$0.50</div>
+                        <div class="metric-label">Gas Efficiency</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">&lt;60s</div>
+                        <div class="metric-label">AI Processing</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">DeFi Integration Components</div>
+                <div class="chart-container">
+                    <canvas id="defiChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Risk Assessment Matrix</div>
+                <div class="chart-container">
+                    <canvas id="riskChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Chart.js default settings
+        Chart.defaults.font.family = 'Segoe UI';
+        Chart.defaults.color = '#2d3748';
+        
+        const colorPalette = {
+            primary: '#667eea',
+            secondary: '#764ba2',
+            accent: '#f093fb',
+            success: '#48bb78',
+            warning: '#ed8936',
+            error: '#f56565',
+            info: '#4299e1',
+            light: '#f7fafc',
+            dark: '#2d3748'
+        };
+
+        // Budget Allocation Pie Chart
+        const budgetCtx = document.getElementById('budgetChart').getContext('2d');
+        new Chart(budgetCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Development', 'Infrastructure', 'Marketing', 'Team Expansion', 'Legal'],
+                datasets: [{
+                    data: [57750, 33000, 33000, 24750, 16500],
+                    backgroundColor: [
+                        colorPalette.primary,
+                        colorPalette.secondary,
+                        colorPalette.success,
+                        colorPalette.warning,
+                        colorPalette.info
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            usePointStyle: true,
+                            font: {
+                                size: 11
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const percentage = ((context.raw / 165000) * 100).toFixed(1);
+                                return context.label + ': $' + context.raw.toLocaleString() + ' (' + percentage + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Revenue Growth Chart
+        const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+        new Chart(revenueCtx, {
+            type: 'line',
+            data: {
+                labels: ['Month 1-2', 'Month 3-4', 'Month 5-6', 'Month 7-8', 'Month 9-12', 'Year 2', 'Year 3'],
+                datasets: [{
+                    label: 'Monthly Revenue',
+                    data: [500, 2500, 8000, 15500, 25000, 100000, 341667],
+                    borderColor: colorPalette.primary,
+                    backgroundColor: colorPalette.primary + '20',
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: colorPalette.primary,
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + (value / 1000).toFixed(0) + 'K';
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
+                }
+            }
+        });
+
+        // Revenue Stream Distribution
+        const streamCtx = document.getElementById('revenueStreamChart').getContext('2d');
+        new Chart(streamCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Interest Income', 'Loan Origination', 'NFT Marketplace', 'Warrior Rentals', 'Copy Trading', 'Insurance', 'Meme Boosts', 'Guild Fees'],
+                datasets: [{
+                    data: [75000, 55000, 45000, 28000, 22000, 20000, 15000, 8000],
+                    backgroundColor: [
+                        colorPalette.primary,
+                        colorPalette.secondary,
+                        colorPalette.success,
+                        colorPalette.warning,
+                        colorPalette.info,
+                        colorPalette.accent,
+                        colorPalette.error,
+                        '#9f7aea'
+                    ],
+                    borderWidth: 1,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 10,
+                            usePointStyle: true,
+                            font: {
+                                size: 10
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const percentage = ((context.raw / 268000) * 100).toFixed(1);
+                                return context.label + ': $' + context.raw.toLocaleString() + ' (' + percentage + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // ROI Projections
+        const roiCtx = document.getElementById('roiChart').getContext('2d');
+        new Chart(roiCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Year 1', 'Year 2', 'Year 3'],
+                datasets: [{
+                    label: 'ROI %',
+                    data: [29, 333, 1394],
+                    backgroundColor: [
+                        colorPalette.warning,
+                        colorPalette.success,
+                        colorPalette.primary
+                    ],
+                    borderRadius: 6,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Token Distribution
+        const tokenCtx = document.getElementById('tokenChart').getContext('2d');
+        new Chart(tokenCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Core100 Members', 'Founding Team', 'Early Users', 'Strategic Partners', 'Treasury Reserve'],
+                datasets: [{
+                    data: [30, 25, 20, 15, 10],
+                    backgroundColor: [
+                        colorPalette.primary,
+                        colorPalette.secondary,
+                        colorPalette.success,
+                        colorPalette.warning,
+                        colorPalette.info
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 10,
+                            usePointStyle: true,
+                            font: {
+                                size: 10
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.label + ': ' + context.raw + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // User Engagement Targets
+        const engagementCtx = document.getElementById('engagementChart').getContext('2d');
+        new Chart(engagementCtx, {
+            type: 'radar',
+            data: {
+                labels: ['Daily Active Users', 'Battle Participation', 'Social Interaction', 'Meme Sharing', 'Session Time'],
+                datasets: [{
+                    label: 'Month 4 Target',
+                    data: [25, 60, 40, 30, 15],
+                    borderColor: colorPalette.warning,
+                    backgroundColor: colorPalette.warning + '30',
+                    pointBackgroundColor: colorPalette.warning
+                }, {
+                    label: 'Month 8 Target',
+                    data: [300, 85, 75, 65, 35],
+                    borderColor: colorPalette.primary,
+                    backgroundColor: colorPalette.primary + '30',
+                    pointBackgroundColor: colorPalette.primary
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                },
+                scales: {
+                    r: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // DeFi Components
+        const defiCtx = document.getElementById('defiChart').getContext('2d');
+        new Chart(defiCtx, {
+            type: 'polarArea',
+            data: {
+                labels: ['NFT Marketplace', 'Lending/Borrowing', 'Insurance Pool', 'Fractional Ownership', 'Yield Generation'],
+                datasets: [{
+                    data: [90, 85, 70, 75, 80],
+                    backgroundColor: [
+                        colorPalette.primary + '80',
+                        colorPalette.secondary + '80',
+                        colorPalette.success + '80',
+                        colorPalette.warning + '80',
+                        colorPalette.info + '80'
+                    ],
+                    borderColor: [
+                        colorPalette.primary,
+                        colorPalette.secondary,
+                        colorPalette.success,
+                        colorPalette.warning,
+                        colorPalette.info
+                    ],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            font: {
+                                size: 10
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    r: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+
+        // Risk Assessment Matrix
+        const riskCtx = document.getElementById('riskChart').getContext('2d');
+        new Chart(riskCtx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Technical Risks',
+                    data: [
+                        {x: 60, y: 80, r: 15}, // Smart Contract Vulnerabilities
+                        {x: 30, y: 50, r: 10}, // 0G Infrastructure
+                        {x: 50, y: 60, r: 12}, // Scalability
+                        {x: 60, y: 50, r: 11}  // AI Model Bias
+                    ],
+                    backgroundColor: colorPalette.error + '60',
+                    borderColor: colorPalette.error
+                }, {
+                    label: 'Market Risks',
+                    data: [
+                        {x: 70, y: 70, r: 14}, // GameFi Volatility
+                        {x: 40, y: 80, r: 13}, // Regulatory
+                        {x: 65, y: 55, r: 12}, // Competition
+                        {x: 75, y: 60, r: 11}  // Token Volatility
+                    ],
+                    backgroundColor: colorPalette.warning + '60',
+                    borderColor: colorPalette.warning
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Probability: ' + context.parsed.x + '%, Impact: ' + context.parsed.y + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Probability (%)'
+                        },
+                        min: 0,
+                        max: 100
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Impact (%)'
+                        },
+                        min: 0,
+                        max: 100
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
