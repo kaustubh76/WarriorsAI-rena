@@ -137,6 +137,8 @@ export function useRegisterAgent() {
   }, [writeContract, addresses]);
 
   // Register new agent
+  // Note: Contract registerAgent takes 7 params: name, description, strategy, riskProfile, specialization, traits (struct), stakeAmount
+  // enableCopyTrading and copyTradeFee are set via separate updateAgent call after registration
   const registerAgent = useCallback(async (params: {
     name: string;
     description: string;
@@ -145,10 +147,19 @@ export function useRegisterAgent() {
     specialization: Specialization;
     personaTraits: PersonaTraits;
     stakeAmount: string;
-    enableCopyTrading: boolean;
-    copyTradeFee: number; // basis points (100 = 1%)
+    enableCopyTrading?: boolean;
+    copyTradeFee?: number; // Not used in registerAgent, kept for backwards compatibility
   }) => {
     const stakeAmountBigInt = parseEther(params.stakeAmount);
+
+    // PersonaTraits must be passed as a struct object, not array
+    // Ensure values are within uint8 range (0-255)
+    const traits = {
+      patience: Math.min(255, Math.max(0, params.personaTraits.patience)),
+      conviction: Math.min(255, Math.max(0, params.personaTraits.conviction)),
+      contrarian: Math.min(255, Math.max(0, params.personaTraits.contrarian)),
+      momentum: Math.min(255, Math.max(0, params.personaTraits.momentum))
+    };
 
     writeContract({
       address: addresses.aiAgentRegistry,
@@ -160,15 +171,8 @@ export function useRegisterAgent() {
         params.strategy,
         params.riskProfile,
         params.specialization,
-        [
-          params.personaTraits.patience,
-          params.personaTraits.conviction,
-          params.personaTraits.contrarian,
-          params.personaTraits.momentum
-        ],
-        stakeAmountBigInt,
-        params.enableCopyTrading,
-        params.copyTradeFee
+        traits,
+        stakeAmountBigInt
       ]
     });
   }, [writeContract, addresses]);
@@ -186,6 +190,7 @@ export function useRegisterAgent() {
 
 /**
  * Hook to update agent profile
+ * Contract function: updateAgent(agentId, description, copyTradingEnabled, traits)
  */
 export function useUpdateAgent(agentId: bigint | null) {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
@@ -193,62 +198,51 @@ export function useUpdateAgent(agentId: bigint | null) {
 
   const addresses = aiAgentService.getAddresses();
 
-  // Update agent description
-  const updateDescription = useCallback(async (description: string) => {
+  // Update agent - full update function
+  // Contract signature: updateAgent(uint256 agentId, string description, bool copyTradingEnabled, PersonaTraits traits)
+  const updateAgent = useCallback(async (params: {
+    description: string;
+    copyTradingEnabled: boolean;
+    traits: PersonaTraits;
+  }) => {
     if (agentId === null) return;
+
+    // PersonaTraits must be passed as a struct object
+    const traits = {
+      patience: Math.min(255, Math.max(0, params.traits.patience)),
+      conviction: Math.min(255, Math.max(0, params.traits.conviction)),
+      contrarian: Math.min(255, Math.max(0, params.traits.contrarian)),
+      momentum: Math.min(255, Math.max(0, params.traits.momentum))
+    };
 
     writeContract({
       address: addresses.aiAgentRegistry,
       abi: AIAgentRegistryAbi,
-      functionName: 'updateAgentDescription',
-      args: [agentId, description]
+      functionName: 'updateAgent',
+      args: [agentId, params.description, params.copyTradingEnabled, traits]
     });
   }, [agentId, writeContract, addresses]);
 
-  // Update persona traits
-  const updatePersona = useCallback(async (traits: PersonaTraits) => {
-    if (agentId === null) return;
+  // Convenience wrapper for updating just description (calls updateAgent with current values)
+  const updateDescription = useCallback(async (description: string, currentTraits: PersonaTraits, currentCopyTrading: boolean) => {
+    await updateAgent({ description, copyTradingEnabled: currentCopyTrading, traits: currentTraits });
+  }, [updateAgent]);
 
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'updatePersonaTraits',
-      args: [
-        agentId,
-        [traits.patience, traits.conviction, traits.contrarian, traits.momentum]
-      ]
-    });
-  }, [agentId, writeContract, addresses]);
+  // Convenience wrapper for updating just persona traits
+  const updatePersona = useCallback(async (traits: PersonaTraits, currentDescription: string, currentCopyTrading: boolean) => {
+    await updateAgent({ description: currentDescription, copyTradingEnabled: currentCopyTrading, traits });
+  }, [updateAgent]);
 
-  // Toggle copy trading
-  const toggleCopyTrading = useCallback(async (enabled: boolean) => {
-    if (agentId === null) return;
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'setCopyTradingEnabled',
-      args: [agentId, enabled]
-    });
-  }, [agentId, writeContract, addresses]);
-
-  // Update copy trade fee
-  const updateCopyTradeFee = useCallback(async (feeBps: number) => {
-    if (agentId === null) return;
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'setCopyTradeFee',
-      args: [agentId, feeBps]
-    });
-  }, [agentId, writeContract, addresses]);
+  // Convenience wrapper for toggling copy trading
+  const toggleCopyTrading = useCallback(async (enabled: boolean, currentDescription: string, currentTraits: PersonaTraits) => {
+    await updateAgent({ description: currentDescription, copyTradingEnabled: enabled, traits: currentTraits });
+  }, [updateAgent]);
 
   return {
+    updateAgent,
     updateDescription,
     updatePersona,
     toggleCopyTrading,
-    updateCopyTradeFee,
     isPending,
     isConfirming,
     isSuccess,

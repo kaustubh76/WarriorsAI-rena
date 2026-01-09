@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
-import { chainsToContracts, warriorsNFTAbi } from '../constants';
+import { chainsToContracts, warriorsNFTAbi, getStorageApiUrl } from '../constants';
+import { logger } from '../lib/logger';
 
 interface WarriorsTraits {
   strength: number;
@@ -28,12 +29,12 @@ interface UserWarriors {
 const metadataCache = new Map<string, any>();
 
 // 0G Storage service configuration - use environment variable
-const ZG_STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+const ZG_STORAGE_API_URL = getStorageApiUrl();
 
 // Function to clear cache for debugging/testing
 const clearMetadataCache = () => {
   metadataCache.clear();
-  console.log('🗑️ Metadata cache cleared');
+  logger.debug('Metadata cache cleared');
 };
 
 // Helper function to convert IPFS URI or 0G root hash to proper image URL
@@ -71,8 +72,8 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  */
 const fetchMetadataFrom0G = async (rootHash: string, tokenId?: string): Promise<any | null> => {
   try {
-    console.log(`🔗 Token ${tokenId || 'unknown'}: Fetching metadata from 0G Storage`);
-    console.log(`🔑 Root Hash: ${rootHash}`);
+    logger.debug(`🔗 Token ${tokenId || 'unknown'}: Fetching metadata from 0G Storage`);
+    logger.debug(`🔑 Root Hash: ${rootHash}`);
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -91,12 +92,12 @@ const fetchMetadataFrom0G = async (rootHash: string, tokenId?: string): Promise<
     }
     
     const metadata = await response.json();
-    console.log(`✅ Token ${tokenId || 'unknown'}: Successfully fetched metadata from 0G Storage`);
+    logger.debug(`✅ Token ${tokenId || 'unknown'}: Successfully fetched metadata from 0G Storage`);
     
     return metadata;
     
   } catch (error) {
-    console.error(`❌ Token ${tokenId || 'unknown'}: 0G Storage fetch failed:`, error instanceof Error ? error.message : 'Unknown error');
+    logger.error(`❌ Token ${tokenId || 'unknown'}: 0G Storage fetch failed:`, error instanceof Error ? error.message : 'Unknown error');
     return null;
   }
 };
@@ -106,7 +107,7 @@ const fetchMetadataFrom0G = async (rootHash: string, tokenId?: string): Promise<
  */
 const fetchMetadataFromIPFS = async (tokenURI: string, tokenId?: string): Promise<any | null> => {
   if (!tokenURI.startsWith('ipfs://')) {
-    console.log('Not an IPFS URL:', tokenURI);
+    logger.debug('Not an IPFS URL:', tokenURI);
     return null;
   }
 
@@ -128,7 +129,7 @@ const fetchMetadataFromIPFS = async (tokenURI: string, tokenId?: string): Promis
     const httpUrl = `${gateway.url}${cid}`;
     
     try {
-      console.log(`🌐 Token ${tokenId || 'unknown'}: Attempt ${i + 1}/${gateways.length} - Fetching from IPFS ${gateway.name}`);
+      logger.debug(`🌐 Token ${tokenId || 'unknown'}: Attempt ${i + 1}/${gateways.length} - Fetching from IPFS ${gateway.name}`);
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), gateway.timeout);
@@ -149,7 +150,7 @@ const fetchMetadataFromIPFS = async (tokenURI: string, tokenId?: string): Promis
       }
       
       const metadata = await response.json();
-      console.log(`✅ Token ${tokenId || 'unknown'}: Success with IPFS ${gateway.name}`);
+      logger.debug(`✅ Token ${tokenId || 'unknown'}: Success with IPFS ${gateway.name}`);
       
       // Validate metadata structure
       if (!metadata || typeof metadata !== 'object' || (!metadata.name && !metadata.title)) {
@@ -160,7 +161,7 @@ const fetchMetadataFromIPFS = async (tokenURI: string, tokenId?: string): Promis
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.warn(`❌ Token ${tokenId || 'unknown'}: IPFS Gateway ${gateway.name} failed:`, errorMessage);
+      logger.warn(`❌ Token ${tokenId || 'unknown'}: IPFS Gateway ${gateway.name} failed:`, errorMessage);
       
       // Add delay before trying next gateway to avoid rate limiting
       if (i < gateways.length - 1) {
@@ -178,7 +179,7 @@ const fetchMetadataFromIPFS = async (tokenURI: string, tokenId?: string): Promis
 const fetchMetadata = async (tokenURI: string, tokenId?: string): Promise<any | null> => {
   // Check cache first
   if (metadataCache.has(tokenURI)) {
-    console.log(`📦 Token ${tokenId || 'unknown'}: Using cached metadata`);
+    logger.debug(`📦 Token ${tokenId || 'unknown'}: Using cached metadata`);
     return metadataCache.get(tokenURI);
   }
 
@@ -186,17 +187,17 @@ const fetchMetadata = async (tokenURI: string, tokenId?: string): Promise<any | 
 
   // Check if tokenURI is a 0G root hash (starts with 0x)
   if (tokenURI.startsWith('0x')) {
-    console.log(`🔗 Token ${tokenId || 'unknown'}: Detected 0G root hash format`);
+    logger.debug(`🔗 Token ${tokenId || 'unknown'}: Detected 0G root hash format`);
     metadata = await fetchMetadataFrom0G(tokenURI, tokenId);
   } 
   // Check if tokenURI is an IPFS CID
   else if (tokenURI.startsWith('ipfs://') || tokenURI.includes('/ipfs/')) {
-    console.log(`🔗 Token ${tokenId || 'unknown'}: Detected IPFS format`);
+    logger.debug(`🔗 Token ${tokenId || 'unknown'}: Detected IPFS format`);
     metadata = await fetchMetadataFromIPFS(tokenURI, tokenId);
   }
   // Try both methods if format is unclear
   else {
-    console.log(`🔗 Token ${tokenId || 'unknown'}: Unclear format, trying 0G first then IPFS`);
+    logger.debug(`🔗 Token ${tokenId || 'unknown'}: Unclear format, trying 0G first then IPFS`);
     metadata = await fetchMetadataFrom0G(tokenURI, tokenId);
     if (!metadata) {
       metadata = await fetchMetadataFromIPFS(tokenURI, tokenId);
@@ -205,7 +206,7 @@ const fetchMetadata = async (tokenURI: string, tokenId?: string): Promise<any | 
 
   // If all methods failed, create fallback metadata
   if (!metadata) {
-    console.log(`🔄 Token ${tokenId || 'unknown'}: All storage methods failed, using fallback metadata`);
+    logger.debug(`🔄 Token ${tokenId || 'unknown'}: All storage methods failed, using fallback metadata`);
     
     // Create more realistic fallback data based on tokenId
     const fallbackTokenId = tokenId || tokenURI.slice(-3);
@@ -247,7 +248,7 @@ const rankingToString = (ranking: number): 'unranked' | 'bronze' | 'silver' | 'g
   }
 };
 
-export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) => {
+export const useUserNFTs = (isActive: boolean = false, chainId: number = getChainId()) => {
   const { address: connectedAddress } = useAccount();
 
   const [userNFTs, setUserNFTs] = useState<UserWarriors[]>([]);
@@ -268,14 +269,14 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
 
   // Debug logging (only when params change)
   if (hasParamsChanged) {
-    console.log('useUserNFTs - chainId:', chainId, 'isActive:', isActive, 'connectedAddress:', connectedAddress);
+    logger.debug('useUserNFTs - chainId:', chainId, 'isActive:', isActive, 'connectedAddress:', connectedAddress);
     lastParamsRef.current = stableParams.key;
   }
 
   // Get contract address for the current chain
   const contractAddress = chainsToContracts[chainId]?.warriorsNFT;
   if (hasParamsChanged) {
-    console.log('useUserNFTs - contractAddress for chain', chainId, ':', contractAddress);
+    logger.debug('useUserNFTs - contractAddress for chain', chainId, ':', contractAddress);
   }
 
   // Read user's NFT token IDs
@@ -292,7 +293,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
   // Function to load detailed NFT data
   const loadNFTDetails = useCallback(async (tokenIds: bigint[]) => {
     if (loadingRef.current) {
-      console.log('🔄 Already loading NFTs, skipping duplicate call');
+      logger.debug('Already loading, skipping');
       return;
     }
 
@@ -303,7 +304,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
 
     const tokenIdsString = tokenIds.map(id => id.toString()).join(',');
     if (lastTokenIdsRef.current === tokenIdsString) {
-      console.log('🔄 Same token IDs as last load, skipping');
+      logger.debug('Token IDs unchanged, skipping reload');
       return;
     }
 
@@ -312,7 +313,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
     setIsLoadingNFTs(true);
 
     if (!contractAddress) {
-      console.error(`Contract address not found for chain ${chainId}`);
+      logger.error(`Contract address not found for chain ${chainId}`);
       setUserNFTs([]);
       loadingRef.current = false;
       return;
@@ -328,7 +329,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
         const tokenId = tokenIds[index];
         
         try {
-          console.log(`🔄 Processing NFT ${index + 1}/${tokenIds.length}: Token ID ${tokenId}`);
+          logger.debug(`🔄 Processing NFT ${index + 1}/${tokenIds.length}: Token ID ${tokenId}`);
           
           // Create parallel requests for contract data (this is fine since it's our own API)
           const [encryptedURIResponse, traitsResponse, rankingResponse, winningsResponse] = await Promise.allSettled([
@@ -419,32 +420,32 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
           const tokenURI = encryptedURI;
 
           // Log the responses for debugging
-          console.log(`📄 Token ${tokenId} contract data loaded`);
-          console.log(`🔍 Token ${tokenId}: Encrypted URI: "${encryptedURI}"`);
-          console.log(`🎯 Token ${tokenId}: Using URI: "${tokenURI}"`);
+          logger.debug(`📄 Token ${tokenId} contract data loaded`);
+          logger.debug(`🔍 Token ${tokenId}: Encrypted URI: "${encryptedURI}"`);
+          logger.debug(`🎯 Token ${tokenId}: Using URI: "${tokenURI}"`);
 
           // Check for errors in responses
           if (encryptedURIResponse.status === 'rejected') {
-            console.error(`Failed to get encryptedURI for ${tokenId}:`, encryptedURIResponse.reason);
+            logger.error(`Failed to get encryptedURI for ${tokenId}:`, encryptedURIResponse.reason);
           }
           if (traitsResponse.status === 'rejected') {
-            console.error(`Failed to get traits for ${tokenId}:`, traitsResponse.reason);
+            logger.error(`Failed to get traits for ${tokenId}:`, traitsResponse.reason);
           }
           if (rankingResponse.status === 'rejected') {
-            console.error(`Failed to get ranking for ${tokenId}:`, rankingResponse.reason);
+            logger.error(`Failed to get ranking for ${tokenId}:`, rankingResponse.reason);
           }
           if (winningsResponse.status === 'rejected') {
-            console.error(`Failed to get winnings for ${tokenId}:`, winningsResponse.reason);
+            logger.error(`Failed to get winnings for ${tokenId}:`, winningsResponse.reason);
           }
 
           // Fetch metadata from 0G Storage or IPFS if we have a tokenURI
           let metadata = null;
           if (tokenURI) {
-            console.log(`🔍 Fetching metadata for token ${tokenId} from:`, tokenURI);
+            logger.debug(`🔍 Fetching metadata for token ${tokenId} from:`, tokenURI);
             metadata = await fetchMetadata(tokenURI, tokenId.toString());
-            console.log(`📋 Metadata for token ${tokenId}:`, metadata);
+            logger.debug(`📋 Metadata for token ${tokenId}:`, metadata);
           } else {
-            console.warn(`⚠️ No tokenURI found for token ${tokenId}`);
+            logger.warn(`⚠️ No tokenURI found for token ${tokenId}`);
           }
 
           // Parse traits from contract (convert from uint16 with 2 decimal precision)
@@ -489,7 +490,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
           };
 
           nftResults.push(userWarriors);
-          console.log(`✅ Completed processing NFT ${index + 1}/${tokenIds.length}:`, userWarriors.name);
+          logger.debug(`✅ Completed processing NFT ${index + 1}/${tokenIds.length}:`, userWarriors.name);
 
           // Add a small delay between processing NFTs to avoid overwhelming IPFS gateways
           if (index < tokenIds.length - 1) {
@@ -497,7 +498,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
           }
 
         } catch (error) {
-          console.error(`Error loading details for NFT ${tokenId}:`, error);
+          logger.error(`Error loading details for NFT ${tokenId}:`, error);
           
           // Return a basic object even if there's an error
           const errorWarriors: UserWarriors = {
@@ -529,11 +530,11 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
         }
       }
 
-      console.log('✅ Loaded all detailed NFT data:', nftResults);
+      logger.debug('NFT loading completed', nftResults);
       setUserNFTs(nftResults);
 
     } catch (error) {
-      console.error('Error loading NFT details:', error);
+      logger.error('Error loading NFT details', error);
       setUserNFTs([]);
     } finally {
       setIsLoadingNFTs(false);
@@ -582,15 +583,15 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = 545) =>
       }
     },
     debugState: () => {
-      console.log('🐛 DEBUG STATE:');
-      console.log('- userNFTs count:', userNFTs.length);
-      console.log('- isLoadingNFTs:', isLoadingNFTs);
-      console.log('- tokenIdsError:', tokenIdsError);
-      console.log('- userTokenIds:', userTokenIds);
-      console.log('- cache size:', metadataCache.size);
-      console.log('- cached keys:', Array.from(metadataCache.keys()));
+      logger.debug('DEBUG STATE:');
+      logger.debug('- userNFTs count:', userNFTs.length);
+      logger.debug('- isLoadingNFTs:', isLoadingNFTs);
+      logger.debug('- tokenIdsError:', tokenIdsError);
+      logger.debug('- userTokenIds:', userTokenIds);
+      logger.debug('- cache size:', metadataCache.size);
+      logger.debug('- cached keys:', Array.from(metadataCache.keys()));
       userNFTs.forEach((nft, index) => {
-        console.log(`- NFT ${index + 1}: ${nft.name} (Token ${nft.tokenId})`);
+        logger.debug(`- NFT ${index + 1}: ${nft.name} (Token ${nft.tokenId})`);
       });
     }
   };
