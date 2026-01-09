@@ -4,10 +4,19 @@ import React from 'react';
 import { type PersonaTraits } from '@/services/aiAgentService';
 
 interface PersonaTraitsCardProps {
-  traits: PersonaTraits;
+  traits?: PersonaTraits;
 }
 
+const defaultTraits: PersonaTraits = {
+  patience: 50,
+  conviction: 50,
+  contrarian: 50,
+  momentum: 50,
+};
+
 export function PersonaTraitsCard({ traits }: PersonaTraitsCardProps) {
+  const safeTraits = traits ?? defaultTraits;
+
   return (
     <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
       <h3 className="text-lg font-semibold text-white mb-6">Persona Traits</h3>
@@ -15,7 +24,7 @@ export function PersonaTraitsCard({ traits }: PersonaTraitsCardProps) {
       <div className="space-y-6">
         <TraitBar
           label="Patience"
-          value={traits.patience}
+          value={safeTraits.patience}
           icon=""
           description="Willingness to wait for optimal entry points"
           lowLabel="Aggressive"
@@ -23,7 +32,7 @@ export function PersonaTraitsCard({ traits }: PersonaTraitsCardProps) {
         />
         <TraitBar
           label="Conviction"
-          value={traits.conviction}
+          value={safeTraits.conviction}
           icon=""
           description="Position sizing based on confidence"
           lowLabel="Cautious"
@@ -31,7 +40,7 @@ export function PersonaTraitsCard({ traits }: PersonaTraitsCardProps) {
         />
         <TraitBar
           label="Contrarian"
-          value={traits.contrarian}
+          value={safeTraits.contrarian}
           icon=""
           description="Tendency to bet against crowd consensus"
           lowLabel="Follows Crowd"
@@ -39,7 +48,7 @@ export function PersonaTraitsCard({ traits }: PersonaTraitsCardProps) {
         />
         <TraitBar
           label="Momentum"
-          value={traits.momentum}
+          value={safeTraits.momentum}
           icon=""
           description="Following recent trends vs mean reversion"
           lowLabel="Reversal"
@@ -50,7 +59,7 @@ export function PersonaTraitsCard({ traits }: PersonaTraitsCardProps) {
       {/* Trait Summary */}
       <div className="mt-6 pt-6 border-t border-gray-700">
         <p className="text-sm text-gray-400">
-          {getTraitSummary(traits)}
+          {getTraitSummary(safeTraits)}
         </p>
       </div>
     </div>

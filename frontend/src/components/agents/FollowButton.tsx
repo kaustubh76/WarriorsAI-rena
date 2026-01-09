@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
-import { useCopyTrade, useCopyTradeConfig } from '@/hooks/useCopyTrade';
-import { useIsFollowing } from '@/hooks/useAgents';
+import { useCopyTrade } from '@/hooks/useCopyTrade';
+import { useIsFollowing, useAgent } from '@/hooks/useAgents';
 
 interface FollowButtonProps {
   agentId: bigint;
@@ -11,25 +11,89 @@ interface FollowButtonProps {
 }
 
 export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const { isFollowing, loading: followingLoading } = useIsFollowing(agentId);
-  const { follow, unfollow, isPending, isConfirming, isSuccess } = useCopyTrade(agentId);
+  const { agent, loading: agentLoading } = useAgent(agentId);
+  const { follow, unfollow, isPending, isConfirming, error } = useCopyTrade(agentId);
   const [showModal, setShowModal] = useState(false);
   const [maxAmount, setMaxAmount] = useState('100');
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Check if user is the operator (cannot follow own agent)
+  const isOwnAgent = agent?.operator?.toLowerCase() === address?.toLowerCase();
+  // Check if copy trading is enabled on the agent (default to true while loading to not block UI)
+  const copyTradingEnabled = agentLoading ? true : (agent?.copyTradingEnabled ?? true);
+
+  // Clear local error when modal closes
+  useEffect(() => {
+    if (!showModal) {
+      setLocalError(null);
+    }
+  }, [showModal]);
+
+  // Handle transaction errors
+  useEffect(() => {
+    if (error) {
+      const errorMessage = error.message || String(error);
+      if (errorMessage.includes('CopyTradingDisabled')) {
+        setLocalError('This agent does not have copy trading enabled.');
+      } else if (errorMessage.includes('CannotFollowSelf')) {
+        setLocalError('You cannot follow your own agent.');
+      } else if (errorMessage.includes('AlreadyFollowing')) {
+        setLocalError('You are already following this agent.');
+      } else if (errorMessage.includes('InsufficientStake')) {
+        setLocalError('Insufficient stake to perform this action.');
+      } else if (errorMessage.includes('user rejected') || errorMessage.includes('User denied')) {
+        setLocalError('Transaction was cancelled.');
+      } else {
+        setLocalError('Transaction failed. Please try again.');
+      }
+    }
+  }, [error]);
 
   const handleFollow = async () => {
+    setLocalError(null);
+
+    // Only block if we're sure it's own agent (agent data is loaded)
+    if (!agentLoading && isOwnAgent) {
+      setLocalError('You cannot follow your own agent.');
+      return;
+    }
+
+    // Only show warning if we're sure copy trading is disabled (agent data is loaded)
+    if (!agentLoading && !agent?.copyTradingEnabled) {
+      setLocalError('This agent does not have copy trading enabled.');
+      return;
+    }
+
     if (!isFollowing) {
       setShowModal(true);
     } else {
-      await unfollow();
-      onSuccess?.();
+      try {
+        await unfollow();
+        onSuccess?.();
+      } catch (err) {
+        console.error('Error unfollowing agent:', err);
+      }
     }
   };
 
   const handleConfirmFollow = async () => {
-    await follow(maxAmount);
-    setShowModal(false);
-    onSuccess?.();
+    setLocalError(null);
+
+    const amount = parseFloat(maxAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setLocalError('Please enter a valid amount greater than 0.');
+      return;
+    }
+
+    try {
+      await follow(maxAmount);
+      setShowModal(false);
+      onSuccess?.();
+    } catch (err) {
+      console.error('Error following agent:', err);
+    }
   };
 
   if (!isConnected) {
@@ -43,16 +107,27 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
     );
   }
 
-  const isLoading = isPending || isConfirming || followingLoading;
+  const isLoading = isPending || isConfirming || followingLoading || agentLoading;
+  // Only disable if we're sure about the conditions (agent data is loaded)
+  const isDisabled = isLoading || (!agentLoading && isOwnAgent) || (!agentLoading && !isFollowing && !agent?.copyTradingEnabled);
+
+  const getButtonTitle = (): string => {
+    if (!agentLoading && isOwnAgent) return 'You cannot follow your own agent';
+    if (!agentLoading && !agent?.copyTradingEnabled && !isFollowing) return 'Copy trading is not enabled for this agent';
+    return '';
+  };
 
   return (
-    <>
+    <div className="relative">
       <button
         onClick={handleFollow}
-        disabled={isLoading}
+        disabled={isDisabled}
+        title={getButtonTitle()}
         className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
           isFollowing
             ? 'bg-gray-700 text-white hover:bg-red-500/20 hover:text-red-400 hover:border-red-500 border border-gray-600'
+            : isDisabled
+            ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
             : 'bg-purple-600 text-white hover:bg-purple-500'
         } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
@@ -83,7 +158,12 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
         )}
       </button>
 
-      {/* Follow Modal */}
+      {localError && !showModal && (
+        <div className="absolute top-full left-0 right-0 mt-2 p-2 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-xs text-center whitespace-nowrap">
+          {localError}
+        </div>
+      )}
+
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full mx-4 border border-gray-700">
@@ -102,12 +182,21 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
               <input
                 type="number"
                 value={maxAmount}
-                onChange={(e) => setMaxAmount(e.target.value)}
+                onChange={(e) => {
+                  setMaxAmount(e.target.value);
+                  setLocalError(null);
+                }}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500"
                 placeholder="100"
                 min="1"
               />
             </div>
+
+            {localError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+                {localError}
+              </div>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -127,7 +216,7 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 

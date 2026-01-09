@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatEther, parseEther } from 'viem';
 import { useAccount } from 'wagmi';
-import { useTrade, usePosition, useTokenBalance, useMarketPrice } from '@/hooks/useMarkets';
+import { useTrade, usePosition, useTokenBalance, useMarketPrice, clearMarketCache } from '@/hooks/useMarkets';
 import { type Market, MarketStatus } from '@/services/predictionMarketService';
 
 interface TradePanelProps {
@@ -18,7 +18,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   const { address, isConnected } = useAccount();
   const { position, hasPosition, refetch: refetchPosition } = usePosition(market.id);
   const { balance, balanceFormatted, allowance, refetch: refetchBalance } = useTokenBalance();
-  const { yesProbability, noProbability } = useMarketPrice(market.id);
+  const { yesProbability, noProbability, refetch: refetchPrice } = useMarketPrice(market.id);
 
   const [mode, setMode] = useState<TradeMode>('buy');
   const [selectedOutcome, setSelectedOutcome] = useState<Outcome>('yes');
@@ -48,15 +48,21 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
     }
   }, [amount, selectedOutcome, getQuote]);
 
-  // Refetch balances and positions after successful trade
+  // Refetch ALL data after successful trade - clear cache first for fresh reads
   useEffect(() => {
     if (isSuccess) {
+      // Clear RPC cache to ensure fresh blockchain data
+      clearMarketCache();
+
+      // Immediately refetch all market data
       refetchBalance();
       refetchPosition();
+      refetchPrice(); // Force immediate price update
+
       setAmount('');
       onTradeComplete?.();
     }
-  }, [isSuccess, refetchBalance, refetchPosition, onTradeComplete]);
+  }, [isSuccess, refetchBalance, refetchPosition, refetchPrice, onTradeComplete]);
 
   const handleAmountChange = (value: string) => {
     // Only allow valid number input
@@ -70,27 +76,38 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
       setAmount(balanceFormatted);
     } else {
       // For selling, set max to user's share balance
-      const shares = selectedOutcome === 'yes' ? position?.yesShares : position?.noShares;
+      const shares = selectedOutcome === 'yes' ? position?.yesTokens : position?.noTokens;
       if (shares) {
         setAmount(formatEther(shares));
       }
     }
   };
 
-  const needsApproval = mode === 'buy' && amount && parseEther(amount) > allowance;
+  // Check if approval is needed - safely parse amount to avoid errors
+  const needsApproval = mode === 'buy' && amount && parseFloat(amount) > 0 && parseEther(amount) > allowance;
 
   const handleTrade = async () => {
-    if (!amount || parseFloat(amount) <= 0) return;
-
-    if (needsApproval) {
-      await approveTokens(amount);
+    if (!amount || parseFloat(amount) <= 0) {
+      console.log('Trade aborted: invalid amount', amount);
       return;
     }
 
-    if (mode === 'buy') {
-      await buy(selectedOutcome === 'yes', amount, slippage * 100);
-    } else {
-      await sell(selectedOutcome === 'yes', amount, slippage * 100);
+    try {
+      if (needsApproval) {
+        console.log('Approving tokens:', amount);
+        await approveTokens(amount);
+        return;
+      }
+
+      if (mode === 'buy') {
+        console.log('Buying', selectedOutcome, 'with amount:', amount, 'slippage:', slippage);
+        await buy(selectedOutcome === 'yes', amount, slippage * 100);
+      } else {
+        console.log('Selling', selectedOutcome, 'shares:', amount, 'slippage:', slippage);
+        await sell(selectedOutcome === 'yes', amount, slippage * 100);
+      }
+    } catch (err) {
+      console.error('Trade error:', err);
     }
   };
 
@@ -98,12 +115,15 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
     if (!isConnected) return 'Connect Wallet';
     if (isPending) return 'Confirm in Wallet...';
     if (isConfirming) return 'Processing...';
+    if (quoteLoading) return 'Getting quote...';
     if (needsApproval) return 'Approve CRwN';
+    if (mode === 'buy' && !quote && amount && parseFloat(amount) > 0) return 'Getting quote...';
     if (mode === 'buy') return `Buy ${selectedOutcome.toUpperCase()}`;
     return `Sell ${selectedOutcome.toUpperCase()}`;
   };
 
-  const canTrade = isConnected && isActive && amount && parseFloat(amount) > 0 && !isTrading;
+  // For buy mode, also require a valid quote
+  const canTrade = isConnected && isActive && amount && parseFloat(amount) > 0 && !isTrading && !quoteLoading && (mode === 'sell' || quote !== null);
 
   return (
     <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
@@ -203,7 +223,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
           )}
           {mode === 'sell' && position && (
             <div className="text-sm text-gray-500 mt-1">
-              Available: {formatEther(selectedOutcome === 'yes' ? position.yesShares : position.noShares)} shares
+              Available: {formatEther(selectedOutcome === 'yes' ? position.yesTokens : position.noTokens)} shares
             </div>
           )}
         </div>
@@ -264,7 +284,14 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
         {/* Error Display */}
         {error && (
           <div className="text-red-400 text-sm p-3 bg-red-500/10 rounded-lg">
-            {error.message}
+            {error.message || 'Transaction failed. Please try again.'}
+          </div>
+        )}
+
+        {/* Success Message */}
+        {isSuccess && (
+          <div className="text-green-400 text-sm p-3 bg-green-500/10 rounded-lg">
+            Trade successful! Data refreshing...
           </div>
         )}
 
@@ -290,11 +317,11 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-green-400">YES:</span>{' '}
-                <span className="text-white">{formatEther(position.yesShares)}</span>
+                <span className="text-white">{formatEther(position.yesTokens)}</span>
               </div>
               <div>
                 <span className="text-red-400">NO:</span>{' '}
-                <span className="text-white">{formatEther(position.noShares)}</span>
+                <span className="text-white">{formatEther(position.noTokens)}</span>
               </div>
             </div>
           </div>

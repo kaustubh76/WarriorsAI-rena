@@ -5,6 +5,7 @@ import { useAccount, useBalance, useReadContract, useEnsName } from "wagmi"
 import { useState, useEffect } from "react"
 import { chainsToContracts, crownTokenAbi } from "../constants"
 import { formatEther } from "viem"
+import { ZeroGStatusCompact } from "@/components/0g/ZeroGStatusCompact"
 
 const Header: React.FC = () => {
   const { address, isConnected, chainId } = useAccount();
@@ -123,6 +124,11 @@ const Header: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-6">
+            {/* 0G Network Status */}
+            {isMounted && (
+              <ZeroGStatusCompact />
+            )}
+
             {/* CRWN Token Balance */}
             {isMounted && isConnected && (
               <div className="arcade-card-slate px-4 py-2 bg-slate-900/20 border-slate-500">
@@ -139,7 +145,7 @@ const Header: React.FC = () => {
                 </div>
               </div>
             )}
-            
+
             <div className="connect-button-wrapper-slate">
               <ConnectButton.Custom>
                 {({

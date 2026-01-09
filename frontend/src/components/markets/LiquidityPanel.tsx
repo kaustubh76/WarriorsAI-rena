@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatEther, parseEther } from 'viem';
 import { useAccount } from 'wagmi';
-import { useLiquidity, usePosition, useTokenBalance } from '@/hooks/useMarkets';
+import { useLiquidity, usePosition, useTokenBalance, clearMarketCache } from '@/hooks/useMarkets';
 import { type Market, MarketStatus } from '@/services/predictionMarketService';
 
 interface LiquidityPanelProps {
@@ -34,12 +34,16 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
   const isProcessing = isPending || isConfirming;
   const hasLiquidity = position && position.lpShares > BigInt(0);
 
-  // Refetch after successful transaction
+  // Refetch ALL data after successful transaction - clear cache first
   useEffect(() => {
     if (isSuccess) {
+      // Clear RPC cache to ensure fresh blockchain data
+      clearMarketCache();
+      // Refetch local data
       refetchBalance();
       refetchPosition();
       setAmount('');
+      // Trigger parent refresh for all market data
       onComplete?.();
     }
   }, [isSuccess, refetchBalance, refetchPosition, onComplete]);
@@ -80,7 +84,7 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
 
   // Calculate estimated LP tokens / shares
   const estimatedLpTokens = amount && parseFloat(amount) > 0
-    ? (parseFloat(amount) / parseFloat(formatEther(market.totalLiquidity || BigInt(1)))) * 100
+    ? (parseFloat(amount) / parseFloat(formatEther(market.liquidity || BigInt(1)))) * 100
     : 0;
 
   return (
@@ -126,7 +130,7 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
           <div>
             <span className="text-sm text-gray-400">Pool Liquidity</span>
             <p className="text-white font-medium">
-              {formatEther(market.totalLiquidity)} CRwN
+              {formatEther(market.liquidity)} CRwN
             </p>
           </div>
           <div>

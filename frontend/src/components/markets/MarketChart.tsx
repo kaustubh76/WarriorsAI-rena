@@ -1,14 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { formatEther } from 'viem';
 import { type Market } from '@/services/predictionMarketService';
-import { useMarketPrice } from '@/hooks/useMarkets';
+import { useMarketPrice, useMarketActivity } from '@/hooks/useMarkets';
 
 interface MarketChartProps {
   market: Market;
 }
 
-// Simulated price history data (in production, fetch from events/backend)
+// Price point derived from blockchain events
 interface PricePoint {
   timestamp: number;
   yesPrice: number;
@@ -18,17 +19,17 @@ interface PricePoint {
 type TimeRange = '1h' | '24h' | '7d' | 'all';
 
 export function MarketChart({ market }: MarketChartProps) {
-  const { yesProbability, noProbability } = useMarketPrice(market.id);
+  const { yesProbability, noProbability, loading: priceLoading } = useMarketPrice(market.id);
+  const { activities } = useMarketActivity(market.id);
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
-  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
 
-  // Generate mock price history for visualization
-  // In production, this would come from event logs or a backend
-  useEffect(() => {
+  // Build price history from actual blockchain events
+  // Each trade affects the AMM ratio, so we can derive prices from trading activity
+  const priceHistory = useMemo(() => {
     const now = Date.now();
     const points: PricePoint[] = [];
-    const numPoints = 50;
 
+    // Filter activities by time range
     let rangeMs: number;
     switch (timeRange) {
       case '1h':
@@ -41,58 +42,112 @@ export function MarketChart({ market }: MarketChartProps) {
         rangeMs = 7 * 24 * 60 * 60 * 1000;
         break;
       default:
-        rangeMs = Number(market.endTime) * 1000 - Date.now();
+        // 'all' - use market creation time
+        rangeMs = now - Number(market.createdAt) * 1000;
     }
 
-    const interval = rangeMs / numPoints;
-    let currentYes = 50;
+    const cutoffTime = (now - rangeMs) / 1000;
 
-    for (let i = 0; i < numPoints; i++) {
-      // Random walk for mock data
-      const change = (Math.random() - 0.5) * 5;
-      currentYes = Math.max(5, Math.min(95, currentYes + change));
+    // Get buy/sell activities within time range, sorted by timestamp
+    const relevantActivities = activities
+      .filter(a => (a.type === 'buy' || a.type === 'sell') && a.timestamp >= cutoffTime)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (relevantActivities.length === 0) {
+      // No trading history - show just current price as a single point
+      points.push({
+        timestamp: now,
+        yesPrice: yesProbability,
+        noPrice: noProbability
+      });
+      return points;
+    }
+
+    // Derive price evolution from trading activity
+    // Starting from an assumed 50/50 and moving based on trades
+    let currentYesRatio = 0.5;
+    const totalYes = Number(formatEther(market.yesTokens));
+    const totalNo = Number(formatEther(market.noTokens));
+    const total = totalYes + totalNo;
+
+    // Build price points from each trade
+    for (const activity of relevantActivities) {
+      // Estimate price impact based on trade direction
+      const tradeSize = Number(formatEther(activity.tokens));
+      const impact = tradeSize / (total || 1) * 0.5; // Simplified price impact
+
+      if (activity.type === 'buy') {
+        currentYesRatio = activity.isYes
+          ? Math.min(0.95, currentYesRatio + impact)
+          : Math.max(0.05, currentYesRatio - impact);
+      } else {
+        currentYesRatio = activity.isYes
+          ? Math.max(0.05, currentYesRatio - impact)
+          : Math.min(0.95, currentYesRatio + impact);
+      }
 
       points.push({
-        timestamp: now - rangeMs + interval * i,
-        yesPrice: currentYes,
-        noPrice: 100 - currentYes
+        timestamp: activity.timestamp * 1000,
+        yesPrice: currentYesRatio * 100,
+        noPrice: (1 - currentYesRatio) * 100
       });
     }
 
-    // Add current price as last point
+    // Always add current blockchain price as final point
     points.push({
       timestamp: now,
       yesPrice: yesProbability,
       noPrice: noProbability
     });
 
-    setPriceHistory(points);
-  }, [timeRange, yesProbability, noProbability, market.endTime]);
+    return points;
+  }, [activities, timeRange, yesProbability, noProbability, market.yesTokens, market.noTokens, market.createdAt]);
 
-  const maxPrice = Math.max(...priceHistory.map((p) => Math.max(p.yesPrice, p.noPrice)));
-  const minPrice = Math.min(...priceHistory.map((p) => Math.min(p.yesPrice, p.noPrice)));
+  // Filter out any NaN or invalid values from price history
+  const validPriceHistory = priceHistory.filter(p =>
+    !isNaN(p.yesPrice) && !isNaN(p.noPrice) &&
+    isFinite(p.yesPrice) && isFinite(p.noPrice)
+  );
+
+  const maxPrice = validPriceHistory.length > 0
+    ? Math.max(...validPriceHistory.map((p) => Math.max(p.yesPrice, p.noPrice)))
+    : 100;
+  const minPrice = validPriceHistory.length > 0
+    ? Math.min(...validPriceHistory.map((p) => Math.min(p.yesPrice, p.noPrice)))
+    : 0;
   const priceRange = maxPrice - minPrice || 1;
 
   // SVG path generation for the chart lines
   const generatePath = (data: number[]): string => {
-    if (data.length === 0) return '';
+    // Filter out NaN values and ensure we have valid data
+    const validData = data.filter(v => !isNaN(v) && isFinite(v));
+    if (validData.length === 0) return '';
+    if (validData.length === 1) {
+      // Single point - draw a horizontal line
+      const y = 100 - ((validData[0] - minPrice) / priceRange) * 100;
+      const safeY = isNaN(y) || !isFinite(y) ? 50 : y;
+      return `M 0,${safeY} L 100,${safeY}`;
+    }
 
     const width = 100;
     const height = 100;
-    const points = data.map((value, index) => {
-      const x = (index / (data.length - 1)) * width;
+    const points = validData.map((value, index) => {
+      const x = (index / (validData.length - 1)) * width;
       const y = height - ((value - minPrice) / priceRange) * height;
-      return `${x},${y}`;
+      // Ensure valid numbers
+      const safeX = isNaN(x) || !isFinite(x) ? 0 : x;
+      const safeY = isNaN(y) || !isFinite(y) ? 50 : y;
+      return `${safeX},${safeY}`;
     });
 
     return `M ${points.join(' L ')}`;
   };
 
-  const yesPath = generatePath(priceHistory.map((p) => p.yesPrice));
-  const noPath = generatePath(priceHistory.map((p) => p.noPrice));
+  const yesPath = generatePath(validPriceHistory.map((p) => p.yesPrice));
+  const noPath = generatePath(validPriceHistory.map((p) => p.noPrice));
 
-  const priceChange = priceHistory.length > 1
-    ? yesProbability - priceHistory[0].yesPrice
+  const priceChange = validPriceHistory.length > 1
+    ? yesProbability - validPriceHistory[0].yesPrice
     : 0;
 
   return (
@@ -219,7 +274,7 @@ export function MarketChart({ market }: MarketChartProps) {
 
         {/* X-axis labels */}
         <div className="ml-10 mt-2 flex justify-between text-xs text-gray-500">
-          <span>{formatTimeLabel(priceHistory[0]?.timestamp, timeRange)}</span>
+          <span>{formatTimeLabel(validPriceHistory[0]?.timestamp, timeRange)}</span>
           <span>Now</span>
         </div>
       </div>
@@ -227,24 +282,34 @@ export function MarketChart({ market }: MarketChartProps) {
       {/* Stats Footer */}
       <div className="grid grid-cols-3 gap-4 p-4 bg-gray-800/50 text-sm">
         <div>
-          <span className="text-gray-400 block">24h High</span>
-          <span className="text-white font-medium">
-            {Math.max(...priceHistory.map((p) => p.yesPrice)).toFixed(1)}%
+          <span className="text-gray-400 block">Current YES</span>
+          <span className="text-green-400 font-medium">
+            {yesProbability.toFixed(1)}%
           </span>
         </div>
         <div>
-          <span className="text-gray-400 block">24h Low</span>
-          <span className="text-white font-medium">
-            {Math.min(...priceHistory.map((p) => p.yesPrice)).toFixed(1)}%
+          <span className="text-gray-400 block">Current NO</span>
+          <span className="text-red-400 font-medium">
+            {noProbability.toFixed(1)}%
           </span>
         </div>
         <div>
-          <span className="text-gray-400 block">24h Volume</span>
+          <span className="text-gray-400 block">Total Volume</span>
           <span className="text-white font-medium">
-            {/* Mock volume for now */}
-            {(Math.random() * 1000).toFixed(0)} CRwN
+            {formatEther(market.yesTokens + market.noTokens)} CRwN
           </span>
         </div>
+      </div>
+
+      {/* Data Source Note */}
+      <div className="px-4 pb-3 text-xs text-gray-500 text-center">
+        {priceLoading ? (
+          'Loading prices from blockchain...'
+        ) : activities.length > 0 ? (
+          `Live data from blockchain • ${activities.length} recent trades`
+        ) : (
+          'Live prices from blockchain • No recent trading activity'
+        )}
       </div>
     </div>
   );

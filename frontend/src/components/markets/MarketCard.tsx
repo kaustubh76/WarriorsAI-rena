@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { formatEther } from 'viem';
 import { type Market, MarketStatus, MarketOutcome } from '@/services/predictionMarketService';
 import { useMarketPrice } from '@/hooks/useMarkets';
+import { useMarketVerification } from '@/hooks/useMarketVerification';
+import { VerificationBadge } from '@/components/0g/VerificationBadge';
 
 interface MarketCardProps {
   market: Market;
@@ -17,11 +19,14 @@ export function MarketCard({ market }: MarketCardProps) {
   const isResolved = market.status === MarketStatus.Resolved;
   const isBattleMarket = market.battleId > BigInt(0);
 
+  // Get live verification status from 0G network
+  const verification = useMarketVerification(isBattleMarket);
+
   const endDate = new Date(Number(market.endTime) * 1000);
   const isEnded = endDate < new Date();
   const timeRemaining = getTimeRemaining(endDate);
 
-  const totalVolume = market.totalYesShares + market.totalNoShares;
+  const totalVolume = market.yesTokens + market.noTokens;
 
   return (
     <Link href={`/markets/${market.id.toString()}`}>
@@ -29,11 +34,21 @@ export function MarketCard({ market }: MarketCardProps) {
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
-            {isBattleMarket && (
-              <span className="inline-block px-2 py-1 text-xs font-medium bg-purple-500/20 text-purple-300 rounded-full mb-2">
-                Battle Market
-              </span>
-            )}
+            <div className="flex items-center gap-2 mb-2">
+              {isBattleMarket && (
+                <span className="inline-block px-2 py-1 text-xs font-medium bg-purple-500/20 text-purple-300 rounded-full">
+                  Battle Market
+                </span>
+              )}
+              {isBattleMarket && !verification.isLoading && (
+                <VerificationBadge
+                  isVerified={verification.isVerified}
+                  verificationType={verification.verificationType}
+                  providerAddress={verification.providerAddress}
+                  size="sm"
+                />
+              )}
+            </div>
             <h3 className="text-lg font-semibold text-white group-hover:text-purple-300 transition-colors line-clamp-2">
               {market.question}
             </h3>
@@ -85,7 +100,7 @@ export function MarketCard({ market }: MarketCardProps) {
           <div>
             <span className="text-gray-400">Liquidity</span>
             <p className="text-white font-medium">
-              {formatEther(market.totalLiquidity)} CRwN
+              {formatEther(market.liquidity)} CRwN
             </p>
           </div>
         </div>
@@ -131,16 +146,17 @@ function StatusBadge({ status, outcome }: { status: MarketStatus; outcome: Marke
       </span>
     );
   }
-  if (status === MarketStatus.Paused) {
+  if (status === MarketStatus.Cancelled) {
     return (
-      <span className="px-2 py-1 text-xs font-medium bg-yellow-500/20 text-yellow-400 rounded-full">
-        Paused
+      <span className="px-2 py-1 text-xs font-medium bg-gray-500/20 text-gray-400 rounded-full">
+        Cancelled
       </span>
     );
   }
+  // Unknown status
   return (
-    <span className="px-2 py-1 text-xs font-medium bg-gray-500/20 text-gray-400 rounded-full">
-      Cancelled
+    <span className="px-2 py-1 text-xs font-medium bg-yellow-500/20 text-yellow-400 rounded-full">
+      Unknown
     </span>
   );
 }
@@ -151,8 +167,8 @@ function getOutcomeLabel(outcome: MarketOutcome): string {
       return 'YES';
     case MarketOutcome.No:
       return 'NO';
-    case MarketOutcome.Draw:
-      return 'DRAW';
+    case MarketOutcome.Invalid:
+      return 'INVALID';
     default:
       return 'Pending';
   }
