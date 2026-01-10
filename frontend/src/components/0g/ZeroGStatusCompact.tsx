@@ -169,14 +169,14 @@ export function ZeroGStatusCompact({ className = '' }: ZeroGStatusCompactProps) 
                         {provider.address.slice(0, 6)}...{provider.address.slice(-4)}
                       </span>
                       <span className={`px-1.5 py-0.5 rounded text-xs ${
-                        provider.verifiability === 'teeml'
+                        provider.verifiability?.toLowerCase() === 'teeml'
                           ? 'bg-green-500/20 text-green-400'
-                          : provider.verifiability === 'zkml'
+                          : provider.verifiability?.toLowerCase() === 'zkml'
                           ? 'bg-blue-500/20 text-blue-400'
                           : 'bg-gray-600/20 text-gray-400'
                       }`}>
-                        {provider.verifiability === 'teeml' ? 'TEE' :
-                         provider.verifiability === 'zkml' ? 'ZK' : 'None'}
+                        {provider.verifiability?.toLowerCase() === 'teeml' ? 'TEE' :
+                         provider.verifiability?.toLowerCase() === 'zkml' ? 'ZK' : 'None'}
                       </span>
                     </div>
                     <div className="text-gray-500 mt-1">

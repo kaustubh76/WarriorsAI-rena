@@ -171,14 +171,14 @@ export function ZeroGStatus() {
                         {provider.address.slice(0, 6)}...{provider.address.slice(-4)}
                       </span>
                       <span className={`text-xs px-2 py-0.5 rounded ${
-                        provider.verifiability === 'teeml'
+                        provider.verifiability?.toLowerCase() === 'teeml'
                           ? 'bg-green-500/20 text-green-400'
-                          : provider.verifiability === 'zkml'
+                          : provider.verifiability?.toLowerCase() === 'zkml'
                           ? 'bg-blue-500/20 text-blue-400'
                           : 'bg-gray-600/20 text-gray-400'
                       }`}>
-                        {provider.verifiability === 'teeml' ? 'TEE Verified' :
-                         provider.verifiability === 'zkml' ? 'ZK Verified' : 'Unverified'}
+                        {provider.verifiability?.toLowerCase() === 'teeml' ? 'TEE Verified' :
+                         provider.verifiability?.toLowerCase() === 'zkml' ? 'ZK Verified' : 'Unverified'}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">

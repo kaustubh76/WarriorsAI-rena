@@ -1,8 +1,9 @@
 /**
  * API Route: 0G Storage
- * Server-side battle data storage via 0G Storage Network
+ * Server-side battle data storage via 0G Storage Network (Testnet)
  *
  * Features:
+ * - Direct integration with @0glabs/0g-ts-sdk
  * - Battle data validation
  * - Automatic indexing after storage
  * - Cryptographic integrity verification
@@ -11,6 +12,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+// Dynamic import for 0G SDK (works better with Next.js)
+let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
+let ZgFile: typeof import('@0glabs/0g-ts-sdk').ZgFile;
+
+async function loadSDK() {
+  if (!Indexer || !ZgFile) {
+    const sdk = await import('@0glabs/0g-ts-sdk');
+    Indexer = sdk.Indexer;
+    ZgFile = sdk.ZgFile;
+  }
+}
 
 // Battle data structure for storage
 interface BattleDataIndex {
@@ -66,12 +82,50 @@ interface StoreResponse {
   success: boolean;
   rootHash?: string;
   transactionHash?: string;
-  dataHash?: string;  // Keccak256 hash for integrity verification
+  dataHash?: string;
   message?: string;
   error?: string;
-  indexed?: boolean;  // Whether the battle was indexed for queries
-  cached?: boolean;   // Whether data was cached locally due to storage unavailability
-  warning?: string;   // Warning message for partial success
+  indexed?: boolean;
+  cached?: boolean;
+  warning?: string;
+}
+
+// 0G Storage Configuration (Galileo Testnet)
+const STORAGE_CONFIG = {
+  rpcUrl: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
+  indexerUrl: process.env.NEXT_PUBLIC_0G_STORAGE_INDEXER || 'https://indexer-storage-testnet-turbo.0g.ai',
+  privateKey: process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || ''
+};
+
+// Singleton instances (lazily initialized)
+let indexerInstance: InstanceType<typeof Indexer> | null = null;
+let provider: ethers.JsonRpcProvider | null = null;
+let signer: ethers.Wallet | null = null;
+
+/**
+ * Initialize 0G SDK components
+ */
+async function initializeSDK() {
+  if (!STORAGE_CONFIG.privateKey) {
+    throw new Error('PRIVATE_KEY environment variable is required for 0G Storage');
+  }
+
+  // Load SDK dynamically
+  await loadSDK();
+
+  if (!indexerInstance) {
+    indexerInstance = new Indexer(STORAGE_CONFIG.indexerUrl);
+  }
+
+  if (!provider) {
+    provider = new ethers.JsonRpcProvider(STORAGE_CONFIG.rpcUrl);
+  }
+
+  if (!signer) {
+    signer = new ethers.Wallet(STORAGE_CONFIG.privateKey, provider);
+  }
+
+  return { indexer: indexerInstance, provider, signer };
 }
 
 /**
@@ -86,7 +140,8 @@ function hashData(data: string): string {
  */
 async function indexBattle(rootHash: string, battle: BattleDataIndex): Promise<boolean> {
   try {
-    const response = await fetch(`${STORAGE_CONFIG.apiUrl.replace(':3001', ':3000')}/api/0g/query`, {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const response = await fetch(`${baseUrl}/api/0g/query`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rootHash, battle })
@@ -98,137 +153,235 @@ async function indexBattle(rootHash: string, battle: BattleDataIndex): Promise<b
   }
 }
 
-// 0G Storage Configuration
-const STORAGE_CONFIG = {
-  apiUrl: process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001',
-  indexer: process.env.NEXT_PUBLIC_0G_STORAGE_INDEXER || 'https://indexer-storage-testnet-turbo.0g.ai'
-};
-
-// Local cache for when 0G storage is unavailable (in-memory for now, use Redis in production)
-const localBattleCache = new Map<string, { battle: BattleDataIndex; timestamp: number; dataHash: string }>();
-
 /**
- * Cache battle data locally when 0G storage is unavailable
+ * Check network health
  */
-function cacheBattleLocally(battle: BattleDataIndex, dataHash: string): string {
-  const cacheKey = `local_${battle.battleId}_${Date.now()}`;
-  localBattleCache.set(cacheKey, {
-    battle,
-    timestamp: Date.now(),
-    dataHash
-  });
+async function checkNetworkHealth(): Promise<{
+  healthy: boolean;
+  connectedPeers: number;
+  error?: string;
+}> {
+  try {
+    const { indexer: idx } = await initializeSDK();
+    const [nodeStatus, nodeErr] = await idx.selectNodes(1);
 
-  // Clean up old cache entries (keep last 100)
-  if (localBattleCache.size > 100) {
-    const oldest = Array.from(localBattleCache.entries())
-      .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
-    localBattleCache.delete(oldest[0]);
+    if (nodeErr !== null) {
+      return { healthy: false, connectedPeers: 0, error: String(nodeErr) };
+    }
+
+    return {
+      healthy: nodeStatus.length > 0,
+      connectedPeers: nodeStatus.length,
+      error: nodeStatus.length === 0 ? 'No nodes available' : undefined
+    };
+  } catch (error) {
+    return {
+      healthy: false,
+      connectedPeers: 0,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
-
-  return cacheKey;
 }
 
 /**
- * POST: Store battle data
+ * Upload data to 0G storage
+ */
+async function uploadToZeroG(data: string, filename: string): Promise<{
+  rootHash: string;
+  transactionHash: string;
+}> {
+  const { indexer: idx, signer: sgn } = await initializeSDK();
+
+  // Create temporary file
+  const tempDir = os.tmpdir();
+  const tempFilePath = path.join(tempDir, `0g_upload_${Date.now()}_${filename}`);
+
+  try {
+    // Write data to temp file
+    fs.writeFileSync(tempFilePath, data);
+
+    // Create ZgFile from file path
+    const zgFile = await ZgFile.fromFilePath(tempFilePath);
+    const [tree, treeErr] = await zgFile.merkleTree();
+
+    if (treeErr !== null) {
+      throw new Error(`Error generating Merkle tree: ${treeErr}`);
+    }
+
+    const rootHash = tree?.rootHash() ?? '';
+    console.log(`📁 File prepared: ${filename} (${data.length} bytes)`);
+    console.log(`🔑 Root Hash: ${rootHash}`);
+
+    // Check if file already exists
+    try {
+      const checkPath = path.join(tempDir, `0g_check_${Date.now()}`);
+      const checkErr = await idx.download(rootHash, checkPath, false);
+      if (checkErr === null) {
+        console.log(`✅ File already exists in 0G storage: ${rootHash}`);
+        await zgFile.close();
+        // Clean up check file
+        if (fs.existsSync(checkPath)) fs.unlinkSync(checkPath);
+        return { rootHash, transactionHash: 'existing' };
+      }
+      // Clean up check file if it exists
+      if (fs.existsSync(checkPath)) fs.unlinkSync(checkPath);
+    } catch {
+      // File doesn't exist, proceed with upload
+      console.log('📤 File not found, uploading...');
+    }
+
+    // Upload with retries
+    let uploadResult: { txHash: string; rootHash: string } | null = null;
+    let lastError: Error | null = null;
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🚀 Upload attempt ${attempt}/${maxRetries}`);
+        // Cast signer to satisfy SDK type requirements (ESM/CommonJS type mismatch)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const [result, uploadErr] = await idx.upload(zgFile, STORAGE_CONFIG.rpcUrl, sgn as any);
+
+        if (uploadErr !== null) {
+          throw new Error(`Upload error: ${uploadErr}`);
+        }
+
+        uploadResult = result ?? null;
+        break;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(`❌ Upload attempt ${attempt} failed:`, lastError.message);
+
+        // Check if data already exists
+        if (lastError.message.toLowerCase().includes('data already exists')) {
+          console.log(`✅ File already exists in 0G storage: ${rootHash}`);
+          await zgFile.close();
+          return { rootHash, transactionHash: 'existing' };
+        }
+
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+        }
+      }
+    }
+
+    await zgFile.close();
+
+    if (!uploadResult && lastError) {
+      throw lastError;
+    }
+
+    console.log(`✅ File uploaded successfully: ${uploadResult?.txHash}`);
+    return { rootHash, transactionHash: uploadResult?.txHash || 'unknown' };
+  } finally {
+    // Clean up temp file
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+  }
+}
+
+/**
+ * Download data from 0G storage
+ */
+async function downloadFromZeroG(rootHash: string): Promise<string> {
+  const { indexer: idx } = await initializeSDK();
+
+  const tempDir = os.tmpdir();
+  const tempFilePath = path.join(tempDir, `0g_download_${Date.now()}_${rootHash.substring(0, 8)}`);
+
+  try {
+    const err = await idx.download(rootHash, tempFilePath, true);
+
+    if (err !== null) {
+      throw new Error(`Download error: ${err}`);
+    }
+
+    const data = fs.readFileSync(tempFilePath, 'utf-8');
+    return data;
+  } finally {
+    // Clean up temp file
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+  }
+}
+
+/**
+ * POST: Store battle data on 0G testnet
  */
 export async function POST(request: NextRequest) {
+  // Parse request body
+  let body: StoreRequest;
   try {
-    const body: StoreRequest = await request.json();
-    const { battle } = body;
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'Invalid JSON in request body' },
+      { status: 400 }
+    );
+  }
 
-    // Validate input
-    if (!battle || !battle.battleId) {
-      return NextResponse.json(
-        { success: false, error: 'Battle data with battleId is required' },
-        { status: 400 }
-      );
-    }
+  const { battle } = body;
 
-    // Validate battle structure
-    if (!battle.warriors || battle.warriors.length !== 2) {
-      return NextResponse.json(
-        { success: false, error: 'Battle must have exactly 2 warriors' },
-        { status: 400 }
-      );
-    }
+  // Validate input
+  if (!battle || !battle.battleId) {
+    return NextResponse.json(
+      { success: false, error: 'Battle data with battleId is required' },
+      { status: 400 }
+    );
+  }
 
-    if (!battle.rounds || battle.rounds.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Battle must have at least 1 round' },
-        { status: 400 }
-      );
-    }
+  try {
+    // Check if this is a prediction storage request (has _predictionData)
+    const isPredictionData = !!(battle as any)._predictionData;
 
-    if (!['warrior1', 'warrior2', 'draw'].includes(battle.outcome)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid battle outcome' },
-        { status: 400 }
-      );
+    // Validate battle structure (skip for prediction data)
+    if (!isPredictionData) {
+      if (!battle.warriors || battle.warriors.length !== 2) {
+        return NextResponse.json(
+          { success: false, error: 'Battle must have exactly 2 warriors' },
+          { status: 400 }
+        );
+      }
+
+      if (!battle.rounds || battle.rounds.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Battle must have at least 1 round' },
+          { status: 400 }
+        );
+      }
+
+      if (!['warrior1', 'warrior2', 'draw'].includes(battle.outcome)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid battle outcome' },
+          { status: 400 }
+        );
+      }
     }
 
     // Serialize battle data
     const jsonData = JSON.stringify(battle);
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const file = new File([blob], `battle_${battle.battleId}.json`);
-
-    // Create form data
-    const formData = new FormData();
-    formData.append('file', file);
-
-    // Generate data hash for integrity verification
     const dataHash = hashData(jsonData);
 
-    // Try to upload to 0G storage service
-    let result: { rootHash?: string; transactionHash?: string } = {};
-    let storageAvailable = true;
-
-    try {
-      const response = await fetch(`${STORAGE_CONFIG.apiUrl}/upload`, {
-        method: 'POST',
-        body: formData,
-        signal: AbortSignal.timeout(10000) // 10 second timeout
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.warn(`0G Storage upload failed: ${response.status} - ${errorText}`);
-        storageAvailable = false;
-      } else {
-        result = await response.json();
-      }
-    } catch (uploadError) {
-      console.warn('0G Storage service unavailable:', uploadError);
-      storageAvailable = false;
-    }
-
-    // If storage is unavailable, cache locally with graceful degradation
-    if (!storageAvailable) {
-      const cacheKey = cacheBattleLocally(battle, dataHash);
-
-      const storeResponse: StoreResponse = {
-        success: true,
-        dataHash,
-        message: `Battle ${battle.battleId} cached locally (0G sync pending)`,
-        cached: true,
-        warning: '0G Storage temporarily unavailable. Data cached locally and will sync when service recovers.',
-        rootHash: cacheKey // Use cache key as temporary root hash
-      };
-
-      return NextResponse.json(storeResponse);
-    }
+    // Upload to 0G storage
+    const { rootHash, transactionHash } = await uploadToZeroG(
+      jsonData,
+      `battle_${battle.battleId}.json`
+    );
 
     // Index battle for RAG queries
     let indexed = false;
-    if (result.rootHash) {
-      indexed = await indexBattle(result.rootHash, battle);
+    if (rootHash) {
+      indexed = await indexBattle(rootHash, battle);
     }
 
     const storeResponse: StoreResponse = {
       success: true,
-      rootHash: result.rootHash,
-      transactionHash: result.transactionHash,
+      rootHash,
+      transactionHash,
       dataHash,
-      message: `Battle ${battle.battleId} stored successfully`,
+      message: `Battle ${battle.battleId} stored on 0G testnet`,
       indexed,
       cached: false
     };
@@ -236,36 +389,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(storeResponse);
   } catch (error) {
     console.error('0G Storage error:', error);
-
-    // Even on error, try to cache locally
-    try {
-      const body: StoreRequest = await request.clone().json();
-      const dataHash = hashData(JSON.stringify(body.battle));
-      const cacheKey = cacheBattleLocally(body.battle, dataHash);
-
-      return NextResponse.json({
-        success: true,
-        dataHash,
-        rootHash: cacheKey,
-        message: `Battle ${body.battle.battleId} cached locally after error`,
-        cached: true,
-        warning: `0G Storage error: ${error instanceof Error ? error.message : 'Unknown error'}. Data cached locally.`
-      });
-    } catch {
-      // If even caching fails, return error
-      return NextResponse.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }
 
 /**
- * GET: Retrieve battle data by root hash
+ * GET: Retrieve battle data from 0G storage
  */
 export async function GET(request: NextRequest) {
   try {
@@ -279,27 +414,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Download from 0G storage service
-    const response = await fetch(`${STORAGE_CONFIG.apiUrl}/download/${rootHash}`);
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        return NextResponse.json(
-          { success: false, error: 'Battle data not found' },
-          { status: 404 }
-        );
-      }
-      throw new Error(`Download failed: ${response.statusText}`);
-    }
-
-    // Parse the downloaded data
-    const text = await response.text();
-    const battleData = JSON.parse(text);
+    // Download from 0G storage
+    const data = await downloadFromZeroG(rootHash);
+    const battleData = JSON.parse(data);
 
     return NextResponse.json({
       success: true,
       rootHash,
-      data: battleData
+      data: battleData,
+      cached: false
     });
   } catch (error) {
     console.error('0G Storage download error:', error);
@@ -314,36 +437,33 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * PUT: Update storage status check
+ * PUT: Check 0G storage status
  */
 export async function PUT() {
   try {
-    const response = await fetch(`${STORAGE_CONFIG.apiUrl}/status`);
+    // Initialize SDK to verify configuration
+    await initializeSDK();
 
-    if (!response.ok) {
-      return NextResponse.json({
-        success: true,
-        status: 'unhealthy',
-        timestamp: new Date().toISOString(),
-        apiUrl: STORAGE_CONFIG.apiUrl,
-        indexer: STORAGE_CONFIG.indexer,
-        error: response.statusText
-      });
-    }
-
-    const status = await response.json();
+    // Check network health
+    const health = await checkNetworkHealth();
 
     return NextResponse.json({
       success: true,
-      ...status
+      status: health.healthy ? 'healthy' : 'unhealthy',
+      mode: '0g-network',
+      timestamp: new Date().toISOString(),
+      rpc: STORAGE_CONFIG.rpcUrl,
+      indexer: STORAGE_CONFIG.indexerUrl,
+      network: health
     });
   } catch (error) {
     return NextResponse.json({
-      success: true,
+      success: false,
       status: 'unhealthy',
+      mode: 'error',
       timestamp: new Date().toISOString(),
-      apiUrl: STORAGE_CONFIG.apiUrl,
-      indexer: STORAGE_CONFIG.indexer,
+      rpc: STORAGE_CONFIG.rpcUrl,
+      indexer: STORAGE_CONFIG.indexerUrl,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
