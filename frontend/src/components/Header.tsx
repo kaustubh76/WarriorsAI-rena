@@ -3,9 +3,13 @@
 import { ConnectButton } from "@rainbow-me/rainbowkit"
 import { useAccount, useBalance, useReadContract, useEnsName } from "wagmi"
 import { useState, useEffect } from "react"
-import { chainsToContracts, crownTokenAbi } from "../constants"
+import { chainsToContracts, crownTokenAbi, getZeroGChainId } from "../constants"
 import { formatEther } from "viem"
 import { ZeroGStatusCompact } from "@/components/0g/ZeroGStatusCompact"
+
+// Chain type indicator
+const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602
+const FLOW_TESTNET_ID = 545;
 
 const Header: React.FC = () => {
   const { address, isConnected, chainId } = useAccount();
@@ -64,6 +68,15 @@ const Header: React.FC = () => {
     }
   }, [isConnected, address, contractAddress, refetchBalance]);
 
+  // Determine chain type for visual indicator
+  const getChainType = () => {
+    if (!chainId) return null;
+    if (chainId === ZEROG_CHAIN_ID) return { type: '0G', color: 'purple', label: 'iNFT Chain' };
+    if (chainId === FLOW_TESTNET_ID) return { type: 'Flow', color: 'green', label: 'Game Chain' };
+    return { type: 'Other', color: 'gray', label: 'Unknown' };
+  };
+  const chainType = getChainType();
+
   return (
     <header className="arcade-header-grey">
       <div className="container mx-auto px-6 py-4">
@@ -106,6 +119,12 @@ const Header: React.FC = () => {
                   className="text-gray-300 hover:text-purple-400 transition-colors text-sm font-medium"
                 >
                   Copy Trade
+                </a>
+                <a
+                  href="/portfolio"
+                  className="text-gray-300 hover:text-blue-400 transition-colors text-sm font-medium"
+                >
+                  Portfolio
                 </a>
                 <a
                   href="/creator-dashboard"
@@ -202,11 +221,26 @@ const Header: React.FC = () => {
                         }
 
                         return (
-                          <div style={{ display: 'flex', gap: 12 }}>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                            {/* Chain Type Indicator */}
+                            {chainType && (
+                              <div
+                                className={`px-2 py-1 rounded-md text-xs font-bold ${
+                                  chainType.color === 'purple'
+                                    ? 'bg-purple-900/50 text-purple-300 border border-purple-500/50'
+                                    : chainType.color === 'green'
+                                    ? 'bg-green-900/50 text-green-300 border border-green-500/50'
+                                    : 'bg-gray-900/50 text-gray-300 border border-gray-500/50'
+                                }`}
+                                title={chainType.label}
+                              >
+                                {chainType.type === '0G' ? '🤖 iNFT' : chainType.type === 'Flow' ? '⚔️ Game' : '❓'}
+                              </div>
+                            )}
                             <button
                               onClick={openChainModal}
-                              style={{ 
-                                display: 'flex', 
+                              style={{
+                                display: 'flex',
                                 alignItems: 'center',
                                 borderRadius: '12px !important'
                               }}

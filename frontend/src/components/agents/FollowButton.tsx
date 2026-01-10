@@ -60,8 +60,8 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
       return;
     }
 
-    // Only show warning if we're sure copy trading is disabled (agent data is loaded)
-    if (!agentLoading && !agent?.copyTradingEnabled) {
+    // Only show warning if we're sure copy trading is explicitly disabled (agent data is loaded)
+    if (!agentLoading && agent !== null && agent.copyTradingEnabled === false) {
       setLocalError('This agent does not have copy trading enabled.');
       return;
     }
@@ -108,12 +108,18 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
   }
 
   const isLoading = isPending || isConfirming || followingLoading || agentLoading;
-  // Only disable if we're sure about the conditions (agent data is loaded)
-  const isDisabled = isLoading || (!agentLoading && isOwnAgent) || (!agentLoading && !isFollowing && !agent?.copyTradingEnabled);
+  // Only disable if we're explicitly sure about the conditions:
+  // - If loading, don't disable (show loading state instead)
+  // - If own agent (confirmed), disable
+  // - If copy trading is explicitly disabled (agent loaded and copyTradingEnabled === false), disable
+  // Note: We check agent?.copyTradingEnabled === false specifically, not !agent?.copyTradingEnabled
+  // This allows the button to work when agent data hasn't loaded yet or failed to load
+  const isCopyTradingExplicitlyDisabled = agent !== null && agent.copyTradingEnabled === false;
+  const isDisabled = isLoading || (!agentLoading && isOwnAgent) || (!agentLoading && !isFollowing && isCopyTradingExplicitlyDisabled);
 
   const getButtonTitle = (): string => {
     if (!agentLoading && isOwnAgent) return 'You cannot follow your own agent';
-    if (!agentLoading && !agent?.copyTradingEnabled && !isFollowing) return 'Copy trading is not enabled for this agent';
+    if (!agentLoading && isCopyTradingExplicitlyDisabled && !isFollowing) return 'Copy trading is not enabled for this agent';
     return '';
   };
 

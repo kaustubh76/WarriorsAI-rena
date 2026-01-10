@@ -5,8 +5,6 @@ import Link from 'next/link';
 import { useMarkets } from '@/hooks/useMarkets';
 import { MarketCard } from '@/components/markets/MarketCard';
 import { MarketStatus } from '@/services/predictionMarketService';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 
 type FilterTab = 'all' | 'active' | 'battles' | 'resolved';
 type SortOption = 'volume' | 'liquidity' | 'endTime' | 'newest';
@@ -58,10 +56,7 @@ export default function MarketsPage() {
   const totalLiquidity = markets.reduce((acc, m) => acc + Number(m.liquidity), 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-      <Header />
-
-      <main className="container mx-auto px-4 py-8 max-w-7xl">
+    <main className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Hero Section */}
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
@@ -249,9 +244,6 @@ export default function MarketsPage() {
             </div>
           </div>
         </div>
-      </main>
-
-      <Footer />
-    </div>
+    </main>
   );
 }

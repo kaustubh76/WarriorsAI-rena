@@ -6,8 +6,6 @@ import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { useMarkets, useUserPositions, useTokenBalance } from '@/hooks/useMarkets';
 import { MarketStatus, MarketOutcome, type Market, type Position } from '@/services/predictionMarketService';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 import PortfolioPerformanceChart from '@/components/portfolio/PortfolioPerformanceChart';
 
 type PositionTab = 'active' | 'resolved' | 'liquidity';
@@ -22,17 +20,13 @@ export default function PortfolioPage() {
 
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-        <Header />
-        <div className="container mx-auto px-4 py-20 text-center">
-          <div className="text-6xl mb-6">🔐</div>
-          <h1 className="text-3xl font-bold text-white mb-4">Connect Your Wallet</h1>
-          <p className="text-gray-400 mb-8">
-            Connect your wallet to view your portfolio and positions
-          </p>
-          <w3m-connect-button />
-        </div>
-        <Footer />
+      <div className="container mx-auto px-4 py-20 text-center">
+        <div className="text-6xl mb-6">🔐</div>
+        <h1 className="text-3xl font-bold text-white mb-4">Connect Your Wallet</h1>
+        <p className="text-gray-400 mb-8">
+          Connect your wallet to view your portfolio and positions
+        </p>
+        <w3m-connect-button />
       </div>
     );
   }
@@ -104,10 +98,7 @@ export default function PortfolioPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-      <Header />
-
-      <main className="container mx-auto px-4 py-8 max-w-6xl">
+    <main className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">Portfolio</h1>
@@ -278,10 +269,7 @@ export default function PortfolioPage() {
             </p>
           </Link>
         </div>
-      </main>
-
-      <Footer />
-    </div>
+    </main>
   );
 }
 

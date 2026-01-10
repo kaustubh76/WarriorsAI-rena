@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { formatEther } from 'viem';
 import { type Market } from '@/services/predictionMarketService';
 import { useMarketPrice, useMarketActivity } from '@/hooks/useMarkets';
+import { formatTokenAmount } from '@/utils/format';
 
 interface MarketChartProps {
   market: Market;
@@ -296,7 +297,7 @@ export function MarketChart({ market }: MarketChartProps) {
         <div>
           <span className="text-gray-400 block">Total Volume</span>
           <span className="text-white font-medium">
-            {formatEther(market.yesTokens + market.noTokens)} CRwN
+            {formatTokenAmount(market.yesTokens + market.noTokens)} CRwN
           </span>
         </div>
       </div>

@@ -3,8 +3,6 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 
 type TimeRange = 'daily' | 'weekly' | 'monthly' | 'all';
 type Category = 'profit' | 'winRate' | 'volume' | 'streak';
@@ -57,10 +55,7 @@ export default function LeaderboardPage() {
     : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-      <Header />
-
-      <main className="container mx-auto px-4 py-8 max-w-6xl">
+    <main className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
@@ -346,10 +341,7 @@ export default function LeaderboardPage() {
             Season ends in 23 days. Keep trading to climb the ranks!
           </p>
         </div>
-      </main>
-
-      <Footer />
-    </div>
+    </main>
   );
 }
 

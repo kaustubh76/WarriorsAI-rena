@@ -1,12 +1,10 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
+import { parseEther } from 'viem';
 import { PredictionMarketABI, ERC20ABI } from '@/services/predictionMarketService';
 import { getContracts } from '@/constants';
 import { useTokenBalance } from '@/hooks/useMarkets';
@@ -53,6 +51,16 @@ export default function CreateMarketPage() {
     isLoading: isCreateConfirming,
     isSuccess: isCreateSuccess
   } = useWaitForTransactionReceipt({ hash: createHash });
+
+  // Get next market ID to show after creation
+  const { data: nextMarketId } = useReadContract({
+    address: predictionMarketAddress,
+    abi: PredictionMarketABI,
+    functionName: 'nextMarketId',
+  });
+
+  // The created market ID will be nextMarketId - 1 after creation
+  const createdMarketId = isCreateSuccess && nextMarketId ? Number(nextMarketId) - 1 : null;
 
   // Calculate end time as unix timestamp
   const getEndTimestamp = useCallback(() => {
@@ -110,16 +118,28 @@ export default function CreateMarketPage() {
     }
   }, [isApproveSuccess, step]);
 
-  // Get minimum date (tomorrow)
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
+  // Get minimum date (today - we allow same-day markets as long as end time is 1+ hour away)
+  const today = new Date();
+  const minDate = today.toISOString().split('T')[0];
+
+  // Calculate time until market ends for display
+  const timeUntilEnd = useMemo(() => {
+    const endTs = getEndTimestamp();
+    if (!endTs) return null;
+    const now = Math.floor(Date.now() / 1000);
+    const diff = endTs - now;
+    if (diff <= 0) return 'Already passed';
+    const hours = Math.floor(diff / 3600);
+    const minutes = Math.floor((diff % 3600) / 60);
+    if (hours > 24) {
+      const days = Math.floor(hours / 24);
+      return `${days} day${days > 1 ? 's' : ''} ${hours % 24}h`;
+    }
+    return `${hours}h ${minutes}m`;
+  }, [getEndTimestamp]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-      <Header />
-
-      <main className="container mx-auto px-4 py-8 max-w-2xl">
+    <main className="container mx-auto px-4 py-8 max-w-2xl">
         {/* Breadcrumb */}
         <div className="mb-6">
           <Link href="/markets" className="text-purple-400 hover:text-purple-300">
@@ -157,7 +177,22 @@ export default function CreateMarketPage() {
                 <p className="text-gray-400 mb-4">
                   Your prediction market has been created successfully
                 </p>
-                <p className="text-sm text-gray-500">Redirecting to markets page...</p>
+                {createdMarketId && (
+                  <div className="mb-4">
+                    <Link
+                      href={`/markets/${createdMarketId}`}
+                      className="inline-block px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-lg transition-colors"
+                    >
+                      View Market #{createdMarketId} →
+                    </Link>
+                  </div>
+                )}
+                {createHash && (
+                  <p className="text-xs text-gray-500 font-mono truncate max-w-md mx-auto">
+                    TX: {createHash}
+                  </p>
+                )}
+                <p className="text-sm text-gray-500 mt-4">Redirecting to markets page...</p>
               </div>
             )}
 
@@ -184,7 +219,7 @@ export default function CreateMarketPage() {
                 </div>
 
                 {/* End Date & Time */}
-                <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
                       End Date *
@@ -211,6 +246,12 @@ export default function CreateMarketPage() {
                     />
                   </div>
                 </div>
+                {/* Time until end display */}
+                {timeUntilEnd && (
+                  <p className={`text-sm mb-6 ${timeUntilEnd === 'Already passed' ? 'text-red-400' : 'text-gray-400'}`}>
+                    Market will be active for: <span className="font-medium text-white">{timeUntilEnd}</span>
+                  </p>
+                )}
 
                 {/* Initial Liquidity */}
                 <div className="mb-6">
@@ -247,15 +288,45 @@ export default function CreateMarketPage() {
                   </ul>
                 </div>
 
-                {/* Transaction Status */}
+                {/* Transaction Status - Step Progress */}
                 {step !== 'form' && (
                   <div className="bg-gray-700/50 rounded-lg p-4 mb-6">
+                    {/* Progress Steps */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          isApproveSuccess ? 'bg-green-500 text-white' : 'bg-purple-500 text-white'
+                        }`}>
+                          {isApproveSuccess ? '✓' : '1'}
+                        </div>
+                        <span className={`text-sm ${isApproveSuccess ? 'text-green-400' : 'text-gray-300'}`}>
+                          Approve
+                        </span>
+                      </div>
+                      <div className={`flex-1 h-0.5 mx-2 ${isApproveSuccess ? 'bg-green-500' : 'bg-gray-600'}`} />
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          isCreateSuccess ? 'bg-green-500 text-white' :
+                          isApproveSuccess ? 'bg-purple-500 text-white' : 'bg-gray-600 text-gray-400'
+                        }`}>
+                          {isCreateSuccess ? '✓' : '2'}
+                        </div>
+                        <span className={`text-sm ${
+                          isCreateSuccess ? 'text-green-400' :
+                          isApproveSuccess ? 'text-gray-300' : 'text-gray-500'
+                        }`}>
+                          Create
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Current Action */}
                     <div className="flex items-center gap-3">
                       {(isApprovePending || isApproveConfirming) && (
                         <>
                           <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-purple-500" />
                           <span className="text-gray-300">
-                            {isApprovePending ? 'Approve in wallet...' : 'Confirming approval...'}
+                            {isApprovePending ? 'Approve CRwN spending in wallet...' : 'Confirming approval on-chain...'}
                           </span>
                         </>
                       )}
@@ -263,11 +334,18 @@ export default function CreateMarketPage() {
                         <>
                           <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-purple-500" />
                           <span className="text-gray-300">
-                            {isCreatePending ? 'Confirm in wallet...' : 'Creating market...'}
+                            {isCreatePending ? 'Confirm market creation in wallet...' : 'Creating market on-chain...'}
                           </span>
                         </>
                       )}
                     </div>
+
+                    {/* TX Hashes */}
+                    {approveHash && (
+                      <p className="text-xs text-gray-500 mt-2 font-mono truncate">
+                        Approval TX: {approveHash}
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -323,9 +401,6 @@ export default function CreateMarketPage() {
             </p>
           </div>
         </div>
-      </main>
-
-      <Footer />
-    </div>
+    </main>
   );
 }

@@ -1,14 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAgents, useOfficialAgents, useAgentStats } from '@/hooks/useAgents';
 import { AgentCard } from '@/components/agents';
 import { type AgentFilters, type AgentSortOptions } from '@/services/aiAgentService';
+
+// Agent type filter options
+type AgentTypeFilter = 'all' | 'inft' | 'registry';
 
 export default function AIAgentsPage() {
   const [filters, setFilters] = useState<AgentFilters>({});
   const [sort, setSort] = useState<AgentSortOptions>({ field: 'winRate', direction: 'desc' });
   const [searchQuery, setSearchQuery] = useState('');
+  const [agentTypeFilter, setAgentTypeFilter] = useState<AgentTypeFilter>('all');
 
   const { agents, loading, error, refetch } = useAgents({
     filters: { ...filters, search: searchQuery },
@@ -16,6 +20,19 @@ export default function AIAgentsPage() {
   });
   const { agents: officialAgents, loading: officialLoading } = useOfficialAgents();
   const { totalAgentsNumber, totalStakedFormatted, loading: statsLoading } = useAgentStats();
+
+  // Filter agents by type (iNFT vs Registry)
+  const filteredAgents = useMemo(() => {
+    if (agentTypeFilter === 'all') return agents;
+    return agents.filter(agent => {
+      return agentTypeFilter === 'inft' ? agent.isINFT === true : !agent.isINFT;
+    });
+  }, [agents, agentTypeFilter]);
+
+  // Count iNFT agents
+  const inftCount = useMemo(() => {
+    return agents.filter(agent => agent.isINFT === true).length;
+  }, [agents]);
 
   return (
     <div className="min-h-screen bg-gray-950 pt-24 pb-12">
@@ -29,10 +46,14 @@ export default function AIAgentsPage() {
           </p>
 
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto">
+          <div className="grid grid-cols-4 gap-4 max-w-2xl mx-auto">
             <div className="bg-gray-900 rounded-lg p-4">
               <p className="text-2xl font-bold text-white">{totalAgentsNumber}</p>
               <p className="text-sm text-gray-400">Active Agents</p>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4">
+              <p className="text-2xl font-bold text-purple-400">{inftCount}</p>
+              <p className="text-sm text-gray-400">iNFT Agents</p>
             </div>
             <div className="bg-gray-900 rounded-lg p-4">
               <p className="text-2xl font-bold text-white">{totalStakedFormatted}</p>
@@ -56,7 +77,12 @@ export default function AIAgentsPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {officialAgents.map(agent => (
-                <AgentCard key={agent.id.toString()} agent={agent} />
+                <AgentCard
+                  key={agent.id.toString()}
+                  agent={agent}
+                  isINFT={agent.isINFT === true}
+                  inftTokenId={agent.inftTokenId}
+                />
               ))}
             </div>
           </div>
@@ -122,7 +148,43 @@ export default function AIAgentsPage() {
           </div>
 
           {/* Quick Filters */}
-          <div className="flex gap-2 mt-4">
+          <div className="flex flex-wrap gap-2 mt-4">
+            {/* Agent Type Filter */}
+            <div className="flex bg-gray-800 rounded-full p-0.5">
+              <button
+                onClick={() => setAgentTypeFilter('all')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  agentTypeFilter === 'all'
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setAgentTypeFilter('inft')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  agentTypeFilter === 'inft'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                🤖 iNFT Only
+              </button>
+              <button
+                onClick={() => setAgentTypeFilter('registry')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  agentTypeFilter === 'registry'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                📋 Registry Only
+              </button>
+            </div>
+
+            <div className="w-px bg-gray-700 mx-2" />
+
             <button
               onClick={() => setFilters({ ...filters, onlyCopyTradingEnabled: !filters.onlyCopyTradingEnabled })}
               className={`px-3 py-1 text-sm rounded-full transition-colors ${
@@ -149,8 +211,13 @@ export default function AIAgentsPage() {
         {/* All Agents Grid */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-white">All Agents</h2>
-            <span className="text-gray-400">{agents.length} agents</span>
+            <h2 className="text-xl font-semibold text-white">
+              {agentTypeFilter === 'inft' ? 'iNFT Agents' : agentTypeFilter === 'registry' ? 'Registry Agents' : 'All Agents'}
+            </h2>
+            <span className="text-gray-400">
+              {filteredAgents.length} agent{filteredAgents.length !== 1 ? 's' : ''}
+              {agentTypeFilter !== 'all' && ` (filtered from ${agents.length})`}
+            </span>
           </div>
 
           {loading ? (
@@ -173,14 +240,23 @@ export default function AIAgentsPage() {
                 Retry
               </button>
             </div>
-          ) : agents.length === 0 ? (
+          ) : filteredAgents.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
-              No agents found matching your criteria
+              {agentTypeFilter === 'inft'
+                ? 'No iNFT agents found. Create one on the 0G network!'
+                : agentTypeFilter === 'registry'
+                ? 'No registry agents found matching your criteria'
+                : 'No agents found matching your criteria'}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {agents.map(agent => (
-                <AgentCard key={agent.id.toString()} agent={agent} />
+              {filteredAgents.map(agent => (
+                <AgentCard
+                  key={agent.id.toString()}
+                  agent={agent}
+                  isINFT={agent.isINFT === true}
+                  inftTokenId={agent.inftTokenId}
+                />
               ))}
             </div>
           )}

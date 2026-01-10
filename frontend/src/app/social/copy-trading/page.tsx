@@ -5,12 +5,14 @@ import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import { useFollowingAgents, useAgentStats } from '@/hooks/useAgents';
 import { useCopyTradeConfig } from '@/hooks/useCopyTrade';
+import { useCopyTradePnL, getPnLColorClass } from '@/hooks/useCopyTradePnL';
 import { AgentCard } from '@/components/agents';
 
 export default function CopyTradingPage() {
   const { isConnected } = useAccount();
   const { agents: followingAgents, agentIds, loading, refetch } = useFollowingAgents();
   const { totalAgentsNumber } = useAgentStats();
+  const { totalPnL, pnlFormatted, isLoading: isPnLLoading } = useCopyTradePnL();
 
   if (!isConnected) {
     return (
@@ -46,7 +48,9 @@ export default function CopyTradingPage() {
             <p className="text-sm text-gray-400">Total Agents</p>
           </div>
           <div className="bg-gray-900 rounded-lg p-4 text-center">
-            <p className="text-2xl font-bold text-green-400">--</p>
+            <p className={`text-2xl font-bold ${getPnLColorClass(totalPnL)}`}>
+              {isPnLLoading ? '...' : pnlFormatted}
+            </p>
             <p className="text-sm text-gray-400">Copy PnL</p>
           </div>
         </div>

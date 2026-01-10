@@ -2,8 +2,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { formatEther } from 'viem';
 import { type Market, MarketStatus, MarketOutcome } from '@/services/predictionMarketService';
+import { formatTokenAmount } from '@/utils/format';
 import { useMarketPrice } from '@/hooks/useMarkets';
 import { useMarketVerification } from '@/hooks/useMarketVerification';
 import { VerificationBadge } from '@/components/0g/VerificationBadge';
@@ -53,7 +53,7 @@ export function MarketCard({ market }: MarketCardProps) {
               {market.question}
             </h3>
           </div>
-          <StatusBadge status={market.status} outcome={market.outcome} />
+          <StatusBadge status={market.status} outcome={market.outcome} isEnded={isEnded} />
         </div>
 
         {/* Battle Warriors (if applicable) */}
@@ -94,13 +94,13 @@ export function MarketCard({ market }: MarketCardProps) {
           <div>
             <span className="text-gray-400">Volume</span>
             <p className="text-white font-medium">
-              {formatEther(totalVolume)} CRwN
+              {formatTokenAmount(totalVolume)} CRwN
             </p>
           </div>
           <div>
             <span className="text-gray-400">Liquidity</span>
             <p className="text-white font-medium">
-              {formatEther(market.liquidity)} CRwN
+              {formatTokenAmount(market.liquidity)} CRwN
             </p>
           </div>
         </div>
@@ -131,7 +131,15 @@ export function MarketCard({ market }: MarketCardProps) {
   );
 }
 
-function StatusBadge({ status, outcome }: { status: MarketStatus; outcome: MarketOutcome }) {
+function StatusBadge({ status, outcome, isEnded }: { status: MarketStatus; outcome: MarketOutcome; isEnded?: boolean }) {
+  // If market end time has passed but not yet resolved, show as Expired
+  if (status === MarketStatus.Active && isEnded) {
+    return (
+      <span className="px-2 py-1 text-xs font-medium bg-yellow-500/20 text-yellow-400 rounded-full">
+        Expired
+      </span>
+    );
+  }
   if (status === MarketStatus.Active) {
     return (
       <span className="px-2 py-1 text-xs font-medium bg-green-500/20 text-green-400 rounded-full">

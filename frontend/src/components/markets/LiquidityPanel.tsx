@@ -5,6 +5,7 @@ import { formatEther, parseEther } from 'viem';
 import { useAccount } from 'wagmi';
 import { useLiquidity, usePosition, useTokenBalance, clearMarketCache } from '@/hooks/useMarkets';
 import { type Market, MarketStatus } from '@/services/predictionMarketService';
+import { formatTokenAmount } from '@/utils/format';
 
 interface LiquidityPanelProps {
   market: Market;
@@ -31,6 +32,8 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
   } = useLiquidity(market.id);
 
   const isActive = market.status === MarketStatus.Active;
+  const isEnded = Number(market.endTime) * 1000 < Date.now();
+  const canOperateMarket = isActive && !isEnded; // Market must be active AND not expired
   const isProcessing = isPending || isConfirming;
   const hasLiquidity = position && position.lpShares > BigInt(0);
 
@@ -80,7 +83,7 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
     return 'Remove Liquidity';
   };
 
-  const canSubmit = isConnected && isActive && amount && parseFloat(amount) > 0 && !isProcessing;
+  const canSubmit = isConnected && canOperateMarket && amount && parseFloat(amount) > 0 && !isProcessing;
 
   // Calculate estimated LP tokens / shares
   const estimatedLpTokens = amount && parseFloat(amount) > 0
@@ -125,18 +128,33 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Market Expired Warning */}
+        {isEnded && (
+          <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <div className="flex items-center gap-2 text-yellow-400">
+              <span className="text-lg">⏰</span>
+              <div>
+                <p className="font-medium text-sm">Market Expired</p>
+                <p className="text-xs text-yellow-400/70">
+                  Liquidity operations are closed.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Pool Stats */}
         <div className="grid grid-cols-2 gap-3 p-3 bg-gray-800 rounded-lg">
           <div>
             <span className="text-sm text-gray-400">Pool Liquidity</span>
             <p className="text-white font-medium">
-              {formatEther(market.liquidity)} CRwN
+              {formatTokenAmount(market.liquidity)} CRwN
             </p>
           </div>
           <div>
             <span className="text-sm text-gray-400">Your LP Shares</span>
             <p className="text-purple-400 font-medium">
-              {position ? formatEther(position.lpShares) : '0'}
+              {position ? formatTokenAmount(position.lpShares) : '0.00'}
             </p>
           </div>
         </div>
@@ -173,7 +191,7 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
           )}
           {mode === 'remove' && position && (
             <div className="text-sm text-gray-500 mt-1">
-              Available: {formatEther(position.lpShares)} LP shares
+              Available: {formatTokenAmount(position.lpShares)} LP shares
             </div>
           )}
         </div>

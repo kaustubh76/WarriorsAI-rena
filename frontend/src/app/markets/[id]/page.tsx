@@ -9,8 +9,6 @@ import { MarketStatus, MarketOutcome } from '@/services/predictionMarketService'
 import { TradePanel } from '@/components/markets/TradePanel';
 import { LiquidityPanel } from '@/components/markets/LiquidityPanel';
 import { MarketChart } from '@/components/markets/MarketChart';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -51,50 +49,38 @@ export default function MarketDetailPage({ params }: PageProps) {
   // Handle invalid market ID (e.g., /markets/create routes here by mistake)
   if (!isValidId) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-        <Header />
-        <div className="container mx-auto px-4 py-20 text-center">
-          <h1 className="text-2xl font-bold text-white mb-4">Invalid Market ID</h1>
-          <p className="text-gray-400 mb-6">"{resolvedParams.id}" is not a valid market ID.</p>
-          <Link
-            href="/markets"
-            className="inline-block bg-purple-500 text-white px-6 py-3 rounded-lg hover:bg-purple-600"
-          >
-            Back to Markets
-          </Link>
-        </div>
-        <Footer />
+      <div className="container mx-auto px-4 py-20 text-center">
+        <h1 className="text-2xl font-bold text-white mb-4">Invalid Market ID</h1>
+        <p className="text-gray-400 mb-6">"{resolvedParams.id}" is not a valid market ID.</p>
+        <Link
+          href="/markets"
+          className="inline-block bg-purple-500 text-white px-6 py-3 rounded-lg hover:bg-purple-600"
+        >
+          Back to Markets
+        </Link>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-        <Header />
-        <div className="flex justify-center items-center h-96">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500" />
-        </div>
-        <Footer />
+      <div className="flex justify-center items-center h-96">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500" />
       </div>
     );
   }
 
   if (error || !market) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-        <Header />
-        <div className="container mx-auto px-4 py-20 text-center">
-          <h1 className="text-2xl font-bold text-white mb-4">Market Not Found</h1>
-          <p className="text-gray-400 mb-6">The market you're looking for doesn't exist.</p>
-          <Link
-            href="/markets"
-            className="inline-block bg-purple-500 text-white px-6 py-3 rounded-lg hover:bg-purple-600"
-          >
-            Back to Markets
-          </Link>
-        </div>
-        <Footer />
+      <div className="container mx-auto px-4 py-20 text-center">
+        <h1 className="text-2xl font-bold text-white mb-4">Market Not Found</h1>
+        <p className="text-gray-400 mb-6">The market you're looking for doesn't exist.</p>
+        <Link
+          href="/markets"
+          className="inline-block bg-purple-500 text-white px-6 py-3 rounded-lg hover:bg-purple-600"
+        >
+          Back to Markets
+        </Link>
       </div>
     );
   }
@@ -120,10 +106,7 @@ export default function MarketDetailPage({ params }: PageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900/20 to-gray-900">
-      <Header />
-
-      <main className="container mx-auto px-4 py-8 max-w-7xl">
+    <main className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Breadcrumb */}
         <div className="mb-6">
           <Link href="/markets" className="text-purple-400 hover:text-purple-300">
@@ -152,7 +135,7 @@ export default function MarketDetailPage({ params }: PageProps) {
                 </span>
               </div>
             </div>
-            <MarketStatusBadge status={market.status} outcome={market.outcome} />
+            <MarketStatusBadge status={market.status} outcome={market.outcome} isEnded={isEnded} />
           </div>
 
           {/* Battle Warriors Display */}
@@ -356,10 +339,7 @@ export default function MarketDetailPage({ params }: PageProps) {
             </div>
           </div>
         </div>
-      </main>
-
-      <Footer />
-    </div>
+    </main>
   );
 }
 
@@ -381,7 +361,15 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MarketStatusBadge({ status, outcome }: { status: MarketStatus; outcome: MarketOutcome }) {
+function MarketStatusBadge({ status, outcome, isEnded }: { status: MarketStatus; outcome: MarketOutcome; isEnded?: boolean }) {
+  // If market end time has passed but not yet resolved, show as Expired
+  if (status === MarketStatus.Active && isEnded) {
+    return (
+      <span className="px-3 py-1.5 text-sm font-medium bg-yellow-500/20 text-yellow-400 rounded-full">
+        ⏰ Expired
+      </span>
+    );
+  }
   if (status === MarketStatus.Active) {
     return (
       <span className="px-3 py-1.5 text-sm font-medium bg-green-500/20 text-green-400 rounded-full">

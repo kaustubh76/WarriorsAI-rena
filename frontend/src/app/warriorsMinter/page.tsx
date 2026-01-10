@@ -10,11 +10,12 @@ import '../home-glass.css';
 // import { generateWarriorAttributes } from '../../../0G/demo-compute-flow'; // Moved to API route
 
 
-import { gameMasterSigningService } from '../../services/gameMasterSigning';
+// gameMasterSigningService moved to server-side /api/sign-traits
 import { ipfsService } from '../../services/ipfsService';
 import { getContracts, warriorsNFTAbi, getStorageApiUrl } from '../../constants';
 import { useUserNFTs } from '../../hooks/useUserNFTs';
 import { useWarriorsMinterMessages } from '../../hooks/useWarriorsMinterMessages';
+import { usePromoteWarrior, getRankLabel, WarriorRank } from '../../hooks/usePromoteWarrior';
 
 // 0G Storage service URL - configured via environment variable
 const ZG_STORAGE_API_URL = getStorageApiUrl();
@@ -400,10 +401,42 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     return Math.max(0, tokensNeeded);
   };
 
+  // Use the promotion hook
+  const { promoteWarrior, isPromoting, error: promotionError } = usePromoteWarrior();
+
   const handlePromoteWarriors = async (warriors: UserWarriors) => {
-    // TODO: Implement actual promotion logic with smart contract
-    console.log(`Promoting ${warriors.name} from ${warriors.rank} to ${getNextRank(warriors.rank)}`);
-    setSelectedWarriors(null);
+    try {
+      showMessage({
+        id: 'promotion_start',
+        text: `The Council of Elders convenes to honor ${warriors.name}! The promotion ritual begins...`,
+        duration: 5000
+      });
+
+      // Call the smart contract to promote the warrior
+      const txHash = await promoteWarrior(BigInt(warriors.tokenId));
+
+      showMessage({
+        id: 'promotion_success',
+        text: `Victory! ${warriors.name} has ascended from ${warriors.rank} to ${getNextRank(warriors.rank)}! The Arena trembles at their might!`,
+        duration: 7000
+      });
+
+      console.log('Warrior promoted successfully:', txHash);
+
+      // Refresh NFTs after promotion
+      if (address) {
+        clearCache();
+      }
+    } catch (error) {
+      console.error('Promotion failed:', error);
+      showMessage({
+        id: 'promotion_error',
+        text: `The promotion ritual failed! ${error instanceof Error ? error.message : 'Unknown error occurred'}`,
+        duration: 5000
+      });
+    } finally {
+      setSelectedWarriors(null);
+    }
   };
 
   // Handle Warriors activation using 0G AI
@@ -500,13 +533,42 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
             });
             
             // Extract traits and moves from the AI response
-            const traitsData = gameMasterSigningService.extractTraitsAndMoves(parsedResponse, warriors.tokenId);
+            const traitsData = {
+              tokenId: warriors.tokenId,
+              strength: parsedResponse.Strength || 0,
+              wit: parsedResponse.Wit || 0,
+              charisma: parsedResponse.Charisma || 0,
+              defence: parsedResponse.Defence || 0,
+              luck: parsedResponse.Luck || 0,
+              strike: parsedResponse.strike_attack || 'Strike',
+              taunt: parsedResponse.taunt_attack || 'Taunt',
+              dodge: parsedResponse.dodge || 'Dodge',
+              special: parsedResponse.special_move || 'Special',
+              recover: parsedResponse.recover || 'Recover'
+            };
             console.log("📋 Extracted traits and moves:", traitsData);
-            
-            // Sign the data with Game Master private key
-            const signature = await gameMasterSigningService.signTraitsAndMoves(traitsData);
+
+            // Sign the data with Game Master private key via server-side API
+            console.log("✍️ Requesting Game Master signature from server...");
+            const signResponse = await fetch('/api/sign-traits', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(traitsData)
+            });
+
+            if (!signResponse.ok) {
+              const signError = await signResponse.json();
+              throw new Error(`Signing failed: ${signError.error || signResponse.statusText}`);
+            }
+
+            const signResult = await signResponse.json();
+            if (!signResult.success) {
+              throw new Error(`Signing failed: ${signResult.error}`);
+            }
+
+            const signature = signResult.signature as `0x${string}`;
             console.log("✍️ Game Master signature:", signature);
-            
+
             // Call the smart contract to assign traits and moves
             console.log("🔗 Calling assignTraitsAndMoves on WarriorsNFT contract...");
             

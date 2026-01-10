@@ -5,6 +5,8 @@ import { formatEther, parseEther } from 'viem';
 import { useAccount } from 'wagmi';
 import { useTrade, usePosition, useTokenBalance, useMarketPrice, clearMarketCache } from '@/hooks/useMarkets';
 import { type Market, MarketStatus } from '@/services/predictionMarketService';
+import { useAgentMarketTrading } from '@/hooks/useAgentMarketTrading';
+import { formatTokenAmount } from '@/utils/format';
 
 interface TradePanelProps {
   market: Market;
@@ -25,6 +27,29 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState(1); // 1% default
 
+  // AI Agent Trading State
+  const [useAgent, setUseAgent] = useState(false);
+  const {
+    agents,
+    agentsLoading,
+    selectedAgent,
+    setSelectedAgent,
+    prediction,
+    predictionResult,
+    isGenerating,
+    generationError,
+    isExecuting,
+    executionError,
+    lastTradeResult,
+    autoExecute,
+    setAutoExecute,
+    generatePrediction,
+    executeAgentTrade,
+    clearPrediction,
+    suggestedAmountFormatted,
+    confidencePercent
+  } = useAgentMarketTrading(market.id);
+
   const {
     quote,
     quoteLoading,
@@ -39,6 +64,8 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   } = useTrade(market.id);
 
   const isActive = market.status === MarketStatus.Active;
+  const isEnded = Number(market.endTime) * 1000 < Date.now();
+  const canTradeMarket = isActive && !isEnded; // Market must be active AND not expired
   const isTrading = isPending || isConfirming;
 
   // Update quote when amount or outcome changes
@@ -60,9 +87,56 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
       refetchPrice(); // Force immediate price update
 
       setAmount('');
+      clearPrediction(); // Clear agent prediction after trade
       onTradeComplete?.();
     }
-  }, [isSuccess, refetchBalance, refetchPosition, refetchPrice, onTradeComplete]);
+  }, [isSuccess, refetchBalance, refetchPosition, refetchPrice, onTradeComplete, clearPrediction]);
+
+  // Auto-fill from agent prediction
+  useEffect(() => {
+    if (prediction && useAgent && predictionResult?.recommendation) {
+      setSelectedOutcome(prediction.isYes ? 'yes' : 'no');
+      if (predictionResult.recommendation.amount > BigInt(0)) {
+        setAmount(suggestedAmountFormatted);
+      }
+    }
+  }, [prediction, useAgent, predictionResult, suggestedAmountFormatted]);
+
+  // Handle agent prediction generation with auto-execute
+  const handleGeneratePrediction = async () => {
+    const result = await generatePrediction(balance);
+    if (result && autoExecute && result.validation?.valid && result.recommendation?.shouldTrade) {
+      // Auto-execute trade using server-side wallet (not user wallet)
+      setTimeout(async () => {
+        const tradeResult = await executeAgentTrade();
+        if (tradeResult?.success) {
+          // Clear caches and refresh data after successful agent trade
+          clearMarketCache();
+          refetchBalance();
+          refetchPosition();
+          refetchPrice();
+          setAmount('');
+          clearPrediction();
+          onTradeComplete?.();
+        }
+      }, 500);
+    }
+  };
+
+  // Handle manual agent trade execution (server-side wallet)
+  const handleExecuteAgentTrade = async () => {
+    const tradeResult = await executeAgentTrade();
+    if (tradeResult?.success) {
+      // Clear caches and refresh data after successful agent trade
+      clearMarketCache();
+      refetchBalance();
+      refetchPosition();
+      refetchPrice();
+      setAmount('');
+      clearPrediction();
+      onTradeComplete?.();
+    }
+  };
 
   const handleAmountChange = (value: string) => {
     // Only allow valid number input
@@ -123,7 +197,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   };
 
   // For buy mode, also require a valid quote
-  const canTrade = isConnected && isActive && amount && parseFloat(amount) > 0 && !isTrading && !quoteLoading && (mode === 'sell' || quote !== null);
+  const canTrade = isConnected && canTradeMarket && amount && parseFloat(amount) > 0 && !isTrading && !quoteLoading && (mode === 'sell' || quote !== null);
 
   return (
     <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
@@ -155,6 +229,242 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Market Expired Warning */}
+        {isEnded && (
+          <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <div className="flex items-center gap-2 text-yellow-400">
+              <span className="text-lg">⏰</span>
+              <div>
+                <p className="font-medium text-sm">Market Expired</p>
+                <p className="text-xs text-yellow-400/70">
+                  Trading is closed. Awaiting resolution by oracle.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Agent Trading Toggle */}
+        <div className="flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🤖</span>
+            <span className="text-sm font-medium text-white">Use AI Agent</span>
+          </div>
+          <button
+            onClick={() => setUseAgent(!useAgent)}
+            className={`relative w-12 h-6 rounded-full transition-colors ${
+              useAgent ? 'bg-purple-600' : 'bg-gray-600'
+            }`}
+          >
+            <span
+              className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                useAgent ? 'translate-x-6' : ''
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Agent Selection & Prediction (shown when useAgent is true) */}
+        {useAgent && (
+          <div className="space-y-3 p-3 bg-purple-900/20 rounded-lg border border-purple-500/30">
+            {/* Agent Selector */}
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Select AI Agent</label>
+              <select
+                value={selectedAgent?.id?.toString() || ''}
+                onChange={(e) => {
+                  const agent = agents.find(a => a.id.toString() === e.target.value);
+                  setSelectedAgent(agent || null);
+                }}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                disabled={agentsLoading}
+              >
+                <option value="">
+                  {agentsLoading ? 'Loading agents...' : 'Select an agent'}
+                </option>
+                {agents.map((agent) => (
+                  <option key={agent.id.toString()} value={agent.id.toString()}>
+                    {agent.name} ({agent.winRate?.toFixed(0) || 0}% win rate)
+                  </option>
+                ))}
+              </select>
+              {agents.length === 0 && !agentsLoading && (
+                <p className="text-xs text-gray-500 mt-1">
+                  No agents available. Create one first.
+                </p>
+              )}
+            </div>
+
+            {/* Auto-Execute Toggle */}
+            {selectedAgent && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">Auto-execute trade</span>
+                <button
+                  onClick={() => setAutoExecute(!autoExecute)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    autoExecute ? 'bg-green-600' : 'bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      autoExecute ? 'translate-x-5' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+
+            {/* Generate Prediction Button */}
+            {selectedAgent && (
+              <button
+                onClick={handleGeneratePrediction}
+                disabled={isGenerating || !canTradeMarket}
+                className={`w-full py-2 rounded-lg font-medium text-sm transition-all ${
+                  isGenerating
+                    ? 'bg-purple-700 text-purple-300 cursor-wait'
+                    : 'bg-purple-600 hover:bg-purple-500 text-white'
+                }`}
+              >
+                {isGenerating
+                  ? 'Generating prediction...'
+                  : autoExecute
+                  ? 'Get Prediction & Trade'
+                  : 'Get Prediction'
+                }
+              </button>
+            )}
+
+            {/* Prediction Result Display */}
+            {prediction && (
+              <div className="p-3 bg-gray-800 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-white">Prediction</span>
+                  {prediction.isVerified ? (
+                    <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full flex items-center gap-1">
+                      ✓ 0G Verified
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full">
+                      ✗ Unverified
+                    </span>
+                  )}
+                </div>
+
+                {/* Outcome & Confidence */}
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-2xl font-bold ${
+                      prediction.isYes ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {prediction.isYes ? 'YES' : 'NO'}
+                  </span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-gray-400">Confidence</span>
+                      <span className={`font-medium ${
+                        confidencePercent >= 70 ? 'text-green-400' :
+                        confidencePercent >= 50 ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        {confidencePercent}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          confidencePercent >= 70 ? 'bg-green-500' :
+                          confidencePercent >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${confidencePercent}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reasoning */}
+                <div className="text-xs text-gray-400 line-clamp-2">
+                  {prediction.reasoning}
+                </div>
+
+                {/* Suggested Amount */}
+                {predictionResult?.recommendation?.amount && predictionResult.recommendation.amount > BigInt(0) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">Suggested:</span>
+                    <span className="text-white font-medium">
+                      {suggestedAmountFormatted} CRwN
+                    </span>
+                  </div>
+                )}
+
+                {/* Validation Warnings */}
+                {predictionResult?.validation && !predictionResult.validation.valid && (
+                  <div className="text-xs p-2 bg-yellow-500/10 border border-yellow-500/30 rounded text-yellow-400">
+                    ⚠️ {predictionResult.validation.reasons.join(', ')}
+                  </div>
+                )}
+
+                {/* Execute Agent Trade Button (shown when not auto-execute and prediction is valid) */}
+                {!autoExecute && predictionResult?.validation?.valid && predictionResult?.recommendation?.shouldTrade && (
+                  <button
+                    onClick={handleExecuteAgentTrade}
+                    disabled={isExecuting}
+                    className={`w-full py-2 rounded-lg font-medium text-sm transition-all ${
+                      isExecuting
+                        ? 'bg-green-700 text-green-300 cursor-wait'
+                        : 'bg-green-600 hover:bg-green-500 text-white'
+                    }`}
+                  >
+                    {isExecuting ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="animate-spin">⏳</span>
+                        Executing Trade...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        🤖 Execute Agent Trade ({suggestedAmountFormatted} CRwN)
+                      </span>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Agent Trade Success Result */}
+            {lastTradeResult?.success && (
+              <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <div className="flex items-center gap-2 text-green-400">
+                  <span className="text-lg">✅</span>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">Agent Trade Successful!</p>
+                    <p className="text-xs text-green-400/70 truncate">
+                      TX: {lastTradeResult.txHash}
+                    </p>
+                    {lastTradeResult.amount && (
+                      <p className="text-xs text-green-400/70">
+                        Amount: {lastTradeResult.amount} CRwN
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Execution Error */}
+            {executionError && (
+              <div className="text-xs p-2 bg-red-500/10 border border-red-500/30 rounded text-red-400">
+                ❌ Execution failed: {executionError}
+              </div>
+            )}
+
+            {/* Generation Error */}
+            {generationError && (
+              <div className="text-xs p-2 bg-red-500/10 border border-red-500/30 rounded text-red-400">
+                {generationError}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Outcome Selection */}
         <div className="grid grid-cols-2 gap-3">
           <button
@@ -223,7 +533,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
           )}
           {mode === 'sell' && position && (
             <div className="text-sm text-gray-500 mt-1">
-              Available: {formatEther(selectedOutcome === 'yes' ? position.yesTokens : position.noTokens)} shares
+              Available: {formatTokenAmount(selectedOutcome === 'yes' ? position.yesTokens : position.noTokens)} shares
             </div>
           )}
         </div>
@@ -237,8 +547,8 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
               </span>
               <span className="text-white font-medium">
                 {mode === 'buy'
-                  ? `${formatEther(quote.sharesOut)} shares`
-                  : `${formatEther(quote.sharesOut)} CRwN`
+                  ? `${formatTokenAmount(quote.sharesOut)} shares`
+                  : `${formatTokenAmount(quote.sharesOut)} CRwN`
                 }
               </span>
             </div>
@@ -252,7 +562,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Potential Payout</span>
                 <span className="text-green-400 font-medium">
-                  {formatEther(quote.sharesOut)} CRwN
+                  {formatTokenAmount(quote.sharesOut)} CRwN
                 </span>
               </div>
             )}
@@ -317,11 +627,11 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-green-400">YES:</span>{' '}
-                <span className="text-white">{formatEther(position.yesTokens)}</span>
+                <span className="text-white">{formatTokenAmount(position.yesTokens)}</span>
               </div>
               <div>
                 <span className="text-red-400">NO:</span>{' '}
-                <span className="text-white">{formatEther(position.noTokens)}</span>
+                <span className="text-white">{formatTokenAmount(position.noTokens)}</span>
               </div>
             </div>
           </div>

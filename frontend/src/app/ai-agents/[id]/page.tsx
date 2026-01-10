@@ -1,18 +1,64 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useAccount } from 'wagmi';
 import { useAgent, useAgentPerformance, useAgentFollowers } from '@/hooks/useAgents';
-import { AgentPerformanceChart, PersonaTraitsCard, FollowButton } from '@/components/agents';
+import { AgentPerformanceChart, PersonaTraitsCard, FollowButton, INFTBadge, TransferAgentModal, AuthorizeUsageModal } from '@/components/agents';
+import { useAgentINFT, useMyAgentINFTs } from '@/hooks/useAgentINFT';
+import { useAgentTradeHistory, formatTradePnL, formatConfidence, formatTradeTime, getTradePnLColor } from '@/hooks/useAgentTradeHistory';
 
 export default function AgentProfilePage() {
   const params = useParams();
   const agentId = params.id ? BigInt(params.id as string) : null;
+  const { address, isConnected } = useAccount();
 
-  const { agent, loading: agentLoading, error } = useAgent(agentId);
+  // Modal states
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isAuthorizeModalOpen, setIsAuthorizeModalOpen] = useState(false);
+
+  const { agent, loading: agentLoading, error, refetch: refetchAgent } = useAgent(agentId);
   const { performance, loading: perfLoading } = useAgentPerformance(agentId);
   const { followers, followerCount, loading: followersLoading } = useAgentFollowers(agentId);
+  const { trades, isLoading: tradesLoading, error: tradesError } = useAgentTradeHistory(agentId ?? undefined);
+
+  // iNFT detection - check if this agent has an associated iNFT
+  const isINFT = agent?.isINFT === true;
+  const inftTokenId = agent?.inftTokenId;
+
+  // Fetch iNFT data if this is an iNFT agent
+  const { inft, display: inftDisplay, refetch: refetchINFT } = useAgentINFT(inftTokenId);
+
+  // Check if current user owns this iNFT
+  const { isOwner } = useMyAgentINFTs();
+  const isINFTOwner = useMemo(() => {
+    if (!isINFT || !inftTokenId || !isConnected) return false;
+    return isOwner(inftTokenId);
+  }, [isINFT, inftTokenId, isConnected, isOwner]);
+
+  // Alternative ownership check via direct comparison
+  const isOwnerByAddress = useMemo(() => {
+    if (!inft || !address) return false;
+    return inft.owner.toLowerCase() === address.toLowerCase();
+  }, [inft, address]);
+
+  // Final ownership determination
+  const canManageINFT = isINFTOwner || isOwnerByAddress;
+
+  // Handle successful transfer
+  const handleTransferSuccess = (txHash: string) => {
+    console.log('Transfer successful:', txHash);
+    // Refetch data after transfer
+    refetchAgent();
+    refetchINFT();
+  };
+
+  // Handle successful authorization
+  const handleAuthorizeSuccess = (txHash: string) => {
+    console.log('Authorization successful:', txHash);
+    refetchINFT();
+  };
 
   if (agentLoading) {
     return (
@@ -75,9 +121,15 @@ export default function AgentProfilePage() {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold text-white">{agent.name}</h1>
+                {isINFT && <INFTBadge size="md" />}
                 {agent.isOfficial && (
                   <span className="px-2 py-1 text-xs bg-yellow-500/20 text-yellow-400 rounded-full">
                     Official
+                  </span>
+                )}
+                {isINFT && inftTokenId !== undefined && (
+                  <span className="px-2 py-1 text-xs bg-purple-500/20 text-purple-400 rounded-full">
+                    #{inftTokenId.toString()}
                   </span>
                 )}
               </div>
@@ -115,6 +167,42 @@ export default function AgentProfilePage() {
             {/* Actions */}
             <div className="flex flex-col gap-3">
               <FollowButton agentId={agent.id} />
+
+              {/* iNFT Owner Actions */}
+              {isINFT && canManageINFT && inftTokenId !== undefined && (
+                <>
+                  <button
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-purple-500/30 text-purple-300 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    Transfer
+                  </button>
+                  <button
+                    onClick={() => setIsAuthorizeModalOpen(true)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                    Authorize
+                  </button>
+                </>
+              )}
+
+              {/* iNFT indicator for non-owners */}
+              {isINFT && !canManageINFT && (
+                <div className="px-3 py-2 text-xs bg-purple-500/10 border border-purple-500/30 rounded-lg text-purple-300 text-center">
+                  <span className="flex items-center justify-center gap-1">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                    </svg>
+                    Tradeable iNFT
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -147,12 +235,65 @@ export default function AgentProfilePage() {
           <div className="lg:col-span-2 space-y-8">
             {performance && <AgentPerformanceChart performance={performance} />}
 
-            {/* Trade History Placeholder */}
+            {/* Trade History */}
             <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
               <h3 className="text-lg font-semibold text-white mb-4">Recent Trades</h3>
-              <p className="text-gray-400 text-center py-8">
-                Trade history coming soon...
-              </p>
+              {tradesLoading ? (
+                <div className="space-y-3">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="h-14 bg-gray-800/50 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : tradesError ? (
+                <p className="text-red-400 text-center py-8">
+                  Unable to load trade history
+                </p>
+              ) : trades.length === 0 ? (
+                <p className="text-gray-400 text-center py-8">
+                  No trades recorded yet
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {trades.map((trade, index) => (
+                    <div
+                      key={`${trade.transactionHash}-${index}`}
+                      className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                          trade.won ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                        }`}>
+                          {trade.won ? (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-white text-sm font-medium">
+                            Market #{trade.marketId.toString()}
+                          </p>
+                          <p className="text-gray-500 text-xs">
+                            {formatConfidence(trade.confidence)} confidence
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-medium ${getTradePnLColor(trade.pnl)}`}>
+                          {formatTradePnL(trade.pnl)}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          {trade.timestamp ? formatTradeTime(trade.timestamp) : 'Unknown'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -185,6 +326,24 @@ export default function AgentProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* iNFT Modals */}
+      {isINFT && inftTokenId !== undefined && (
+        <>
+          <TransferAgentModal
+            tokenId={inftTokenId}
+            isOpen={isTransferModalOpen}
+            onClose={() => setIsTransferModalOpen(false)}
+            onSuccess={handleTransferSuccess}
+          />
+          <AuthorizeUsageModal
+            tokenId={inftTokenId}
+            isOpen={isAuthorizeModalOpen}
+            onClose={() => setIsAuthorizeModalOpen(false)}
+            onSuccess={handleAuthorizeSuccess}
+          />
+        </>
+      )}
     </div>
   );
 }
