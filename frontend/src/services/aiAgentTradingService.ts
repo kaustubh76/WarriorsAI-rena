@@ -14,6 +14,7 @@ import { parseEther, formatEther } from 'viem';
 import predictionMarketService, { type Market, MarketStatus } from './predictionMarketService';
 import aiAgentService from './aiAgentService';
 import { zeroGStorageService } from './zeroGStorageService';
+import { warriorsNFTService } from './warriorsNFTService';
 import type { BattleDataIndex } from '../types/zeroG';
 
 // ============================================================================
@@ -189,6 +190,91 @@ class AIAgentTradingService {
   }
 
   /**
+   * Execute trade on behalf of agent using server wallet
+   * CRITICAL: This method sends the trade to the server for execution
+   */
+  async executeAgentTrade(
+    prediction: TradingPrediction,
+    amount: bigint
+  ): Promise<TradeExecutionResult> {
+    try {
+      console.log(`[AgentTrading] Executing server-side trade for agent #${prediction.agentId}`);
+      console.log(`   Market: #${prediction.marketId}, Position: ${prediction.isYes ? 'YES' : 'NO'}`);
+      console.log(`   Amount: ${formatEther(amount)} CRwN, Confidence: ${prediction.confidence}%`);
+
+      const response = await fetch('/api/agents/execute-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: prediction.agentId.toString(),
+          marketId: prediction.marketId.toString(),
+          isYes: prediction.isYes,
+          amount: amount.toString(),
+          prediction
+        })
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        console.error('[AgentTrading] Trade execution failed:', result.error);
+        return {
+          success: false,
+          error: result.error || 'Trade execution failed',
+          prediction
+        };
+      }
+
+      console.log(`[AgentTrading] ✅ Trade executed successfully!`);
+      console.log(`   TX Hash: ${result.txHash}`);
+
+      return {
+        success: true,
+        txHash: result.txHash,
+        prediction,
+        amount: formatEther(amount)
+      };
+    } catch (error) {
+      console.error('[AgentTrading] Error executing trade:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        prediction
+      };
+    }
+  }
+
+  /**
+   * Get agent trading status (wallet balance, rate limits, etc.)
+   */
+  async getAgentTradingStatus(agentId?: bigint): Promise<{
+    success: boolean;
+    wallet?: { address: string; crwnBalance: string; nativeBalance: string };
+    limits?: { maxTradeAmount: string; minConfidence: number };
+    rateLimit?: { remaining: number; resetIn: number } | null;
+    error?: string;
+  }> {
+    try {
+      const url = agentId
+        ? `/api/agents/execute-trade?agentId=${agentId.toString()}`
+        : '/api/agents/execute-trade';
+
+      const response = await fetch(url, { method: 'GET' });
+      const result = await response.json();
+
+      if (!result.success) {
+        console.error('[AgentTrading] Failed to get status:', result.error);
+        return { success: false, error: result.error };
+      }
+
+      return result;
+    } catch (error) {
+      console.error('[AgentTrading] Error getting status:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  /**
    * Store prediction on 0G for audit trail
    */
   async storePrediction(prediction: TradingPrediction): Promise<string | null> {
@@ -263,43 +349,53 @@ class AIAgentTradingService {
 
   /**
    * Build battle data from market for prediction
+   * Fetches real warrior data from the WarriorsNFT contract with fallback
    */
   private async buildBattleData(market: Market): Promise<BattleDataIndex> {
-    // In a real implementation, this would fetch warrior data from the contract
-    // For now, we'll use placeholder data
+    // Helper to create default warrior data
+    const createDefaultWarrior = (warriorId: bigint, index: number) => ({
+      id: warriorId,
+      name: warriorId > BigInt(0) ? `Warrior #${warriorId}` : `Warrior ${index + 1}`,
+      traits: { strength: 50, wit: 50, charisma: 50, defence: 50, luck: 50 },
+      totalBattles: 0,
+      wins: 0,
+      losses: 0
+    });
+
+    // Helper to fetch warrior data with fallback
+    const getWarriorData = async (warriorId: bigint, index: number) => {
+      // Validate warrior ID - ERC721 tokens start at 1, ID 0 is invalid
+      if (!warriorId || warriorId === BigInt(0)) {
+        console.warn(`Invalid warrior ID ${warriorId}, using defaults`);
+        return createDefaultWarrior(warriorId, index);
+      }
+
+      try {
+        const details = await warriorsNFTService.getWarriorsDetails(Number(warriorId));
+        return {
+          id: warriorId,
+          name: details.name,
+          traits: details.traits,
+          totalBattles: 0, // Historical data not available from contract
+          wins: 0,
+          losses: 0
+        };
+      } catch (error) {
+        console.warn(`Failed to fetch warrior ${warriorId}, using defaults:`, error);
+        return createDefaultWarrior(warriorId, index);
+      }
+    };
+
+    // Fetch both warriors in parallel
+    const [warrior1, warrior2] = await Promise.all([
+      getWarriorData(market.warrior1Id, 0),
+      getWarriorData(market.warrior2Id, 1)
+    ]);
+
     return {
       battleId: market.battleId,
       timestamp: Number(market.createdAt) * 1000,
-      warriors: [
-        {
-          id: market.warrior1Id,
-          name: `Warrior #${market.warrior1Id}`,
-          traits: {
-            strength: 50,
-            wit: 50,
-            charisma: 50,
-            defence: 50,
-            luck: 50
-          },
-          totalBattles: 0,
-          wins: 0,
-          losses: 0
-        },
-        {
-          id: market.warrior2Id,
-          name: `Warrior #${market.warrior2Id}`,
-          traits: {
-            strength: 50,
-            wit: 50,
-            charisma: 50,
-            defence: 50,
-            luck: 50
-          },
-          totalBattles: 0,
-          wins: 0,
-          losses: 0
-        }
-      ],
+      warriors: [warrior1, warrior2],
       rounds: [],
       outcome: 'draw',
       totalDamage: { warrior1: 0, warrior2: 0 },

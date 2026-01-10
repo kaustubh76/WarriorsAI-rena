@@ -1,5 +1,5 @@
 import { readContract } from '@wagmi/core';
-import { getContracts, ArenaFactoryAbi } from '../constants';
+import { getContracts, ArenaFactoryAbi, getChainId } from '../constants';
 import rainbowKitConfig from '../rainbowKitConfig';
 
 export interface RankingArenas {

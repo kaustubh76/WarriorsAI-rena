@@ -12,7 +12,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@0glabs/0g-serving-broker": "^2.0.0",
+    "@0glabs/0g-serving-broker": "^0.6.4",
+    "@0glabs/0g-ts-sdk": "^0.3.3",
     "@near-wallet-selector/core": "^9.0.3",
     "@near-wallet-selector/here-wallet": "^9.0.3",
     "@near-wallet-selector/meteor-wallet": "^9.0.3",

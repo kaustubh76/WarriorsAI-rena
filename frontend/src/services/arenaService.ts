@@ -1,5 +1,5 @@
 import { readContract, writeContract } from '@wagmi/core';
-import { getContracts, crownTokenAbi, ArenaAbi } from '../constants';
+import { getContracts, crownTokenAbi, ArenaAbi, getChainId } from '../constants';
 import rainbowKitConfig from '../rainbowKitConfig';
 import { warriorsNFTService, type WarriorsDetails } from './warriorsNFTService';
 

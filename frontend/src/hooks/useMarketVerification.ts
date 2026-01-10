@@ -126,11 +126,12 @@ export function useMarketVerification(isBattleMarket: boolean): VerificationStat
       let bestType: VerificationType = 'none';
 
       for (const provider of providers) {
-        if (provider.verifiability === 'teeml') {
+        const verifiability = provider.verifiability?.toLowerCase();
+        if (verifiability === 'teeml') {
           bestProvider = provider;
           bestType = 'teeml';
           break; // TEE is highest priority
-        } else if (provider.verifiability === 'zkml' && bestType !== 'teeml') {
+        } else if (verifiability === 'zkml' && bestType !== 'teeml') {
           bestProvider = provider;
           bestType = 'zkml';
         } else if (!bestProvider) {
@@ -189,7 +190,7 @@ export function useIsVerificationAvailable(): boolean {
       // Use cache if valid
       if (providerCache.isValid && now - providerCache.lastFetched < CACHE_TTL) {
         const hasVerifiedProviders = providerCache.providers.some(
-          p => p.verifiability === 'teeml' || p.verifiability === 'zkml'
+          p => p.verifiability?.toLowerCase() === 'teeml' || p.verifiability?.toLowerCase() === 'zkml'
         );
         setIsAvailable(hasVerifiedProviders);
         return;
@@ -212,7 +213,7 @@ export function useIsVerificationAvailable(): boolean {
         };
 
         const hasVerifiedProviders = providers.some(
-          (p: ProviderInfo) => p.verifiability === 'teeml' || p.verifiability === 'zkml'
+          (p: ProviderInfo) => p.verifiability?.toLowerCase() === 'teeml' || p.verifiability?.toLowerCase() === 'zkml'
         );
         setIsAvailable(hasVerifiedProviders);
       } catch {

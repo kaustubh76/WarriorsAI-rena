@@ -17,12 +17,11 @@ import aiAgentService, {
   type RiskProfile,
   type Specialization,
   type PersonaTraits,
-  AIAgentRegistryAbi,
-  crownTokenAbi
 } from '@/services/aiAgentService';
+import { agentINFTService } from '@/services/agentINFTService';
 
 /**
- * Hook to fetch all active agents
+ * Hook to fetch all active agents (both registry agents and iNFTs)
  * Uses stable serialization to prevent infinite re-renders
  */
 export function useAgents(options?: {
@@ -40,10 +39,17 @@ export function useAgents(options?: {
   const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
-      const filters = JSON.parse(filtersKey) as AgentFilters;
       const sort = JSON.parse(sortKey) as AgentSortOptions;
-      const allAgents = await aiAgentService.getFilteredAgents(filters, sort);
-      setAgents(allAgents);
+
+      // Only fetch iNFT agents from 0G chain (legacy registry agents deprecated)
+      const inftAgents = await fetchINFTAgents();
+
+      console.log(`[useAgents] Fetched ${inftAgents.length} iNFT agents`);
+
+      // Sort results
+      const sortedAgents = sortAgents(inftAgents, sort);
+
+      setAgents(sortedAgents);
       setError(null);
     } catch (err) {
       setError('Failed to fetch agents');
@@ -51,7 +57,7 @@ export function useAgents(options?: {
     } finally {
       setLoading(false);
     }
-  }, [filtersKey, sortKey]);
+  }, [sortKey]);
 
   useEffect(() => {
     fetchAgents();
@@ -69,9 +75,121 @@ export function useAgents(options?: {
 }
 
 /**
+ * Fetch iNFT agents from 0G chain and convert to AIAgentDisplay format
+ */
+async function fetchINFTAgents(): Promise<AIAgentDisplay[]> {
+  try {
+    const isDeployed = agentINFTService.isContractDeployed();
+    const contractAddress = agentINFTService.getContractAddress();
+    console.log(`[fetchINFTAgents] Contract deployed: ${isDeployed}, address: ${contractAddress}`);
+
+    if (!isDeployed) {
+      console.log('[fetchINFTAgents] Contract not deployed, returning empty array');
+      return [];
+    }
+
+    const infts = await agentINFTService.getAllActiveINFTs();
+    console.log(`[fetchINFTAgents] Got ${infts.length} active iNFTs from service`);
+
+    // Convert iNFT format to AIAgentDisplay format
+    const displayAgents: AIAgentDisplay[] = await Promise.all(
+      infts.map(async (inft) => {
+        const display = await agentINFTService.toDisplayFormat(inft);
+        const traits = display.metadata?.traits || { patience: 50, conviction: 50, contrarian: 50, momentum: 50 };
+
+        // Map iNFT to AIAgentDisplay structure
+        return {
+          // AIAgent base fields
+          id: inft.tokenId,
+          operator: inft.owner,
+          name: display.metadata?.name || `iNFT Agent #${inft.tokenId}`,
+          description: display.metadata?.description || 'AI Agent iNFT with encrypted strategy',
+          strategy: display.metadata?.strategy?.type ?? 0,
+          riskProfile: display.metadata?.riskProfile ?? 1,
+          specialization: display.metadata?.specialization ?? 4,
+          traits: traits,
+          stakedAmount: inft.onChainData.stakedAmount,
+          tier: inft.onChainData.tier,
+          isActive: inft.onChainData.isActive,
+          copyTradingEnabled: inft.onChainData.copyTradingEnabled,
+          createdAt: inft.onChainData.createdAt,
+          lastTradeAt: inft.onChainData.lastUpdatedAt,
+          // AIAgentDisplay computed fields
+          winRate: display.winRate,
+          pnlFormatted: display.pnlFormatted,
+          stakedFormatted: display.stakedFormatted,
+          tierLabel: display.tierLabel,
+          strategyLabel: display.strategyLabel,
+          riskLabel: display.riskLabel,
+          specializationLabel: display.specializationLabel,
+          isOnline: display.isOnline,
+          totalTrades: inft.performance.totalTrades,
+          isOfficial: false,
+          personaTraits: traits,
+          followerCount: display.followerCount,
+          // iNFT specific
+          isINFT: true,
+          inftTokenId: inft.tokenId,
+        } as AIAgentDisplay;
+      })
+    );
+
+    return displayAgents;
+  } catch (err) {
+    console.error('Error fetching iNFT agents:', err);
+    return [];
+  }
+}
+
+/**
+ * Sort agents by the specified criteria
+ */
+function sortAgents(agents: AIAgentDisplay[], sort: AgentSortOptions): AIAgentDisplay[] {
+  return [...agents].sort((a, b) => {
+    let comparison = 0;
+
+    switch (sort.field) {
+      case 'winRate':
+        comparison = (a.winRate || 0) - (b.winRate || 0);
+        break;
+      case 'totalPnL':
+        // Parse PnL strings for comparison
+        const pnlA = parseFloat(a.pnlFormatted?.replace(/[^0-9.-]/g, '') || '0');
+        const pnlB = parseFloat(b.pnlFormatted?.replace(/[^0-9.-]/g, '') || '0');
+        comparison = pnlA - pnlB;
+        break;
+      case 'stakedAmount':
+        comparison = Number(a.stakedAmount - b.stakedAmount);
+        break;
+      case 'createdAt':
+        comparison = Number(a.createdAt - b.createdAt);
+        break;
+      default:
+        comparison = 0;
+    }
+
+    return sort.direction === 'desc' ? -comparison : comparison;
+  });
+}
+
+/**
  * Hook to fetch official protocol agents
+ * NOTE: Legacy registry deprecated - returning empty for now
  */
 export function useOfficialAgents() {
+  // Return empty - legacy registry agents deprecated in favor of iNFTs
+  return {
+    agents: [] as AIAgentDisplay[],
+    loading: false,
+    error: null,
+    refetch: async () => {}
+  };
+}
+
+/**
+ * @deprecated Use useOfficialAgents() - kept for backwards compatibility
+ */
+function _useOfficialAgentsLegacy() {
   const [agents, setAgents] = useState<AIAgentDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -327,7 +445,8 @@ export function useAgentStats() {
 export function useIsFollowing(agentId: bigint | null) {
   const { agentIds, loading: followingLoading } = useFollowingAgents();
 
-  const isFollowing = agentId !== null && agentIds.some(id => id === agentId);
+  // Use string comparison for BigInt values to ensure correct comparison
+  const isFollowing = agentId !== null && agentIds.some(id => id.toString() === agentId.toString());
 
   return { isFollowing, loading: followingLoading };
 }

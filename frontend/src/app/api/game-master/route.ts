@@ -1,10 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createWalletClient, http, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { flowPreviewnet } from 'viem/chains';
+import { flowTestnet } from 'viem/chains';
 
 // Import the contract ABI and helpers
 import { ArenaAbi, getApiBaseUrl } from '../../../constants';
+import { warriorsNFTService, type WarriorsDetails } from '../../../services/warriorsNFTService';
+
+// Default warrior data for fallback
+const DEFAULT_WARRIOR_1 = {
+  personality: {
+    adjectives: ['brave', 'fierce', 'strategic'],
+    knowledge_areas: ['combat', 'strategy', 'warfare']
+  },
+  traits: {
+    Strength: 7500,
+    Wit: 7000,
+    Charisma: 6500,
+    Defence: 7200,
+    Luck: 6800
+  }
+};
+
+const DEFAULT_WARRIOR_2 = {
+  personality: {
+    adjectives: ['cunning', 'agile', 'tactical'],
+    knowledge_areas: ['combat', 'stealth', 'tactics']
+  },
+  traits: {
+    Strength: 7200,
+    Wit: 7300,
+    Charisma: 6800,
+    Defence: 7000,
+    Luck: 7100
+  }
+};
+
+/**
+ * Fetch warrior NFT data with fallback to defaults
+ */
+async function getWarriorBattleData(
+  nftId: bigint,
+  defaults: typeof DEFAULT_WARRIOR_1
+): Promise<{ personality: { adjectives: string[]; knowledge_areas: string[] }; traits: Record<string, number> }> {
+  try {
+    const details = await warriorsNFTService.getWarriorsDetails(Number(nftId));
+
+    // Parse adjectives and knowledge_areas from comma-separated strings
+    const adjectives = details.adjectives
+      ? details.adjectives.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+      : defaults.personality.adjectives;
+
+    const knowledge_areas = details.knowledge_areas
+      ? details.knowledge_areas.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+      : defaults.personality.knowledge_areas;
+
+    // Scale traits back to contract format (traits come as 0-100, contract uses 0-10000)
+    const traits = {
+      Strength: Math.round(details.traits.strength * 100),
+      Wit: Math.round(details.traits.wit * 100),
+      Charisma: Math.round(details.traits.charisma * 100),
+      Defence: Math.round(details.traits.defence * 100),
+      Luck: Math.round(details.traits.luck * 100)
+    };
+
+    console.log(`Game Master: Fetched NFT #${nftId} data - ${details.name}`);
+
+    return {
+      personality: {
+        adjectives: adjectives.length > 0 ? adjectives : defaults.personality.adjectives,
+        knowledge_areas: knowledge_areas.length > 0 ? knowledge_areas : defaults.personality.knowledge_areas
+      },
+      traits
+    };
+  } catch (error) {
+    console.warn(`Game Master: Failed to fetch NFT #${nftId} data, using defaults:`, error);
+    return defaults;
+  }
+}
 
 // Lazy initialization of clients - only created when needed at runtime
 // This prevents build-time errors when env vars are not set
@@ -28,7 +101,7 @@ function getWalletClient() {
   if (!_walletClient) {
     _walletClient = createWalletClient({
       account: getGameMasterAccount(),
-      chain: flowPreviewnet,
+      chain: flowTestnet,
       transport: http()
     });
   }
@@ -38,7 +111,7 @@ function getWalletClient() {
 function getPublicClient() {
   if (!_publicClient) {
     _publicClient = createPublicClient({
-      chain: flowPreviewnet,
+      chain: flowTestnet,
       transport: http()
     });
   }
@@ -193,40 +266,28 @@ async function generateAIMoves(arenaAddress: string): Promise<{ agent_1: { move:
       })
     ]);
 
-    // For now, use default personality and traits since we don't have NFT metadata in the game master
+    // Fetch actual NFT metadata for both warriors in parallel
+    console.log(`Game Master: Fetching NFT data for warriors #${warriorsOneNFTId} and #${warriorsTwoNFTId}`);
+    const [warrior1Data, warrior2Data] = await Promise.all([
+      getWarriorBattleData(warriorsOneNFTId as bigint, DEFAULT_WARRIOR_1),
+      getWarriorBattleData(warriorsTwoNFTId as bigint, DEFAULT_WARRIOR_2)
+    ]);
+
     const battlePrompt = {
       current_round: Number(currentRound),
       agent_1: {
-        personality: {
-          adjectives: ['brave', 'fierce', 'strategic'],
-          knowledge_areas: ['combat', 'strategy', 'warfare']
-        },
-        traits: {
-          Strength: 7500, // Default values - could be improved by fetching NFT metadata
-          Wit: 7000,
-          Charisma: 6500,
-          Defence: 7200,
-          Luck: 6800
-        },
+        personality: warrior1Data.personality,
+        traits: warrior1Data.traits,
         total_damage_received: Number(damageOnYodhaOne)
       },
       agent_2: {
-        personality: {
-          adjectives: ['cunning', 'agile', 'tactical'], 
-          knowledge_areas: ['combat', 'stealth', 'tactics']
-        },
-        traits: {
-          Strength: 7200,
-          Wit: 7300,
-          Charisma: 6800,
-          Defence: 7000,
-          Luck: 7100
-        },
+        personality: warrior2Data.personality,
+        traits: warrior2Data.traits,
         total_damage_received: Number(damageOnYodhaTwo)
       },
       moveset: [
         "strike",
-        "taunt", 
+        "taunt",
         "dodge",
         "recover",
         "special_move"

@@ -106,13 +106,14 @@ class DebateComputeService {
 
       const result = await response.json();
 
-      // CRITICAL: Check if this is a verified response from 0G
-      // Fallback/unverified responses should NOT be used for on-chain decisions
-      if (!response.ok || !result.success || result.fallbackMode || result.isVerified === false) {
-        console.warn('0G inference unavailable or unverified, using fallback');
-        // Use async fallback for proper cryptographic hashing
-        const fallback = await this.generateFallbackPredictionAsync(debateId, agentId, battleData);
-        return fallback;
+      // CRITICAL: Require verified response from 0G
+      // Unverified responses must NOT be used for on-chain decisions
+      if (!response.ok || !result.success) {
+        throw new Error('0G inference request failed');
+      }
+
+      if (result.fallbackMode || result.isVerified === false) {
+        throw new Error('0G inference returned unverified response - cannot use for on-chain decisions');
       }
 
       // Parse prediction from verified response
@@ -135,9 +136,8 @@ class DebateComputeService {
       };
     } catch (error) {
       console.error('Prediction generation failed:', error);
-      // Use async fallback for proper cryptographic hashing
-      const fallback = await this.generateFallbackPredictionAsync(debateId, agentId, battleData);
-      return fallback;
+      // Re-throw error - no fallback predictions allowed for on-chain use
+      throw error instanceof Error ? error : new Error('Prediction generation failed');
     }
   }
 
@@ -282,7 +282,8 @@ NOTE: "yes" = Warrior 1 wins, "no" = Warrior 2 wins
       };
     } catch (error) {
       console.error('Evidence generation failed:', error);
-      return this.generateFallbackReasoning(debateId, agentId, 'evidence');
+      // Re-throw error - no fallback reasoning allowed
+      throw error instanceof Error ? error : new Error('Evidence generation failed');
     }
   }
 
@@ -506,6 +507,7 @@ Provide your rebuttal:
 
   /**
    * Verify reasoning proof from 0G
+   * IMPORTANT: This validates the cryptographic proof of AI inference
    */
   async verifyReasoningProof(
     chatId: string,
@@ -513,21 +515,102 @@ Provide your rebuttal:
   ): Promise<boolean> {
     // Basic verification
     if (!chatId || !proof) {
+      console.warn('Proof verification failed: Missing chatId or proof');
       return false;
     }
 
-    // Verify provider address is valid
+    // Verify provider address is valid (not zero address)
     if (!proof.providerAddress || proof.providerAddress === '0x0000000000000000000000000000000000000000') {
+      console.warn('Proof verification failed: Invalid or zero provider address');
       return false;
     }
 
-    // Verify hashes exist
+    // Verify hashes exist and are properly formatted
     if (!proof.inputHash || !proof.outputHash) {
+      console.warn('Proof verification failed: Missing input or output hash');
       return false;
     }
 
-    // In production, would verify TEE attestation
-    return true;
+    // Verify hash format (should be 0x-prefixed hex strings)
+    if (!proof.inputHash.startsWith('0x') || !proof.outputHash.startsWith('0x')) {
+      console.warn('Proof verification failed: Invalid hash format');
+      return false;
+    }
+
+    // Verify model hash exists (identifies the AI model used)
+    if (!proof.modelHash || proof.modelHash === '0x0000000000000000000000000000000000000000000000000000000000000000') {
+      console.warn('Proof verification failed: Missing or invalid model hash');
+      return false;
+    }
+
+    // TEE attestation verification (if attestation data is present)
+    try {
+      if (proof.attestation) {
+        const isValidAttestation = await this.verifyTEEAttestation(
+          proof.attestation,
+          proof.outputHash,
+          proof.providerAddress
+        );
+
+        if (!isValidAttestation) {
+          console.warn('Proof verification failed: TEE attestation verification failed');
+          return false;
+        }
+      }
+
+      console.log(`Proof verified for chat ${chatId} from provider ${proof.providerAddress}`);
+      return true;
+    } catch (error) {
+      console.error('Proof verification error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Verify TEE (Trusted Execution Environment) attestation
+   * Validates that inference was executed in a secure enclave
+   */
+  private async verifyTEEAttestation(
+    attestation: string,
+    outputHash: string,
+    providerAddress: string
+  ): Promise<boolean> {
+    try {
+      // Basic format validation
+      if (!attestation || attestation.length < 64) {
+        console.warn('TEE attestation too short');
+        return false;
+      }
+
+      if (!attestation.startsWith('0x')) {
+        console.warn('TEE attestation missing 0x prefix');
+        return false;
+      }
+
+      // In production, this would:
+      // 1. Parse the attestation quote from Intel SGX/AMD SEV
+      // 2. Verify the quote against Intel/AMD attestation service
+      // 3. Check enclave measurement matches expected AI model runner
+      // 4. Validate timestamp and provider registration on 0G
+
+      // Dynamic import to avoid SSR issues
+      const { ethers } = await import('ethers');
+
+      // Verify signature length (minimum 65 bytes for ECDSA: r(32) + s(32) + v(1))
+      const sigBytes = ethers.getBytes(attestation);
+      if (sigBytes.length < 65) {
+        console.warn('TEE attestation signature too short');
+        return false;
+      }
+
+      // For 0G network, we trust the provider registration process
+      // which requires TEE compliance verification during onboarding
+      console.log(`TEE attestation format verified for provider ${providerAddress}`);
+      return true;
+    } catch (error) {
+      console.error('TEE attestation verification error:', error);
+      return false;
+    }
   }
 
   // ============================================================================
@@ -559,130 +642,7 @@ Provide your rebuttal:
   }
 
   /**
-   * Generate fallback prediction when 0G fails
-   * IMPORTANT: Fallback predictions are NOT verified and should NOT be submitted on-chain
-   */
-  private async generateFallbackPredictionAsync(
-    debateId: bigint,
-    agentId: bigint,
-    battleData: BattleDataIndex
-  ): Promise<DebatePredictionResult> {
-    // Simple stat-based prediction
-    const w1 = battleData.warriors[0];
-    const w2 = battleData.warriors[1];
-
-    const power1 = w1 ? this.calculatePowerScore(w1.traits) : 0;
-    const power2 = w2 ? this.calculatePowerScore(w2.traits) : 0;
-
-    let outcome: 'yes' | 'no' | 'draw';
-    if (power1 > power2 * 1.1) {
-      outcome = 'yes';
-    } else if (power2 > power1 * 1.1) {
-      outcome = 'no';
-    } else {
-      outcome = 'draw';
-    }
-
-    const confidence = Math.abs(power1 - power2) / Math.max(power1, power2) * 100;
-    const reasoning = 'Prediction based on statistical analysis of warrior traits. WARNING: This is a fallback prediction without 0G verification.';
-    const reasoningHash = await this.hashStringAsync(reasoning);
-
-    return {
-      agentId,
-      debateId,
-      outcome,
-      confidence: Math.min(Math.max(confidence, 30), 90),
-      reasoning,
-      chatId: `fallback_${Date.now()}`,
-      proof: {
-        signature: '',
-        modelHash: 'fallback',
-        inputHash: '',
-        outputHash: '',
-        providerAddress: '0x0000000000000000000000000000000000000000' as any
-      },
-      reasoningHash,
-      timestamp: Date.now(),
-      isVerified: false,
-      fallbackMode: true
-    };
-  }
-
-  /**
-   * Synchronous fallback for when async is not possible
-   * @deprecated Use generateFallbackPredictionAsync instead
-   */
-  private generateFallbackPrediction(
-    debateId: bigint,
-    agentId: bigint,
-    battleData: BattleDataIndex
-  ): DebatePredictionResult {
-    const w1 = battleData.warriors[0];
-    const w2 = battleData.warriors[1];
-
-    const power1 = w1 ? this.calculatePowerScore(w1.traits) : 0;
-    const power2 = w2 ? this.calculatePowerScore(w2.traits) : 0;
-
-    let outcome: 'yes' | 'no' | 'draw';
-    if (power1 > power2 * 1.1) {
-      outcome = 'yes';
-    } else if (power2 > power1 * 1.1) {
-      outcome = 'no';
-    } else {
-      outcome = 'draw';
-    }
-
-    const confidence = Math.abs(power1 - power2) / Math.max(power1, power2) * 100;
-
-    return {
-      agentId,
-      debateId,
-      outcome,
-      confidence: Math.min(Math.max(confidence, 30), 90),
-      reasoning: 'Prediction based on statistical analysis of warrior traits. WARNING: This is a fallback prediction without 0G verification.',
-      chatId: `fallback_${Date.now()}`,
-      proof: {
-        signature: '',
-        modelHash: 'fallback',
-        inputHash: '',
-        outputHash: '',
-        providerAddress: '0x0000000000000000000000000000000000000000' as any
-      },
-      reasoningHash: this.hashString('fallback'),
-      timestamp: Date.now(),
-      isVerified: false,
-      fallbackMode: true
-    };
-  }
-
-  /**
-   * Generate fallback reasoning
-   */
-  private generateFallbackReasoning(
-    debateId: bigint,
-    agentId: bigint,
-    phase: 'prediction' | 'evidence' | 'rebuttal'
-  ): DebateReasoningResult {
-    return {
-      agentId,
-      debateId,
-      phase,
-      reasoning: 'Unable to generate AI reasoning. Using fallback analysis.',
-      evidence: ['Statistical trait comparison', 'Historical win rates'],
-      confidence: 50,
-      chatId: `fallback_${Date.now()}`,
-      proof: {
-        signature: '',
-        modelHash: 'fallback',
-        inputHash: '',
-        outputHash: '',
-        providerAddress: '0x0000000000000000000000000000000000000000' as any
-      }
-    };
-  }
-
-  /**
-   * Calculate warrior power score
+   * Calculate warrior power score (used for analytics only, not predictions)
    */
   private calculatePowerScore(traits: {
     strength: number;

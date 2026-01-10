@@ -1,5 +1,5 @@
 import { readContract } from '@wagmi/core';
-import { getContracts, warriorsNFTAbi } from '../constants';
+import { getContracts, warriorsNFTAbi, getChainId } from '../constants';
 import rainbowKitConfig from '../rainbowKitConfig';
 
 export interface WarriorsTraits {

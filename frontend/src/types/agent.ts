@@ -107,6 +107,10 @@ export interface AIAgentDisplay extends AIAgent {
   isOfficial: boolean;       // Whether this is an official protocol agent
   personaTraits: PersonaTraits; // Persona traits (alias for traits)
   followerCount: number;     // Number of followers
+
+  // iNFT integration (0G Galileo Testnet)
+  isINFT?: boolean;          // Whether this agent is an ERC-7857 iNFT
+  inftTokenId?: bigint;      // Token ID on AIAgentINFT contract (if isINFT)
 }
 
 /**

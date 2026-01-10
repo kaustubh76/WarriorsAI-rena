@@ -1,13 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, defineChain } from 'viem';
 import { Chain } from 'viem';
 import { anvil, flowTestnet, flowMainnet } from 'viem/chains';
+
+// 0G Galileo Testnet - Used for AI Agent iNFT operations
+const zeroGGalileo = defineChain({
+  id: 16602,
+  name: '0G Galileo Testnet',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'A0GI',
+    symbol: 'A0GI',
+  },
+  rpcUrls: {
+    default: { http: ['https://evmrpc-testnet.0g.ai'] },
+  },
+  blockExplorers: {
+    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
+  },
+  testnet: true,
+});
 
 // Define supported chains
 const SUPPORTED_CHAINS: Record<number, Chain> = {
   [flowTestnet.id]: flowTestnet, // Chain ID 545
   [flowMainnet.id]: flowMainnet, // Chain ID 747
   [anvil.id]: anvil, // Chain ID 31337
+  [zeroGGalileo.id]: zeroGGalileo, // Chain ID 16602 - 0G Galileo for iNFTs
 };
 
 export async function POST(request: NextRequest) {

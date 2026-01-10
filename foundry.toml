@@ -14,9 +14,10 @@ zerog_testnet = "https://evmrpc-testnet.0g.ai"
 zerog_mainnet = "https://evmrpc-mainnet.0g.ai"
 
 # Etherscan/verification settings (Flow uses Blockscout)
+# Blockscout doesn't require API key, using empty string as default
 [etherscan]
-flow_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "https://evm-testnet.flowscan.io/api" }
-flow_mainnet = { key = "${BLOCKSCOUT_API_KEY}", url = "https://evm.flowscan.io/api" }
-zerog_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "https://chainscan-galileo.0g.ai/api" }
+flow_testnet = { key = "", url = "https://evm-testnet.flowscan.io/api" }
+flow_mainnet = { key = "", url = "https://evm.flowscan.io/api" }
+zerog_testnet = { key = "", url = "https://chainscan-galileo.0g.ai/api" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

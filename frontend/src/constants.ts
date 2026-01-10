@@ -107,6 +107,9 @@ interface ContractsConfig {
     aiDebateOracle: string;
     creatorRevenueShare: string;
     predictionMarketAMM: string;
+    // ERC-7857 AI Agent iNFT Contracts
+    aiAgentINFT?: string;
+    agentINFTOracle?: string;
   };
 }
 
@@ -128,7 +131,31 @@ export const chainsToContracts: ContractsConfig = {
         aiDebateOracle: "0x31037D0EfB3E43E2914CCD21bE7A3AC4E52a1988",
         creatorRevenueShare: "0x8B096E9b9D800BDbD353386865F55c1E2B3928aA",
         predictionMarketAMM: "0x1b26203A2752557ecD4763a9A8A26119AC5e18e4",
-        zeroGOracle: "0xe796D8D16475C92c30caa59E9De2147726a80DF0"
+        zeroGOracle: "0xe796D8D16475C92c30caa59E9De2147726a80DF0",
+        // NOTE: iNFT contracts are deployed on 0G Galileo (16602) ONLY - not on Flow
+        // The agentINFTService reads from 0G chain directly
+        aiAgentINFT: "0x0000000000000000000000000000000000000000",
+        agentINFTOracle: "0x0000000000000000000000000000000000000000"
+    },
+    // 0G Galileo Testnet (Chain ID: 16602) - AI Agent iNFT Contracts
+    16602: {
+        // CrownToken deployed to 0G testnet: 0xC13f60749ECfCDE5f79689dd2E5A361E9210f153
+        // Deployed to 0G Galileo Testnet - January 2026
+        // Note: This chain is used for ERC-7857 iNFT contracts
+        mockOracle: "0x0000000000000000000000000000000000000000",
+        crownToken: "0xC13f60749ECfCDE5f79689dd2E5A361E9210f153", // Same as Flow testnet for cross-chain
+        warriorsNFT: "0x0000000000000000000000000000000000000000",
+        ArenaFactory: "0x0000000000000000000000000000000000000000",
+        outcomeToken: "0x0000000000000000000000000000000000000000",
+        aiAgentRegistry: "0x0000000000000000000000000000000000000000",
+        microMarketFactory: "0x0000000000000000000000000000000000000000",
+        aiDebateOracle: "0x0000000000000000000000000000000000000000",
+        creatorRevenueShare: "0x0000000000000000000000000000000000000000",
+        predictionMarketAMM: "0x0000000000000000000000000000000000000000",
+        zeroGOracle: "0x0000000000000000000000000000000000000000",
+        // ERC-7857 AI Agent iNFT Contracts (0G native)
+        aiAgentINFT: "0x7C8484a8082b9E922b594D0Be2f82b4425B65E05",
+        agentINFTOracle: "0x05Ca49f32B482e0Dce58e39A22F31e5f56A43Ee7"
     }
 }
 
