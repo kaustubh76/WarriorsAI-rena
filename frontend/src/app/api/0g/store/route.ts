@@ -230,7 +230,7 @@ async function uploadToZeroG(data: string, filename: string): Promise<{
       console.log('📤 File not found, uploading...');
     }
 
-    // Upload with retries
+    // Upload with retries and improved error handling
     let uploadResult: { txHash: string; rootHash: string } | null = null;
     let lastError: Error | null = null;
     const maxRetries = 3;
@@ -250,13 +250,61 @@ async function uploadToZeroG(data: string, filename: string): Promise<{
         break;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message.toLowerCase();
         console.warn(`❌ Upload attempt ${attempt} failed:`, lastError.message);
 
         // Check if data already exists
-        if (lastError.message.toLowerCase().includes('data already exists')) {
+        if (errorMessage.includes('data already exists')) {
           console.log(`✅ File already exists in 0G storage: ${rootHash}`);
           await zgFile.close();
           return { rootHash, transactionHash: 'existing' };
+        }
+
+        // Handle transaction receipt errors gracefully
+        // These are often transient and the upload may have actually succeeded
+        if (errorMessage.includes('no matching receipts found') ||
+            errorMessage.includes('potential data corruption')) {
+          console.warn(`⚠️ Transaction receipt error - upload may have succeeded. Verifying...`);
+          // Wait a bit for the transaction to propagate
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          // Try to verify if the file exists now
+          try {
+            const checkPath = path.join(os.tmpdir(), `0g_verify_${Date.now()}`);
+            const checkErr = await idx.download(rootHash, checkPath, false);
+            if (checkErr === null) {
+              console.log(`✅ File verified in 0G storage after receipt error: ${rootHash}`);
+              await zgFile.close();
+              if (fs.existsSync(checkPath)) fs.unlinkSync(checkPath);
+              return { rootHash, transactionHash: 'verified-after-receipt-error' };
+            }
+            if (fs.existsSync(checkPath)) fs.unlinkSync(checkPath);
+          } catch {
+            // Verification failed, continue with retry
+          }
+        }
+
+        // Handle timeout errors with longer delay
+        if (errorMessage.includes('etimedout') || errorMessage.includes('timeout')) {
+          console.warn(`⚠️ Timeout error - network may be slow. Waiting before retry...`);
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 5000 * attempt));
+            continue;
+          }
+        }
+
+        // Handle network detection errors
+        if (errorMessage.includes('failed to detect network')) {
+          console.warn(`⚠️ Network detection failed - RPC may be temporarily unavailable`);
+          // Reset provider singleton on network errors
+          provider = null;
+          signer = null;
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 3000 * attempt));
+            // Re-initialize SDK for next attempt
+            await initializeSDK();
+            continue;
+          }
         }
 
         if (attempt < maxRetries) {
@@ -267,7 +315,20 @@ async function uploadToZeroG(data: string, filename: string): Promise<{
 
     await zgFile.close();
 
+    // Final check: even if all retries failed, verify if the file made it
     if (!uploadResult && lastError) {
+      try {
+        const finalCheckPath = path.join(os.tmpdir(), `0g_final_check_${Date.now()}`);
+        const finalCheckErr = await idx.download(rootHash, finalCheckPath, false);
+        if (finalCheckErr === null) {
+          console.log(`✅ File found in final verification: ${rootHash}`);
+          if (fs.existsSync(finalCheckPath)) fs.unlinkSync(finalCheckPath);
+          return { rootHash, transactionHash: 'verified-after-retries' };
+        }
+        if (fs.existsSync(finalCheckPath)) fs.unlinkSync(finalCheckPath);
+      } catch {
+        // Final verification failed
+      }
       throw lastError;
     }
 

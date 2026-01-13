@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
+import { formatTokenAmount } from '@/utils/format';
 import debateService, {
   type DebateState,
   type DebateDisplay,
@@ -467,17 +468,15 @@ export function useFileDispute(debateId: bigint | null) {
     });
   }, [writeContract, addresses]);
 
-  // File dispute with reasoning
-  const fileDispute = useCallback(async (reasoning: string, stakeAmount: string) => {
+  // File dispute with reasoning (stake is handled by contract's MIN_DISPUTE_STAKE)
+  const fileDispute = useCallback(async (reasoning: string, _stakeAmount?: string) => {
     if (debateId === null) return;
-
-    const stake = parseEther(stakeAmount);
 
     writeContract({
       address: addresses.debateOracle,
       abi: AIDebateOracleAbi,
-      functionName: 'fileDispute',
-      args: [debateId, reasoning, stake]
+      functionName: 'raiseDispute',
+      args: [debateId, reasoning]
     });
   }, [debateId, writeContract, addresses]);
 
@@ -552,7 +551,7 @@ export function useDebateTokenBalance() {
 
   return {
     balance,
-    balanceFormatted: formatEther(balance),
+    balanceFormatted: formatTokenAmount(balance),
     allowance,
     loading,
     refetch: fetchBalanceAndAllowance

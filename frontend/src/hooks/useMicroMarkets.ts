@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
+import { formatTokenAmount } from '@/utils/format';
 import microMarketService, {
   type MicroMarket,
   type MicroMarketDisplay,
@@ -426,7 +427,7 @@ export function useMicroMarketTokenBalance() {
 
   return {
     balance,
-    balanceFormatted: formatEther(balance),
+    balanceFormatted: formatTokenAmount(balance),
     allowance,
     loading,
     refetch: fetchBalanceAndAllowance

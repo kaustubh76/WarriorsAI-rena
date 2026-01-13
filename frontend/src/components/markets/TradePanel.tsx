@@ -7,6 +7,8 @@ import { useTrade, usePosition, useTokenBalance, useMarketPrice, clearMarketCach
 import { type Market, MarketStatus } from '@/services/predictionMarketService';
 import { useAgentMarketTrading } from '@/hooks/useAgentMarketTrading';
 import { formatTokenAmount } from '@/utils/format';
+import { useGamificationContext } from '@/contexts/GamificationContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 
 interface TradePanelProps {
   market: Market;
@@ -21,6 +23,16 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   const { position, hasPosition, refetch: refetchPosition } = usePosition(market.id);
   const { balance, balanceFormatted, allowance, refetch: refetchBalance } = useTokenBalance();
   const { yesProbability, noProbability, refetch: refetchPrice } = useMarketPrice(market.id);
+
+  // Gamification context - safely access (may not be available during SSR)
+  let gamification: ReturnType<typeof useGamificationContext> | null = null;
+  let notifications: ReturnType<typeof useNotifications> | null = null;
+  try {
+    gamification = useGamificationContext();
+    notifications = useNotifications();
+  } catch {
+    // Context not available (SSR or not wrapped in provider)
+  }
 
   const [mode, setMode] = useState<TradeMode>('buy');
   const [selectedOutcome, setSelectedOutcome] = useState<Outcome>('yes');
@@ -86,11 +98,29 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
       refetchPosition();
       refetchPrice(); // Force immediate price update
 
+      // Gamification: Track trade completion
+      if (gamification && notifications) {
+        // Track quest progress for completing trades
+        gamification.quests.trackProgress('complete_trades', 1);
+
+        // Check time-based achievements (early bird, night owl)
+        gamification.checkTimeBasedAchievements();
+
+        // Show success notification
+        notifications.success(
+          'Trade Executed',
+          `${mode === 'buy' ? 'Bought' : 'Sold'} ${selectedOutcome.toUpperCase()} position`
+        );
+
+        // Trigger celebration confetti for trades
+        gamification.triggerConfetti('low');
+      }
+
       setAmount('');
       clearPrediction(); // Clear agent prediction after trade
       onTradeComplete?.();
     }
-  }, [isSuccess, refetchBalance, refetchPosition, refetchPrice, onTradeComplete, clearPrediction]);
+  }, [isSuccess, refetchBalance, refetchPosition, refetchPrice, onTradeComplete, clearPrediction, gamification, notifications, mode, selectedOutcome]);
 
   // Auto-fill from agent prediction
   useEffect(() => {
@@ -103,38 +133,93 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   }, [prediction, useAgent, predictionResult, suggestedAmountFormatted]);
 
   // Handle agent prediction generation with auto-execute
-  const handleGeneratePrediction = async () => {
-    const result = await generatePrediction(balance);
-    if (result && autoExecute && result.validation?.valid && result.recommendation?.shouldTrade) {
-      // Auto-execute trade using server-side wallet (not user wallet)
-      setTimeout(async () => {
-        const tradeResult = await executeAgentTrade();
-        if (tradeResult?.success) {
-          // Clear caches and refresh data after successful agent trade
-          clearMarketCache();
-          refetchBalance();
-          refetchPosition();
-          refetchPrice();
-          setAmount('');
-          clearPrediction();
-          onTradeComplete?.();
-        }
-      }, 500);
+  const handleGeneratePrediction = async (e?: React.MouseEvent) => {
+    // Prevent any default behavior
+    e?.preventDefault();
+    e?.stopPropagation();
+
+    try {
+      console.log('[TradePanel] Generating prediction, autoExecute:', autoExecute);
+      // Use default max amount (100 CRwN) instead of full balance
+      // This prevents accidentally trading the entire wallet
+      const result = await generatePrediction();
+
+      console.log('[TradePanel] Prediction result:', {
+        hasResult: !!result,
+        validationValid: result?.validation?.valid,
+        shouldTrade: result?.recommendation?.shouldTrade,
+        autoExecute
+      });
+
+      if (result && autoExecute && result.validation?.valid && result.recommendation?.shouldTrade) {
+        console.log('[TradePanel] Auto-executing trade...');
+        // Auto-execute trade using server-side wallet (not user wallet)
+        setTimeout(async () => {
+          try {
+            const tradeResult = await executeAgentTrade();
+            console.log('[TradePanel] Trade result:', tradeResult);
+            if (tradeResult?.success) {
+              // Clear caches and refresh data after successful agent trade
+              clearMarketCache();
+              refetchBalance();
+              refetchPosition();
+              refetchPrice();
+
+              // Gamification: Track AI agent trade
+              if (gamification && notifications) {
+                gamification.quests.trackProgress('complete_trades', 1);
+                gamification.checkTimeBasedAchievements();
+                notifications.success('AI Trade Executed', 'Agent prediction trade completed');
+                gamification.triggerConfetti('medium');
+              }
+
+              setAmount('');
+              clearPrediction();
+              onTradeComplete?.();
+            } else {
+              console.error('[TradePanel] Trade failed:', tradeResult?.error);
+            }
+          } catch (execError) {
+            console.error('[TradePanel] Auto-execute error:', execError);
+          }
+        }, 500);
+      } else if (result && autoExecute) {
+        console.log('[TradePanel] Auto-execute skipped - validation failed or not recommended');
+      }
+    } catch (error) {
+      console.error('[TradePanel] Prediction generation error:', error);
     }
   };
 
   // Handle manual agent trade execution (server-side wallet)
-  const handleExecuteAgentTrade = async () => {
-    const tradeResult = await executeAgentTrade();
-    if (tradeResult?.success) {
-      // Clear caches and refresh data after successful agent trade
-      clearMarketCache();
-      refetchBalance();
-      refetchPosition();
-      refetchPrice();
-      setAmount('');
-      clearPrediction();
-      onTradeComplete?.();
+  const handleExecuteAgentTrade = async (e?: React.MouseEvent) => {
+    // Prevent any default behavior
+    e?.preventDefault();
+    e?.stopPropagation();
+
+    try {
+      const tradeResult = await executeAgentTrade();
+      if (tradeResult?.success) {
+        // Clear caches and refresh data after successful agent trade
+        clearMarketCache();
+        refetchBalance();
+        refetchPosition();
+        refetchPrice();
+
+        // Gamification: Track AI agent trade
+        if (gamification && notifications) {
+          gamification.quests.trackProgress('complete_trades', 1);
+          gamification.checkTimeBasedAchievements();
+          notifications.success('AI Trade Executed', 'Agent prediction trade completed');
+          gamification.triggerConfetti('medium');
+        }
+
+        setAmount('');
+        clearPrediction();
+        onTradeComplete?.();
+      }
+    } catch (error) {
+      console.error('[TradePanel] Execute agent trade error:', error);
     }
   };
 
@@ -152,7 +237,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
       // For selling, set max to user's share balance
       const shares = selectedOutcome === 'yes' ? position?.yesTokens : position?.noTokens;
       if (shares) {
-        setAmount(formatEther(shares));
+        setAmount(formatTokenAmount(shares));
       }
     }
   };
@@ -284,7 +369,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
                 </option>
                 {agents.map((agent) => (
                   <option key={agent.id.toString()} value={agent.id.toString()}>
-                    {agent.name} ({agent.winRate?.toFixed(0) || 0}% win rate)
+                    {agent.name} ({agent.winRate?.toFixed(1) || 0}% win rate)
                   </option>
                 ))}
               </select>
@@ -317,6 +402,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
             {/* Generate Prediction Button */}
             {selectedAgent && (
               <button
+                type="button"
                 onClick={handleGeneratePrediction}
                 disabled={isGenerating || !canTradeMarket}
                 className={`w-full py-2 rounded-lg font-medium text-sm transition-all ${
@@ -406,6 +492,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
                 {/* Execute Agent Trade Button (shown when not auto-execute and prediction is valid) */}
                 {!autoExecute && predictionResult?.validation?.valid && predictionResult?.recommendation?.shouldTrade && (
                   <button
+                    type="button"
                     onClick={handleExecuteAgentTrade}
                     disabled={isExecuting}
                     className={`w-full py-2 rounded-lg font-medium text-sm transition-all ${

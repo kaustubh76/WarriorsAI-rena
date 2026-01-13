@@ -307,7 +307,7 @@ export function calculateINFTWinRate(performance: AgentINFTPerformance): number 
  */
 export function formatStake(amount: bigint): string {
   const formatted = Number(amount) / 1e18;
-  return `${formatted.toLocaleString()} CRwN`;
+  return `${formatted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CRwN`;
 }
 
 /**

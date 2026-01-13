@@ -33,6 +33,10 @@ import { useBattleDataSync } from '../../hooks/useBattleDataSync';
 // Arena Backend URL - configured via environment variable
 const ARENA_BACKEND_URL = getArenaBackendUrl();
 
+// Type for supported chain IDs
+type SupportedChainId = 545 | 16602 | 747 | 31337;
+const getTypedChainId = (): SupportedChainId => getChainId() as SupportedChainId;
+
 // PlayerMoves enum mapping (based on Kurukshetra.sol)
 const PlayerMoves = {
   STRIKE: 0,
@@ -555,7 +559,7 @@ export default function ArenaPage() {
   // 0G Storage sync for battle data
   const { isSyncing: isBattleSyncing, lastSyncedBattleId, errors: battleSyncErrors } = useBattleDataSync({
     arenaAddress: selectedArena?.address as `0x${string}` | undefined,
-    chainId: getChainId(),
+    chainId: getTypedChainId(),
     autoSync: true,
     onBattleStored: (battleId, rootHash) => {
       console.log(`🔗 Battle ${battleId} stored to 0G Storage. Root hash: ${rootHash}`);
@@ -581,7 +585,7 @@ export default function ArenaPage() {
         abi: warriorsNFTAbi,
         functionName: 'getMoves',
         args: [tokenId],
-        chainId: getChainId(),
+        chainId: getTypedChainId(),
       });
 
       const movesData = moves as { strike?: string; taunt?: string; dodge?: string; special?: string; recover?: string };
@@ -1425,15 +1429,21 @@ export default function ArenaPage() {
 
       // Fetch fresh arena data from blockchain before checking state
       console.log('Fetching fresh arena state before betting...');
-      let freshArenaData;
+      let freshArenaData: {
+        isInitialized: boolean;
+        currentRound: number;
+        isBettingPeriod: boolean;
+        gameInitializedAt: number;
+      };
       try {
-        freshArenaData = await arenaService.getArenaDetails(selectedArena.address);
-        console.log('Fresh arena state:', {
-          isInitialized: freshArenaData.isInitialized,
-          currentRound: freshArenaData.currentRound,
-          isBettingPeriod: freshArenaData.isBettingPeriod,
-          gameInitializedAt: freshArenaData.gameInitializedAt,
-        });
+        const arenaDetails = await arenaService.getArenaDetails(selectedArena.address);
+        freshArenaData = {
+          isInitialized: arenaDetails.isInitialized,
+          currentRound: arenaDetails.currentRound,
+          isBettingPeriod: arenaDetails.isBettingPeriod,
+          gameInitializedAt: arenaDetails.gameInitializedAt,
+        };
+        console.log('Fresh arena state:', freshArenaData);
       } catch (fetchError) {
         console.warn('Could not fetch fresh arena data, using cached state:', fetchError);
         // Use selectedArena but map to ArenaDetails format
@@ -1442,7 +1452,7 @@ export default function ArenaPage() {
           currentRound: selectedArena.currentRound,
           isBettingPeriod: selectedArena.isBettingPeriod,
           gameInitializedAt: selectedArena.gameInitializedAt,
-        } as typeof freshArenaData;
+        };
       }
 
       // Check if game is initialized
@@ -1497,7 +1507,7 @@ export default function ArenaPage() {
         // Wait for approval confirmation
         await waitForTransactionReceipt(rainbowKitConfig, {
           hash: approvalHash as `0x${string}`,
-          chainId: getChainId(),
+          chainId: getTypedChainId(),
         });
 
         console.log('CRwN token approval confirmed!');
@@ -1518,7 +1528,7 @@ export default function ArenaPage() {
       // Wait for confirmation
       await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: getChainId(),
+        chainId: getTypedChainId(),
       });
 
       console.log('Bet confirmed!');
@@ -1594,7 +1604,7 @@ export default function ArenaPage() {
         // Wait for approval confirmation
         await waitForTransactionReceipt(rainbowKitConfig, {
           hash: approvalHash as `0x${string}`,
-          chainId: getChainId(),
+          chainId: getTypedChainId(),
         });
 
         console.log('CRwN token approval confirmed!');
@@ -1614,7 +1624,7 @@ export default function ArenaPage() {
       // Wait for confirmation
       await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: getChainId(),
+        chainId: getTypedChainId(),
       });
 
       console.log('Influence confirmed!');
@@ -1660,7 +1670,7 @@ export default function ArenaPage() {
         // Wait for approval confirmation
         await waitForTransactionReceipt(rainbowKitConfig, {
           hash: approvalHash as `0x${string}`,
-          chainId: getChainId(),
+          chainId: getTypedChainId(),
         });
 
         console.log('CRwN token approval confirmed!');
@@ -1680,7 +1690,7 @@ export default function ArenaPage() {
       // Wait for confirmation
       await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: getChainId(),
+        chainId: getTypedChainId(),
       });
 
       console.log('Defluence confirmed!');
@@ -1723,7 +1733,7 @@ export default function ArenaPage() {
       // Wait for transaction confirmation
       const receipt = await waitForTransactionReceipt(rainbowKitConfig, {
         hash: transactionHash as `0x${string}`,
-        chainId: getChainId(),
+        chainId: getTypedChainId(),
       });
 
       console.log('Transaction confirmed:', receipt);

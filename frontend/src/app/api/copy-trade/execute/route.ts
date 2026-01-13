@@ -1,35 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import {
+  ZEROG_RPC,
+  FLOW_RPC,
+  ZEROG_CONTRACTS,
+  FLOW_CONTRACTS,
+  AI_AGENT_INFT_ABI,
+  PREDICTION_MARKET_ABI,
+  ERC20_ABI,
+  getServerPrivateKey,
+} from '@/lib/apiConfig';
 
-// Flow Testnet Configuration
-const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
-const PREDICTION_MARKET = '0x1b26203A2752557ecD4763a9A8A26119AC5e18e4';
-const AI_AGENT_REGISTRY = '0xdc2b123Ec17c36E10c2Ca4628473E879194153D0';
-const CROWN_TOKEN = '0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6';
-
-// ABIs
-const AI_AGENT_REGISTRY_ABI = [
-  'function getAgentFollowers(uint256 agentId) view returns (address[])',
-  'function getCopyTradeConfig(address user, uint256 agentId) view returns (tuple(bool isActive, uint256 maxAmountPerTrade, uint256 totalCopied, uint256 totalPnL))',
-  'function getAgent(uint256 agentId) view returns (tuple(uint256 id, address owner, string name, string strategy, uint256 totalPnL, uint256 winCount, uint256 lossCount, uint256 totalTrades, uint256 followersCount, uint256 stake, uint8 tier, bool isActive, bool isOfficial, uint256 createdAt))'
-];
-
-const PREDICTION_MARKET_ABI = [
-  'function executeCopyTrade(uint256 agentId, uint256 marketId, bool isYes, uint256 collateralAmount) returns (uint256)',
-  'function getMarket(uint256 marketId) view returns (tuple(uint256 id, string question, uint256 endTime, uint256 resolutionTime, uint8 status, uint8 outcome, uint256 yesTokens, uint256 noTokens, uint256 liquidity, uint256 totalVolume, address creator, uint256 battleId, uint256 warrior1Id, uint256 warrior2Id, uint256 createdAt))'
-];
-
-const ERC20_ABI = [
-  'function balanceOf(address account) view returns (uint256)',
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function approve(address spender, uint256 amount) returns (bool)'
-];
-
+// Copy trade config from AIAgentINFT (0G chain)
 interface CopyTradeConfig {
-  isActive: boolean;
+  tokenId: bigint;
   maxAmountPerTrade: bigint;
   totalCopied: bigint;
-  totalPnL: bigint;
+  startedAt: bigint;
+  isActive: boolean;
+}
+
+// Agent on-chain data from AIAgentINFT (0G chain)
+interface AgentOnChainData {
+  tier: number;
+  stakedAmount: bigint;
+  isActive: boolean;
+  copyTradingEnabled: boolean;
+  createdAt: bigint;
+  lastUpdatedAt: bigint;
 }
 
 interface ExecutionResult {
@@ -65,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get server private key for executing trades
-    const privateKey = process.env.PRIVATE_KEY;
+    const privateKey = getServerPrivateKey();
     if (!privateKey) {
       return NextResponse.json(
         { success: false, error: 'Server not configured for copy trade execution' },
@@ -73,40 +71,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Setup provider and wallet
-    const provider = new ethers.JsonRpcProvider(FLOW_RPC);
-    const wallet = new ethers.Wallet(privateKey, provider);
+    // Setup providers and wallet
+    // 0G provider for reading copy trade data (followers, configs)
+    const zeroGProvider = new ethers.JsonRpcProvider(ZEROG_RPC);
+    // Flow provider for executing trades
+    const flowProvider = new ethers.JsonRpcProvider(FLOW_RPC);
+    const wallet = new ethers.Wallet(privateKey, flowProvider);
 
     // Create contract instances
-    const registryContract = new ethers.Contract(
-      AI_AGENT_REGISTRY,
-      AI_AGENT_REGISTRY_ABI,
-      provider
+    // AIAgentINFT on 0G - for reading followers and copy configs
+    const inftContract = new ethers.Contract(
+      ZEROG_CONTRACTS.aiAgentINFT,
+      AI_AGENT_INFT_ABI,
+      zeroGProvider
     );
 
     const marketContract = new ethers.Contract(
-      PREDICTION_MARKET,
+      FLOW_CONTRACTS.predictionMarketAMM,
       PREDICTION_MARKET_ABI,
       wallet
     );
 
     const crownToken = new ethers.Contract(
-      CROWN_TOKEN,
+      FLOW_CONTRACTS.crownToken,
       ERC20_ABI,
       wallet
     );
 
-    // Get agent info and followers
-    const agent = await registryContract.getAgent(agentId);
-    if (!agent.isActive) {
+    // Get agent info from 0G iNFT contract
+    let agentData: AgentOnChainData;
+    let agentOwner: string;
+    try {
+      agentData = await inftContract.getAgentData(agentId);
+      agentOwner = await inftContract.ownerOf(agentId);
+    } catch (err) {
+      console.error('Error getting agent data from 0G:', err);
+      return NextResponse.json(
+        { success: false, error: `Agent #${agentId} not found on 0G chain` },
+        { status: 400 }
+      );
+    }
+
+    if (!agentData.isActive) {
       return NextResponse.json(
         { success: false, error: `Agent #${agentId} is not active` },
         { status: 400 }
       );
     }
 
-    // Get all followers of this agent
-    const followers: string[] = await registryContract.getAgentFollowers(agentId);
+    if (!agentData.copyTradingEnabled) {
+      return NextResponse.json(
+        { success: false, error: `Agent #${agentId} does not have copy trading enabled` },
+        { status: 400 }
+      );
+    }
+
+    // Get all followers of this agent from 0G
+    const followers: string[] = await inftContract.getAgentFollowers(agentId);
 
     if (followers.length === 0) {
       return NextResponse.json({
@@ -121,9 +142,11 @@ export async function POST(request: NextRequest) {
 
     // Verify market is active
     const market = await marketContract.getMarket(marketId);
-    if (market.status !== 0) { // ACTIVE = 0
+    console.log(`[Copy Trade] Market #${marketId} status:`, market.status, 'type:', typeof market.status);
+    // Handle both BigInt and number comparison
+    if (Number(market.status) !== 0) { // ACTIVE = 0
       return NextResponse.json(
-        { success: false, error: `Market #${marketId} is not active` },
+        { success: false, error: `Market #${marketId} is not active (status: ${market.status})` },
         { status: 400 }
       );
     }
@@ -145,13 +168,13 @@ export async function POST(request: NextRequest) {
     console.log(`Server wallet balance: ${ethers.formatEther(walletBalance)} CRwN`);
 
     // Check and approve if needed
-    const currentAllowance = await crownToken.allowance(wallet.address, PREDICTION_MARKET);
+    const currentAllowance = await crownToken.allowance(wallet.address, FLOW_CONTRACTS.predictionMarketAMM);
     const neededAmount = ethers.parseEther(agentTradeAmount) * BigInt(followers.length);
 
     if (currentAllowance < neededAmount) {
       console.log('Approving CRwN for copy trades...');
       const approveTx = await crownToken.approve(
-        PREDICTION_MARKET,
+        FLOW_CONTRACTS.predictionMarketAMM,
         ethers.MaxUint256 // Infinite approval for convenience
       );
       await approveTx.wait();
@@ -161,8 +184,8 @@ export async function POST(request: NextRequest) {
     // For each follower, check their config and execute copy trade
     for (const follower of followers) {
       try {
-        // Get follower's copy trade config
-        const config: CopyTradeConfig = await registryContract.getCopyTradeConfig(follower, agentId);
+        // Get follower's copy trade config from 0G
+        const config: CopyTradeConfig = await inftContract.getCopyTradeConfig(follower, agentId);
 
         if (!config.isActive) {
           results.push({
@@ -240,7 +263,8 @@ export async function POST(request: NextRequest) {
       success: true,
       summary: {
         agentId,
-        agentName: agent.name,
+        agentOwner,
+        agentTier: Number(agentData.tier),
         marketId,
         marketQuestion: market.question,
         direction: isYes ? 'YES' : 'NO',
@@ -279,21 +303,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const provider = new ethers.JsonRpcProvider(FLOW_RPC);
+    // 0G provider for reading agent data
+    const zeroGProvider = new ethers.JsonRpcProvider(ZEROG_RPC);
+    // Flow provider for server wallet check
+    const flowProvider = new ethers.JsonRpcProvider(FLOW_RPC);
 
-    const registryContract = new ethers.Contract(
-      AI_AGENT_REGISTRY,
-      AI_AGENT_REGISTRY_ABI,
-      provider
+    const inftContract = new ethers.Contract(
+      ZEROG_CONTRACTS.aiAgentINFT,
+      AI_AGENT_INFT_ABI,
+      zeroGProvider
     );
 
-    // Get agent info
-    const agent = await registryContract.getAgent(agentId);
+    // Get agent info from 0G
+    let agentData: AgentOnChainData;
+    let agentOwner: string;
+    try {
+      agentData = await inftContract.getAgentData(agentId);
+      agentOwner = await inftContract.ownerOf(agentId);
+    } catch (err) {
+      console.error('Error getting agent data from 0G:', err);
+      return NextResponse.json(
+        { success: false, error: `Agent #${agentId} not found on 0G chain` },
+        { status: 404 }
+      );
+    }
 
-    // Get followers
-    const followers: string[] = await registryContract.getAgentFollowers(agentId);
+    // Get followers from 0G
+    const followers: string[] = await inftContract.getAgentFollowers(agentId);
 
-    // Get active follower configs
+    // Get active follower configs from 0G
     const activeFollowers: Array<{
       address: string;
       maxAmountPerTrade: string;
@@ -301,7 +339,7 @@ export async function GET(request: NextRequest) {
     }> = [];
 
     for (const follower of followers) {
-      const config: CopyTradeConfig = await registryContract.getCopyTradeConfig(follower, agentId);
+      const config: CopyTradeConfig = await inftContract.getCopyTradeConfig(follower, agentId);
       if (config.isActive) {
         activeFollowers.push({
           address: follower,
@@ -311,13 +349,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Check server wallet
-    const privateKey = process.env.PRIVATE_KEY;
+    // Check server wallet on Flow (where trades execute)
+    const privateKey = getServerPrivateKey();
     let serverWalletStatus = { configured: false, balance: '0', address: '' };
 
     if (privateKey) {
-      const wallet = new ethers.Wallet(privateKey, provider);
-      const crownToken = new ethers.Contract(CROWN_TOKEN, ERC20_ABI, provider);
+      const wallet = new ethers.Wallet(privateKey, flowProvider);
+      const crownToken = new ethers.Contract(FLOW_CONTRACTS.crownToken, ERC20_ABI, flowProvider);
       const balance = await crownToken.balanceOf(wallet.address);
 
       serverWalletStatus = {
@@ -330,12 +368,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       agent: {
-        id: Number(agent.id),
-        name: agent.name,
-        strategy: agent.strategy,
-        isActive: agent.isActive,
-        totalTrades: Number(agent.totalTrades),
-        followersCount: Number(agent.followersCount)
+        id: Number(agentId),
+        owner: agentOwner,
+        tier: Number(agentData.tier),
+        isActive: agentData.isActive,
+        copyTradingEnabled: agentData.copyTradingEnabled,
+        stakedAmount: ethers.formatEther(agentData.stakedAmount)
       },
       copyTrading: {
         totalFollowers: followers.length,
@@ -343,6 +381,10 @@ export async function GET(request: NextRequest) {
         followers: activeFollowers
       },
       serverWallet: serverWalletStatus,
+      chains: {
+        agentData: '0G Galileo Testnet (16602)',
+        tradeExecution: 'Flow Testnet (545)'
+      },
       executionEndpoint: 'POST /api/copy-trade/execute'
     });
 

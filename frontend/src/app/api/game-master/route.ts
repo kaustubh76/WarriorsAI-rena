@@ -217,6 +217,7 @@ async function startGame(arenaAddress: string): Promise<boolean> {
       address: arenaAddress as `0x${string}`,
       abi: ArenaAbi,
       functionName: 'startGame',
+      chain: flowTestnet,
     });
 
     console.log(`Game Master: Start game transaction sent: ${hash}`);
@@ -422,7 +423,8 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
       address: arenaAddress as `0x${string}`,
       abi: ArenaAbi,
       functionName: 'battle',
-      args: [warriorsOneMove, warriorsTwoMove, signature as `0x${string}`]
+      args: [warriorsOneMove, warriorsTwoMove, signature as `0x${string}`],
+      chain: flowTestnet,
     });
 
     console.log(`Game Master: Battle transaction sent: ${hash}`);

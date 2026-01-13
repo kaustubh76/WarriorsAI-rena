@@ -1,21 +1,841 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   WARRIORS AI-RENA DESIGN SYSTEM
+   Arcade-themed design tokens with modern polish
+   ========================================================================== */
+
 :root {
+  /* ===== COLOR PALETTE ===== */
+
+  /* Primary Colors - Arcade Theme */
   --arcade-gold: #ffd700;
+  --arcade-gold-light: #ffed4a;
+  --arcade-gold-dark: #c9a800;
+  --arcade-gold-glow: rgba(255, 215, 0, 0.4);
+
   --arcade-red: #dc143c;
+  --arcade-red-light: #ff4d6a;
+  --arcade-red-dark: #a30f2e;
+  --arcade-red-glow: rgba(220, 20, 60, 0.4);
+
   --arcade-blue: #1e3a8a;
-  --metal-silver: #c0c0c0;
-  --stone-dark: #2d2d2d;
+  --arcade-blue-light: #3b82f6;
+  --arcade-blue-dark: #1e2d5a;
+  --arcade-blue-glow: rgba(59, 130, 246, 0.4);
+
+  /* Accent Colors */
   --bronze: #cd7f32;
+  --bronze-light: #e09a4d;
+  --bronze-dark: #a66528;
+
+  --metal-silver: #c0c0c0;
+  --metal-silver-light: #e0e0e0;
+  --metal-silver-dark: #909090;
+
+  /* Semantic Colors */
+  --success: #10b981;
+  --success-light: #34d399;
+  --success-dark: #059669;
+  --success-glow: rgba(16, 185, 129, 0.4);
+
+  --warning: #f59e0b;
+  --warning-light: #fbbf24;
+  --warning-dark: #d97706;
+  --warning-glow: rgba(245, 158, 11, 0.4);
+
+  --error: #ef4444;
+  --error-light: #f87171;
+  --error-dark: #dc2626;
+  --error-glow: rgba(239, 68, 68, 0.4);
+
+  --info: #3b82f6;
+  --info-light: #60a5fa;
+  --info-dark: #2563eb;
+  --info-glow: rgba(59, 130, 246, 0.4);
+
+  /* Background Colors - Dark Theme */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #0f0f0f;
+  --bg-tertiary: #1a1a1a;
+  --bg-elevated: #242424;
+  --bg-card: #1e1e1e;
+  --bg-card-hover: #282828;
+
+  /* Surface Colors - For overlays and modals */
+  --surface-dark: #121212;
+  --surface-medium: #1f1f1f;
+  --surface-light: #2d2d2d;
+  --surface-overlay: rgba(0, 0, 0, 0.8);
+
+  /* Slate Colors - Modern accent palette */
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+
+  /* Text Colors */
+  --text-primary: #f0f0f0;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #707070;
+  --text-muted: #505050;
+  --text-inverted: #0f0f0f;
+
+  /* Border Colors */
+  --border-primary: #333333;
+  --border-secondary: #444444;
+  --border-accent: var(--arcade-gold);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+
+  /* ===== TYPOGRAPHY ===== */
+
+  /* Font Families */
+  --font-arcade: 'Press Start 2P', monospace;
+  --font-display: 'Press Start 2P', monospace;
+  --font-body: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', monospace;
+
+  /* Font Sizes - Modular Scale (1.25 ratio) */
+  --text-2xs: 0.625rem;   /* 10px */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 1.875rem;   /* 30px */
+  --text-4xl: 2.25rem;    /* 36px */
+  --text-5xl: 3rem;       /* 48px */
+
+  /* Font Weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Line Heights */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+
+  /* Letter Spacing */
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* ===== SPACING ===== */
+
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+  --space-20: 5rem;     /* 80px */
+  --space-24: 6rem;     /* 96px */
+
+  /* ===== BORDERS & RADII ===== */
+
+  --radius-none: 0;
+  --radius-sm: 0.25rem;   /* 4px */
+  --radius-md: 0.5rem;    /* 8px */
+  --radius-lg: 0.75rem;   /* 12px */
+  --radius-xl: 1rem;      /* 16px */
+  --radius-2xl: 1.5rem;   /* 24px */
+  --radius-full: 9999px;
+
+  --border-thin: 1px;
+  --border-medium: 2px;
+  --border-thick: 3px;
+  --border-heavy: 4px;
+
+  /* ===== SHADOWS ===== */
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.5);
+  --shadow-2xl: 0 25px 50px rgba(0, 0, 0, 0.6);
+
+  --shadow-glow-gold: 0 0 20px var(--arcade-gold-glow);
+  --shadow-glow-red: 0 0 20px var(--arcade-red-glow);
+  --shadow-glow-blue: 0 0 20px var(--arcade-blue-glow);
+  --shadow-glow-success: 0 0 20px var(--success-glow);
+
+  --shadow-arcade:
+    0 0 8px rgba(255, 215, 0, 0.2),
+    inset 0 0 8px rgba(255, 215, 0, 0.05),
+    0 2px 4px rgba(0, 0, 0, 0.6);
+
+  /* ===== TRANSITIONS ===== */
+
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+  --transition-bounce: 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ===== Z-INDEX SCALE ===== */
+
+  --z-base: 0;
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-fixed: 30;
+  --z-modal-backdrop: 40;
+  --z-modal: 50;
+  --z-popover: 60;
+  --z-tooltip: 70;
+  --z-toast: 80;
+  --z-max: 9999;
+
+  /* ===== COMPONENT-SPECIFIC ===== */
+
+  /* Card */
+  --card-bg: var(--bg-card);
+  --card-border: var(--border-primary);
+  --card-radius: var(--radius-xl);
+  --card-padding: var(--space-6);
+  --card-shadow: var(--shadow-lg);
+
+  /* Button */
+  --btn-height-sm: 32px;
+  --btn-height-md: 40px;
+  --btn-height-lg: 48px;
+  --btn-height-xl: 56px;
+
+  /* Input */
+  --input-height: 44px;
+  --input-bg: var(--bg-elevated);
+  --input-border: var(--border-secondary);
+  --input-radius: var(--radius-lg);
+
+  /* Header */
+  --header-height: 72px;
+  --header-height-mobile: 64px;
+
+  /* Sidebar */
+  --sidebar-width: 280px;
+  --sidebar-width-collapsed: 80px;
+}
+
+/* Dark mode is default, but prepare for potential light mode */
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Light mode overrides would go here if needed */
+  }
+}
+
+/* ==========================================================================
+   BASE STYLES
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: #0f0f0f;
-  color: #f0f0f0;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 12px;
-  line-height: 1.8;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: var(--font-arcade);
+  font-size: var(--text-xs);
+  line-height: var(--leading-loose);
+  min-height: 100vh;
 }
+
+/* Better focus styles for accessibility */
+:focus-visible {
+  outline: 2px solid var(--arcade-gold);
+  outline-offset: 2px;
+}
+
+/* Selection styling */
+::selection {
+  background: var(--arcade-gold);
+  color: var(--text-inverted);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--slate-600);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--slate-500);
+}
+
+/* ==========================================================================
+   UTILITY CLASSES
+   ========================================================================== */
+
+/* Container */
+.container-arcade {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-left: var(--space-4);
+  padding-right: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .container-arcade {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-arcade {
+    padding-left: var(--space-8);
+    padding-right: var(--space-8);
+  }
+}
+
+/* Glass Effect */
+.glass {
+  background: rgba(30, 30, 30, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-dark {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-primary);
+}
+
+/* Gradient Text */
+.text-gradient-gold {
+  background: linear-gradient(135deg, var(--arcade-gold), var(--arcade-gold-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-red {
+  background: linear-gradient(135deg, var(--arcade-red), var(--arcade-red-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-blue {
+  background: linear-gradient(135deg, var(--arcade-blue), var(--arcade-blue-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ==========================================================================
+   STANDARDIZED CARD SYSTEM
+   ========================================================================== */
+
+/* Base Card - Modern clean style */
+.card {
+  background: var(--bg-card);
+  border: var(--border-thin) solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  transition: var(--transition-smooth);
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-secondary);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Card with gradient border */
+.card-gradient {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  position: relative;
+  transition: var(--transition-smooth);
+}
+
+.card-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-xl);
+  padding: 2px;
+  background: linear-gradient(135deg, var(--arcade-gold-dark), var(--bronze));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.card-gradient:hover::before {
+  background: linear-gradient(135deg, var(--arcade-gold), var(--arcade-gold-light));
+}
+
+/* Stat Card */
+.stat-card {
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-card));
+  border: var(--border-thin) solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  transition: var(--transition-smooth);
+}
+
+.stat-card:hover {
+  border-color: var(--arcade-gold-dark);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.15);
+}
+
+.stat-card-label {
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  margin-bottom: var(--space-1);
+}
+
+.stat-card-value {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+/* Feature Card */
+.feature-card {
+  background: linear-gradient(135deg, var(--bg-card), var(--bg-tertiary));
+  border: var(--border-medium) solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  transition: var(--transition-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--arcade-gold), var(--bronze), var(--arcade-gold));
+  opacity: 0;
+  transition: var(--transition-smooth);
+}
+
+.feature-card:hover {
+  border-color: var(--arcade-gold-dark);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-xl);
+}
+
+.feature-card:hover::before {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   STANDARDIZED BUTTON SYSTEM
+   ========================================================================== */
+
+/* Base Button Reset */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-arcade);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  border-radius: var(--radius-lg);
+  padding: 0 var(--space-5);
+  height: var(--btn-height-md);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  border: var(--border-medium) solid transparent;
+  outline: none;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Button Sizes */
+.btn-sm {
+  height: var(--btn-height-sm);
+  padding: 0 var(--space-3);
+  font-size: 9px;
+}
+
+.btn-lg {
+  height: var(--btn-height-lg);
+  padding: 0 var(--space-6);
+  font-size: var(--text-xs);
+}
+
+.btn-xl {
+  height: var(--btn-height-xl);
+  padding: 0 var(--space-8);
+  font-size: var(--text-sm);
+}
+
+/* Primary Button - Gold Accent */
+.btn-primary {
+  background: linear-gradient(135deg, var(--slate-600), var(--slate-500));
+  border-color: var(--arcade-gold);
+  color: var(--arcade-gold);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.2);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--slate-500), var(--slate-400));
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+/* Secondary Button - Slate */
+.btn-secondary {
+  background: linear-gradient(135deg, var(--slate-700), var(--slate-600));
+  border-color: var(--slate-400);
+  color: var(--slate-100);
+}
+
+.btn-secondary:hover {
+  background: linear-gradient(135deg, var(--slate-600), var(--slate-500));
+  border-color: var(--slate-300);
+  box-shadow: 0 0 12px rgba(100, 116, 139, 0.3);
+  transform: translateY(-2px);
+}
+
+/* Danger Button - Red */
+.btn-danger {
+  background: linear-gradient(135deg, var(--error-dark), var(--error));
+  border-color: var(--error-light);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: linear-gradient(135deg, var(--error), var(--error-light));
+  box-shadow: 0 0 12px var(--error-glow);
+  transform: translateY(-2px);
+}
+
+/* Success Button - Green */
+.btn-success {
+  background: linear-gradient(135deg, var(--success-dark), var(--success));
+  border-color: var(--success-light);
+  color: white;
+}
+
+.btn-success:hover {
+  background: linear-gradient(135deg, var(--success), var(--success-light));
+  box-shadow: 0 0 12px var(--success-glow);
+  transform: translateY(-2px);
+}
+
+/* Ghost Button - Transparent */
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border-secondary);
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-primary);
+  color: var(--text-primary);
+}
+
+/* Icon Button */
+.btn-icon {
+  width: var(--btn-height-md);
+  height: var(--btn-height-md);
+  padding: 0;
+  border-radius: var(--radius-lg);
+}
+
+.btn-icon.btn-sm {
+  width: var(--btn-height-sm);
+  height: var(--btn-height-sm);
+}
+
+.btn-icon.btn-lg {
+  width: var(--btn-height-lg);
+  height: var(--btn-height-lg);
+}
+
+/* ==========================================================================
+   STANDARDIZED INPUT SYSTEM
+   ========================================================================== */
+
+.input {
+  width: 100%;
+  height: var(--input-height);
+  background: var(--input-bg);
+  border: var(--border-medium) solid var(--input-border);
+  border-radius: var(--input-radius);
+  padding: 0 var(--space-4);
+  font-family: var(--font-arcade);
+  font-size: var(--text-2xs);
+  color: var(--text-primary);
+  transition: var(--transition-smooth);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input:hover {
+  border-color: var(--slate-500);
+}
+
+.input:focus {
+  border-color: var(--arcade-gold);
+  box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.15);
+  outline: none;
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Input with icon */
+.input-group {
+  position: relative;
+}
+
+.input-icon {
+  position: absolute;
+  left: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.input-group .input {
+  padding-left: var(--space-10);
+}
+
+/* ==========================================================================
+   STANDARDIZED BADGE SYSTEM
+   ========================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-arcade);
+  font-size: 8px;
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.badge-gold {
+  background: rgba(255, 215, 0, 0.2);
+  color: var(--arcade-gold);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.badge-purple {
+  background: rgba(147, 51, 234, 0.2);
+  color: #a855f7;
+  border: 1px solid rgba(147, 51, 234, 0.3);
+}
+
+.badge-blue {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--info-light);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-green {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--success-light);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-red {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--error-light);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.badge-slate {
+  background: rgba(100, 116, 139, 0.2);
+  color: var(--slate-300);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+/* ==========================================================================
+   MOBILE RESPONSIVE UTILITIES
+   ========================================================================== */
+
+/* Hide on mobile, show on desktop */
+.hide-mobile {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .hide-mobile {
+    display: block;
+  }
+}
+
+/* Show on mobile, hide on desktop */
+.show-mobile {
+  display: block;
+}
+
+@media (min-width: 768px) {
+  .show-mobile {
+    display: none;
+  }
+}
+
+/* Mobile-friendly touch targets */
+@media (max-width: 767px) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ==========================================================================
+   ANIMATIONS
+   ========================================================================== */
+
+/* Shimmer effect for loading */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-elevated) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-md);
+}
+
+/* Pulse glow for emphasis */
+@keyframes pulse-glow-new {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--arcade-gold-glow);
+  }
+  50% {
+    box-shadow: 0 0 20px var(--arcade-gold-glow);
+  }
+}
+
+.pulse-gold {
+  animation: pulse-glow-new 2s ease-in-out infinite;
+}
+
+/* Fade in animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+/* Slide up animation */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out forwards;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   ARCADE TEXT EFFECTS (existing, kept for compatibility)
+   ========================================================================== */
 
 /* Arcade Text Effects */
 .arcade-glow {
@@ -1200,5 +2020,280 @@ body {
   100% {
     opacity: 1;
     transform: translateY(0px) scale(1);
+  }
+}
+
+/* ===========================================
+   GAMIFICATION ANIMATIONS
+   =========================================== */
+
+/* Flame animations for streaks */
+@keyframes flame-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.1);
+    filter: brightness(1.2);
+  }
+}
+
+.animate-flame-pulse {
+  animation: flame-pulse 1s ease-in-out infinite;
+}
+
+@keyframes blazing-flame {
+  0%, 100% {
+    transform: scale(1) rotate(-3deg);
+    filter: brightness(1) hue-rotate(0deg);
+  }
+  25% {
+    transform: scale(1.15) rotate(3deg);
+    filter: brightness(1.3) hue-rotate(-10deg);
+  }
+  50% {
+    transform: scale(1.2) rotate(-3deg);
+    filter: brightness(1.4) hue-rotate(10deg);
+  }
+  75% {
+    transform: scale(1.15) rotate(3deg);
+    filter: brightness(1.3) hue-rotate(-5deg);
+  }
+}
+
+.animate-blazing-flame {
+  animation: blazing-flame 0.8s ease-in-out infinite;
+}
+
+@keyframes legendary-flame {
+  0%, 100% {
+    transform: scale(1) rotate(-5deg);
+    filter: brightness(1.2) hue-rotate(0deg) saturate(1.5);
+    text-shadow: 0 0 10px rgba(147, 51, 234, 0.8);
+  }
+  25% {
+    transform: scale(1.2) rotate(5deg);
+    filter: brightness(1.5) hue-rotate(20deg) saturate(2);
+    text-shadow: 0 0 20px rgba(147, 51, 234, 1);
+  }
+  50% {
+    transform: scale(1.25) rotate(-5deg);
+    filter: brightness(1.6) hue-rotate(-20deg) saturate(2.2);
+    text-shadow: 0 0 30px rgba(236, 72, 153, 1);
+  }
+  75% {
+    transform: scale(1.2) rotate(5deg);
+    filter: brightness(1.5) hue-rotate(10deg) saturate(2);
+    text-shadow: 0 0 20px rgba(147, 51, 234, 1);
+  }
+}
+
+.animate-legendary-flame {
+  animation: legendary-flame 0.6s ease-in-out infinite;
+}
+
+/* Confetti animations */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti-fall {
+  animation: confetti-fall 3s ease-in forwards;
+}
+
+@keyframes confetti-spin {
+  0% {
+    transform: rotateY(0deg) rotateX(0deg);
+  }
+  100% {
+    transform: rotateY(360deg) rotateX(180deg);
+  }
+}
+
+.animate-confetti-spin {
+  animation: confetti-spin 1s linear infinite;
+}
+
+/* Badge unlock animation */
+@keyframes badge-unlock {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-badge-unlock {
+  animation: badge-unlock 0.5s ease-out;
+}
+
+@keyframes badge-unlock-large {
+  0% {
+    transform: scale(0.3) rotate(-10deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.3) rotate(5deg);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(0.95) rotate(-2deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.animate-badge-unlock-large {
+  animation: badge-unlock-large 0.8s ease-out;
+}
+
+/* Toast slide animations */
+@keyframes toast-slide-in {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-slide-out {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Achievement shimmer effect */
+@keyframes achievement-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.animate-achievement-shimmer {
+  background-size: 200% 100%;
+  animation: achievement-shimmer 2s ease-in-out infinite;
+}
+
+/* Shimmer effect */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
+/* Sparkle effect for achievements */
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1) rotate(180deg);
+  }
+}
+
+.animate-sparkle {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+/* Scale up animation for modals */
+@keyframes scale-up {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scale-up {
+  animation: scale-up 0.3s ease-out;
+}
+
+/* Fade in animation */
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Width shrink for progress bar */
+@keyframes shrink-width {
+  0% {
+    width: 100%;
+  }
+  100% {
+    width: 0%;
+  }
+}
+
+/* Rarity glow effects */
+.badge-uncommon {
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+.badge-rare {
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
+}
+
+.badge-epic {
+  box-shadow: 0 0 16px rgba(236, 72, 153, 0.7);
+}
+
+.badge-legendary {
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+  animation: legendary-glow 2s ease-in-out infinite;
+}
+
+@keyframes legendary-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 215, 0, 1), 0 0 40px rgba(255, 215, 0, 0.5);
   }
 }

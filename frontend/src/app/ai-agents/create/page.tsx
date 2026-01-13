@@ -3,20 +3,56 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAccount } from 'wagmi';
-import { useRegisterAgent } from '@/hooks/useCopyTrade';
-import { useAgentTokenBalance, useMinStakeRequirements } from '@/hooks/useAgents';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { parseEther } from 'viem';
+import { useAgentTokenBalance, useMinStakeRequirements, useZeroGTokenBalance } from '@/hooks/useAgents';
 import { useMintINFT } from '@/hooks/useAgentINFT';
 import { type AgentStrategy, type RiskProfile, type Specialization, type PersonaTraits } from '@/services/aiAgentService';
 import { INFTBadge } from '@/components/agents/INFTBadge';
+import { chainsToContracts, AIAgentRegistryAbi, crownTokenAbi, getChainId } from '@/constants';
 
 export default function CreateAgentPage() {
   const router = useRouter();
   const { isConnected, address } = useAccount();
-  const { balance, balanceFormatted } = useAgentTokenBalance();
+  const { balance, balanceFormatted } = useAgentTokenBalance(); // Flow CRwN (for trading)
+  const { balance: zeroGBalance, balanceFormatted: zeroGBalanceFormatted } = useZeroGTokenBalance(); // 0G CRwN (for iNFT staking)
   const { requirementsFormatted } = useMinStakeRequirements();
-  const { approveStake, registerAgent, isPending, isConfirming, isSuccess, error } = useRegisterAgent();
   const { mint: mintINFT, isMinting, error: mintError } = useMintINFT();
+
+  // Legacy registry contract addresses (Flow Testnet)
+  const chainId = getChainId();
+  const contracts = chainsToContracts[chainId];
+  const crownTokenAddress = contracts.crownToken as `0x${string}`;
+  const aiAgentRegistryAddress = contracts.aiAgentRegistry as `0x${string}`;
+
+  // Legacy registry: Approve stake
+  const {
+    writeContractAsync: approveAsync,
+    data: approveTxHash,
+    isPending: isApproving,
+    error: approveError
+  } = useWriteContract();
+
+  const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({
+    hash: approveTxHash,
+  });
+
+  // Legacy registry: Register agent
+  const {
+    writeContractAsync: registerAsync,
+    data: registerTxHash,
+    isPending: isRegistering,
+    error: registerError
+  } = useWriteContract();
+
+  const { isSuccess: registerSuccess, isLoading: isConfirming } = useWaitForTransactionReceipt({
+    hash: registerTxHash,
+  });
+
+  // Combined state for UI
+  const isPending = isMinting || isApproving || isRegistering;
+  const isSuccess = registerSuccess;
+  const error = mintError || approveError || registerError;
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -49,7 +85,7 @@ export default function CreateAgentPage() {
       maxDailyTrades: 10, // Maximum trades per day
       maxDailyExposure: '50', // Max total exposure per day in CRwN
     },
-    stakeAmount: '100',
+    stakeAmount: '1', // Default to minimum (1 CRwN for NOVICE tier on 0G)
     enableCopyTrading: true,
     copyTradeFee: 100, // 1%
     mintAsINFT: true // New: Create as iNFT by default
@@ -66,13 +102,59 @@ export default function CreateAgentPage() {
     if (step > 1) setStep(step - 1);
   };
 
+  // Approve CRwN for staking
+  const approveStake = async (amount: string) => {
+    const amountWei = parseEther(amount);
+    await approveAsync({
+      address: crownTokenAddress,
+      abi: crownTokenAbi,
+      functionName: 'approve',
+      args: [aiAgentRegistryAddress, amountWei]
+    });
+  };
+
+  // Register agent on legacy registry
+  const registerAgent = async (data: typeof formData) => {
+    const amountWei = parseEther(data.stakeAmount);
+    await registerAsync({
+      address: aiAgentRegistryAddress,
+      abi: AIAgentRegistryAbi,
+      functionName: 'registerAgent',
+      args: [
+        data.name,
+        data.description,
+        data.strategy,
+        data.riskProfile,
+        data.specialization,
+        {
+          patience: data.personaTraits.patience,
+          conviction: data.personaTraits.conviction,
+          contrarian: data.personaTraits.contrarian,
+          momentum: data.personaTraits.momentum
+        },
+        amountWei
+      ]
+    });
+  };
+
   const handleApprove = async () => {
     await approveStake(formData.stakeAmount);
     setNeedsApproval(false);
   };
 
+  // Check if user has enough 0G CRwN for staking
+  const stakeAmountWei = BigInt(Math.floor(parseFloat(formData.stakeAmount || '0') * 1e18));
+  const hasEnough0GBalance = zeroGBalance >= stakeAmountWei;
+  const insufficientBalanceError = formData.mintAsINFT && !hasEnough0GBalance && parseFloat(formData.stakeAmount) > 0;
+
   const handleCreate = async () => {
     if (formData.mintAsINFT) {
+      // Validate 0G CRwN balance before attempting mint
+      if (!hasEnough0GBalance) {
+        alert(`Insufficient CRwN on 0G chain!\n\nYou have: ${zeroGBalanceFormatted} CRwN\nRequired: ${formData.stakeAmount} CRwN\n\nPlease get more CRwN tokens on 0G Galileo testnet.`);
+        return;
+      }
+
       // Mint as iNFT with encrypted metadata
       try {
         setMintStep('encrypting');
@@ -89,10 +171,10 @@ export default function CreateAgentPage() {
               marketFocus: formData.strategyParams.marketFocus,
             },
             weights: [
-              { factor: 'traitAnalysis', weight: formData.strategyWeights.traitAnalysis },
-              { factor: 'historicalData', weight: formData.strategyWeights.historicalData },
-              { factor: 'marketSentiment', weight: formData.strategyWeights.marketSentiment },
-              { factor: 'randomVariance', weight: formData.strategyWeights.randomVariance },
+              formData.strategyWeights.traitAnalysis,
+              formData.strategyWeights.historicalData,
+              formData.strategyWeights.marketSentiment,
+              formData.strategyWeights.randomVariance,
             ]
           },
           traits: formData.personaTraits,
@@ -102,20 +184,26 @@ export default function CreateAgentPage() {
             tradingLimits: {
               maxPositionSize: formData.tradingLimits.maxPositionSize,
               maxDailyTrades: formData.tradingLimits.maxDailyTrades,
-              maxDailyExposure: formData.tradingLimits.maxDailyExposure,
             }
-          }
+          },
+          encryptedAt: Date.now(),
+          encryptionVersion: '1.0',
         };
 
         setMintStep('minting');
+        // Convert stakeAmount string to bigint (in wei)
+        const stakeAmountWei = BigInt(Math.floor(parseFloat(formData.stakeAmount) * 1e18));
         const result = await mintINFT(
           metadata,
-          formData.stakeAmount,
+          stakeAmountWei,
           formData.enableCopyTrading
         );
 
         if (result) {
           setMintStep('success');
+          // Force refresh agents list to ensure newly minted iNFT appears
+          console.log('[CreateAgent] Mint successful, triggering agents refresh...');
+          await fetch('/api/agents?refresh=true');
           setTimeout(() => router.push('/ai-agents'), 2000);
         }
       } catch (err) {
@@ -126,16 +214,32 @@ export default function CreateAgentPage() {
       // Legacy registry-based creation
       if (needsApproval) {
         await handleApprove();
+        // After approval, user needs to click again to register
         return;
       }
 
-      await registerAgent(formData);
-
-      if (isSuccess) {
-        router.push('/ai-agents');
+      try {
+        await registerAgent(formData);
+        // Navigation happens via useEffect when registerSuccess becomes true
+      } catch (err) {
+        console.error('Legacy agent registration failed:', err);
       }
     }
   };
+
+  // Navigate on successful legacy registration
+  React.useEffect(() => {
+    if (registerSuccess) {
+      router.push('/ai-agents');
+    }
+  }, [registerSuccess, router]);
+
+  // Reset needsApproval after successful approval
+  React.useEffect(() => {
+    if (approveSuccess) {
+      setNeedsApproval(false);
+    }
+  }, [approveSuccess]);
 
   if (!isConnected) {
     return (
@@ -488,12 +592,32 @@ export default function CreateAgentPage() {
                   type="number"
                   value={formData.stakeAmount}
                   onChange={(e) => setFormData({ ...formData, stakeAmount: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500"
+                  className={`w-full bg-gray-800 border rounded-lg px-4 py-3 text-white focus:outline-none ${
+                    insufficientBalanceError
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-gray-700 focus:border-purple-500'
+                  }`}
                   min={requirementsFormatted[0]}
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Balance: {balanceFormatted} CRwN | Min: {requirementsFormatted[0]} CRwN
-                </p>
+                {formData.mintAsINFT ? (
+                  <div className="mt-2 space-y-1">
+                    <p className={`text-xs ${insufficientBalanceError ? 'text-red-400' : 'text-gray-500'}`}>
+                      0G Balance: {zeroGBalanceFormatted} CRwN {insufficientBalanceError && '(Insufficient!)'}
+                    </p>
+                    {insufficientBalanceError && (
+                      <p className="text-xs text-red-400">
+                        You need {formData.stakeAmount} CRwN on 0G Galileo testnet to mint this iNFT.
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-600">
+                      Min: {requirementsFormatted[0]} CRwN | iNFT staking uses 0G chain CRwN
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Flow Balance: {balanceFormatted} CRwN | Min: {requirementsFormatted[0]} CRwN
+                  </p>
+                )}
               </div>
 
               {/* Trading Limits Configuration */}
@@ -669,14 +793,18 @@ export default function CreateAgentPage() {
             ) : (
               <button
                 onClick={handleCreate}
-                disabled={isPending || isConfirming || isMinting || mintStep !== 'idle'}
+                disabled={isPending || isConfirming || isMinting || mintStep !== 'idle' || insufficientBalanceError}
                 className={`flex-1 px-6 py-3 text-white rounded-lg transition-colors disabled:opacity-50 ${
-                  formData.mintAsINFT
+                  insufficientBalanceError
+                    ? 'bg-red-600/50 cursor-not-allowed'
+                    : formData.mintAsINFT
                     ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500'
                     : 'bg-purple-600 hover:bg-purple-500'
                 }`}
               >
-                {formData.mintAsINFT ? (
+                {insufficientBalanceError ? (
+                  'Insufficient 0G CRwN'
+                ) : formData.mintAsINFT ? (
                   isMinting || mintStep !== 'idle'
                     ? mintStep === 'success'
                       ? 'Created!'

@@ -3,6 +3,7 @@
 import React, { use, useCallback } from 'react';
 import Link from 'next/link';
 import { formatEther } from 'viem';
+import { formatTokenAmount } from '@/utils/format';
 import { useAccount } from 'wagmi';
 import { useMarket, usePosition, useClaimWinnings, useMarketActivity, useMarketPrice, clearMarketCache, type MarketActivity } from '@/hooks/useMarkets';
 import { MarketStatus, MarketOutcome } from '@/services/predictionMarketService';
@@ -167,19 +168,19 @@ export default function MarketDetailPage({ params }: PageProps) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard
               label="Total Volume"
-              value={`${formatEther(market.yesTokens + market.noTokens)} CRwN`}
+              value={`${formatTokenAmount(market.yesTokens + market.noTokens)} CRwN`}
             />
             <StatCard
               label="Liquidity"
-              value={`${formatEther(market.liquidity)} CRwN`}
+              value={`${formatTokenAmount(market.liquidity)} CRwN`}
             />
             <StatCard
               label="YES Tokens"
-              value={formatEther(market.yesTokens)}
+              value={formatTokenAmount(market.yesTokens)}
             />
             <StatCard
               label="NO Tokens"
-              value={formatEther(market.noTokens)}
+              value={formatTokenAmount(market.noTokens)}
             />
           </div>
         </div>
@@ -209,7 +210,7 @@ export default function MarketDetailPage({ params }: PageProps) {
                 {canClaim && winningTokens > BigInt(0) && (
                   <div className="mt-6 p-4 bg-gray-800 rounded-lg">
                     <p className="text-white mb-3">
-                      You won! Claim your {formatEther(winningTokens)} CRwN
+                      You won! Claim your {formatTokenAmount(winningTokens)} CRwN
                     </p>
                     <button
                       onClick={handleClaim}
@@ -244,25 +245,25 @@ export default function MarketDetailPage({ params }: PageProps) {
                   <div>
                     <span className="text-gray-400 text-sm">YES Tokens</span>
                     <p className="text-green-400 font-bold text-xl">
-                      {formatEther(position.yesTokens)}
+                      {formatTokenAmount(position.yesTokens)}
                     </p>
                   </div>
                   <div>
                     <span className="text-gray-400 text-sm">NO Tokens</span>
                     <p className="text-red-400 font-bold text-xl">
-                      {formatEther(position.noTokens)}
+                      {formatTokenAmount(position.noTokens)}
                     </p>
                   </div>
                   <div>
                     <span className="text-gray-400 text-sm">LP Shares</span>
                     <p className="text-purple-400 font-bold text-xl">
-                      {formatEther(position.lpShares)}
+                      {formatTokenAmount(position.lpShares)}
                     </p>
                   </div>
                   <div>
                     <span className="text-gray-400 text-sm">Potential Payout</span>
                     <p className="text-white font-bold text-xl">
-                      {formatEther(
+                      {formatTokenAmount(
                         position.yesTokens > position.noTokens
                           ? position.yesTokens
                           : position.noTokens
@@ -494,7 +495,7 @@ function ActivityItem({ activity }: { activity: MarketActivity }) {
       </div>
       <div className="text-right">
         <p className="text-white font-medium">
-          {formatEther(activity.tokens)} tokens
+          {formatTokenAmount(activity.tokens)} tokens
         </p>
         <p className="text-sm text-gray-500">
           {timeAgo(activity.timestamp)}

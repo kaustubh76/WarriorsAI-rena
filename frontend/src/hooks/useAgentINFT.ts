@@ -24,7 +24,6 @@ import {
   agentEncryptionService,
   deserializeEncryptedData,
 } from '../services/agentEncryptionService';
-import { getStorageApiUrl } from '../constants';
 
 // 0G Galileo Testnet chain definition
 export const zeroGGalileo = defineChain({
@@ -264,11 +263,17 @@ export function useMintINFT(): UseMintINFTResult {
           }
         }
 
-        // 0G Storage service with fallback
+        // 0G Storage service using internal API route with fallback
+        // Note: 0G network uploads can take 2-3 minutes due to blockchain confirmations
         const storageService = {
           uploadEncryptedMetadata: async (data: Uint8Array): Promise<string> => {
-            const storageApiUrl = getStorageApiUrl();
+            // Generate local hash first (fast, deterministic)
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
+            // Try 0G Storage upload - no client timeout, server handles it
+            // 0G uploads can take 2-3 minutes due to blockchain confirmation
             try {
               // Create blob and file from encrypted data
               const blob = new Blob([data], { type: 'application/octet-stream' });
@@ -277,36 +282,42 @@ export function useMintINFT(): UseMintINFTResult {
               const formData = new FormData();
               formData.append('file', file);
 
-              console.log('Uploading encrypted metadata to 0G Storage...');
+              console.log('Uploading encrypted metadata to 0G Storage (this may take 2-3 minutes)...');
 
-              const response = await fetch(`${storageApiUrl}/upload`, {
+              // No client-side timeout - 0G uploads can take several minutes
+              // The server will handle the upload and return when complete
+              const response = await fetch('/api/0g/upload', {
                 method: 'POST',
-                body: formData,
-                signal: AbortSignal.timeout(30000) // 30 second timeout
+                body: formData
               });
 
               if (!response.ok) {
-                throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Upload failed: ${response.status} ${response.statusText}`);
               }
 
               const result = await response.json();
 
-              if (!result.rootHash) {
-                throw new Error('No rootHash returned from storage');
+              if (!result.success || !result.rootHash) {
+                throw new Error(result.error || 'No rootHash returned from storage');
               }
 
-              console.log('Successfully uploaded to 0G Storage:', result.rootHash);
+              // Handle different transaction statuses
+              if (result.transactionHash === 'pending-verification') {
+                console.log('0G Storage upload submitted (pending verification):', result.rootHash);
+              } else if (result.transactionHash === 'existing') {
+                console.log('File already exists in 0G Storage:', result.rootHash);
+              } else {
+                console.log('Successfully uploaded to 0G Storage:', result.rootHash);
+              }
               return `0g://${result.rootHash}`;
             } catch (error) {
-              console.warn('0G Storage upload failed, using local hash fallback:', error);
+              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+              console.warn('0G Storage upload failed, using local hash fallback:', errorMsg);
 
-              // Fallback: generate deterministic hash from data
-              // This allows minting to proceed even if storage is unavailable
-              const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-              const hashArray = Array.from(new Uint8Array(hashBuffer));
-              const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-              // Return local:// prefix to indicate fallback storage
+              // Fallback: use pre-computed hash
+              // This allows minting to proceed even if 0G storage is slow/unavailable
+              // The encrypted data can be re-uploaded later if needed
               return `local://${hashHex}`;
             }
           }
@@ -585,20 +596,21 @@ export function useDecryptedMetadata(
           return;
         }
 
-        // 2. Fetch encrypted data from 0G Storage
-        const storageApiUrl = getStorageApiUrl();
+        // 2. Fetch encrypted data from 0G Storage via internal API
         let encryptedBytes: Uint8Array;
 
         if (metadataRef.startsWith('0g://')) {
           const rootHash = metadataRef.replace('0g://', '');
           console.log('Fetching encrypted metadata from 0G Storage:', rootHash);
 
-          const response = await fetch(`${storageApiUrl}/download/${rootHash}`, {
-            signal: AbortSignal.timeout(15000) // 15 second timeout
+          // Use internal API route for downloading
+          const response = await fetch(`/api/0g/upload?rootHash=${encodeURIComponent(rootHash)}`, {
+            signal: AbortSignal.timeout(30000) // 30 second timeout for SDK operations
           });
 
           if (!response.ok) {
-            throw new Error(`Failed to fetch from 0G Storage: ${response.status}`);
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Failed to fetch from 0G Storage: ${response.status}`);
           }
 
           encryptedBytes = new Uint8Array(await response.arrayBuffer());
@@ -608,10 +620,10 @@ export function useDecryptedMetadata(
           setMetadata(null);
           return;
         } else {
-          // Unknown format - try as raw hash
+          // Unknown format - try as raw hash via internal API
           console.log('Trying metadata reference as raw hash:', metadataRef);
-          const response = await fetch(`${storageApiUrl}/download/${metadataRef}`, {
-            signal: AbortSignal.timeout(15000)
+          const response = await fetch(`/api/0g/upload?rootHash=${encodeURIComponent(metadataRef)}`, {
+            signal: AbortSignal.timeout(30000)
           });
 
           if (!response.ok) {

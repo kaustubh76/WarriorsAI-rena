@@ -14,27 +14,36 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import {
+  FLOW_RPC,
+  ZEROG_RPC,
+  FLOW_CONTRACTS,
+  ZEROG_CONTRACTS,
+  ERC20_ABI,
+  PREDICTION_MARKET_ABI,
+  TRADING_LIMITS,
+  RATE_LIMITS,
+  getApiBaseUrl,
+} from '@/lib/apiConfig';
 
-// Contract addresses on Flow Testnet (545)
-const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
-const CROWN_TOKEN = '0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6';
-const PREDICTION_MARKET = '0x1b26203A2752557ecD4763a9A8A26119AC5e18e4';
+// Parse trade limits from config
+const MAX_TRADE_AMOUNT = ethers.parseEther(TRADING_LIMITS.maxTradeAmount);
+const MIN_CONFIDENCE = TRADING_LIMITS.minConfidence;
 
-// Trade limits
-const MAX_TRADE_AMOUNT = ethers.parseEther('100'); // Max 100 CRwN per trade
-const MIN_CONFIDENCE = 60; // Minimum confidence threshold
-
-// ABIs (minimal for the functions we need)
+// Extended ABIs with approval function
 const CROWN_ABI = [
-  'function balanceOf(address account) view returns (uint256)',
+  ...ERC20_ABI,
   'function approve(address spender, uint256 value) returns (bool)',
-  'function allowance(address owner, address spender) view returns (uint256)'
 ];
 
-const PREDICTION_MARKET_ABI = [
-  'function buy(uint256 marketId, bool isYes, uint256 collateralAmount, uint256 minSharesOut) returns (uint256 sharesOut)',
-  'function getMarket(uint256 marketId) view returns (tuple(uint256 id, string question, uint256 endTime, uint256 resolutionTime, uint8 status, uint8 outcome, uint256 yesTokens, uint256 noTokens, uint256 liquidity, uint256 totalVolume, address creator, uint256 battleId, uint256 warrior1Id, uint256 warrior2Id, uint256 createdAt))',
-  'function getPrice(uint256 marketId) view returns (uint256 yesPrice, uint256 noPrice)'
+const MARKET_ABI = [
+  ...PREDICTION_MARKET_ABI,
+];
+
+// AIAgentINFT ABI for recording trades (on 0G chain)
+const AI_AGENT_INFT_RECORD_ABI = [
+  'function recordTrade(uint256 tokenId, bool won, int256 pnl)',
+  'function getAgentPerformance(uint256 tokenId) view returns (tuple(uint256 totalTrades, uint256 winningTrades, int256 totalPnL, uint256 accuracyBps))',
 ];
 
 interface ExecuteTradeRequest {
@@ -42,6 +51,7 @@ interface ExecuteTradeRequest {
   marketId: string;
   isYes: boolean;
   amount: string;
+  minConfidenceOverride?: number;
   prediction: {
     marketId: string;
     agentId: string;
@@ -49,7 +59,6 @@ interface ExecuteTradeRequest {
     confidence: number;
     reasoning: string;
     isVerified: boolean;
-    fallbackMode: boolean;
     chatId: string;
     proof: {
       inputHash: string;
@@ -70,12 +79,18 @@ interface ExecuteTradeResponse {
   balanceBefore?: string;
   balanceAfter?: string;
   copyTrades?: unknown;
+  tradeRecorded?: {
+    success: boolean;
+    txHash?: string;
+    chain?: string;
+    error?: string;
+  };
 }
 
 // Rate limiting (simple in-memory, use Redis in production)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW = 60000; // 1 minute
-const RATE_LIMIT_MAX = 10; // Max 10 trades per minute per agent
+const RATE_LIMIT_WINDOW = RATE_LIMITS.agentTrades.windowMs;
+const RATE_LIMIT_MAX = RATE_LIMITS.agentTrades.maxPerMinute;
 
 function checkRateLimit(agentId: string): boolean {
   const now = Date.now();
@@ -101,7 +116,7 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body: ExecuteTradeRequest = await request.json();
-    const { agentId, marketId, isYes, amount, prediction } = body;
+    const { agentId, marketId, isYes, amount, prediction, minConfidenceOverride } = body;
 
     // Validate required fields
     if (!agentId || !marketId || amount === undefined || !prediction) {
@@ -119,7 +134,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate prediction verification
+    // Validate prediction verification - only 0G verified predictions allowed
     if (!prediction.isVerified) {
       return NextResponse.json(
         { success: false, error: 'Cannot execute unverified prediction. Only 0G verified predictions are allowed.' },
@@ -127,18 +142,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Reject fallback mode predictions
-    if (prediction.fallbackMode) {
+    // Check confidence threshold (allow override for testing)
+    const effectiveMinConfidence = minConfidenceOverride ?? MIN_CONFIDENCE;
+    if (prediction.confidence < effectiveMinConfidence) {
       return NextResponse.json(
-        { success: false, error: 'Cannot execute fallback mode prediction. Real 0G inference required.' },
-        { status: 400 }
-      );
-    }
-
-    // Check confidence threshold
-    if (prediction.confidence < MIN_CONFIDENCE) {
-      return NextResponse.json(
-        { success: false, error: `Confidence ${prediction.confidence}% is below minimum ${MIN_CONFIDENCE}%` },
+        { success: false, error: `Confidence ${prediction.confidence}% is below minimum ${effectiveMinConfidence}%` },
         { status: 400 }
       );
     }
@@ -177,8 +185,8 @@ export async function POST(request: NextRequest) {
     console.log(`   Wallet: ${wallet.address}`);
 
     // Create contract instances
-    const crownContract = new ethers.Contract(CROWN_TOKEN, CROWN_ABI, wallet);
-    const marketContract = new ethers.Contract(PREDICTION_MARKET, PREDICTION_MARKET_ABI, wallet);
+    const crownContract = new ethers.Contract(FLOW_CONTRACTS.crownToken, CROWN_ABI, wallet);
+    const marketContract = new ethers.Contract(FLOW_CONTRACTS.predictionMarketAMM, MARKET_ABI, wallet);
 
     // Check CRwN balance
     const balance = await crownContract.balanceOf(wallet.address);
@@ -197,10 +205,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check and set approval if needed
-    const allowance = await crownContract.allowance(wallet.address, PREDICTION_MARKET);
+    const allowance = await crownContract.allowance(wallet.address, FLOW_CONTRACTS.predictionMarketAMM);
     if (allowance < tradeAmount) {
       console.log(`   Approving ${ethers.formatEther(tradeAmount)} CRwN for PredictionMarket...`);
-      const approveTx = await crownContract.approve(PREDICTION_MARKET, tradeAmount);
+      const approveTx = await crownContract.approve(FLOW_CONTRACTS.predictionMarketAMM, tradeAmount);
       await approveTx.wait();
       console.log(`   ✅ Approval confirmed: ${approveTx.hash}`);
     }
@@ -208,7 +216,7 @@ export async function POST(request: NextRequest) {
     // Verify market exists and is active
     try {
       const market = await marketContract.getMarket(BigInt(marketId));
-      if (market.status !== 0n) { // 0 = Active
+      if (market.status !== BigInt(0)) { // 0 = Active
         return NextResponse.json(
           { success: false, error: 'Market is not active' },
           { status: 400 }
@@ -243,7 +251,7 @@ export async function POST(request: NextRequest) {
     // Trigger copy trades for followers (fire and forget)
     let copyTradeResult = null;
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+      const baseUrl = getApiBaseUrl();
       const copyTradeResponse = await fetch(`${baseUrl}/api/copy-trade/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -260,13 +268,52 @@ export async function POST(request: NextRequest) {
       console.error('   ⚠️ Copy trade execution failed (non-fatal):', copyError);
     }
 
+    // Record trade to AIAgentINFT on 0G chain for trade history
+    let recordTradeResult = null;
+    try {
+      console.log(`   📝 Recording trade on AIAgentINFT (0G chain)...`);
+
+      const zeroGProvider = new ethers.JsonRpcProvider(ZEROG_RPC);
+      const zeroGWallet = new ethers.Wallet(privateKey, zeroGProvider);
+
+      const aiAgentINFT = new ethers.Contract(
+        ZEROG_CONTRACTS.aiAgentINFT,
+        AI_AGENT_INFT_RECORD_ABI,
+        zeroGWallet
+      );
+
+      // Record the trade - won=false and pnl=0 initially (resolved later)
+      // We pass 0 PnL because outcome isn't known yet
+      const recordTx = await aiAgentINFT.recordTrade(
+        BigInt(agentId),
+        false, // Not won yet (market not resolved)
+        BigInt(0) // PnL unknown until market resolves
+      );
+
+      const recordReceipt = await recordTx.wait();
+      recordTradeResult = {
+        success: true,
+        txHash: recordReceipt.hash,
+        chain: '0G Galileo'
+      };
+
+      console.log(`   ✅ Trade recorded on 0G: ${recordReceipt.hash}`);
+    } catch (recordError) {
+      console.error('   ⚠️ Trade recording failed (non-fatal):', recordError);
+      recordTradeResult = {
+        success: false,
+        error: recordError instanceof Error ? recordError.message : 'Unknown error'
+      };
+    }
+
     const response: ExecuteTradeResponse = {
       success: true,
       txHash: receipt.hash,
       walletAddress: wallet.address,
       balanceBefore: ethers.formatEther(balance),
       balanceAfter: ethers.formatEther(balanceAfter),
-      copyTrades: copyTradeResult
+      copyTrades: copyTradeResult,
+      tradeRecorded: recordTradeResult
     };
 
     return NextResponse.json(response);
@@ -314,12 +361,12 @@ export async function GET(request: NextRequest) {
     const wallet = new ethers.Wallet(privateKey, provider);
 
     // Create contract instance
-    const crownContract = new ethers.Contract(CROWN_TOKEN, CROWN_ABI, wallet);
+    const crownContract = new ethers.Contract(FLOW_CONTRACTS.crownToken, CROWN_ABI, wallet);
 
     // Get balances
     const crwnBalance = await crownContract.balanceOf(wallet.address);
     const nativeBalance = await provider.getBalance(wallet.address);
-    const allowance = await crownContract.allowance(wallet.address, PREDICTION_MARKET);
+    const allowance = await crownContract.allowance(wallet.address, FLOW_CONTRACTS.predictionMarketAMM);
 
     // Get rate limit status
     let rateLimit = null;
@@ -349,8 +396,8 @@ export async function GET(request: NextRequest) {
       },
       rateLimit,
       contracts: {
-        crownToken: CROWN_TOKEN,
-        predictionMarket: PREDICTION_MARKET,
+        crownToken: FLOW_CONTRACTS.crownToken,
+        predictionMarket: FLOW_CONTRACTS.predictionMarketAMM,
         rpc: FLOW_RPC
       }
     });

@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
+import { formatTokenAmount } from '@/utils/format';
 import creatorService, {
   type Creator,
   type CreatorDisplay,
@@ -464,7 +465,7 @@ export function useCreatorTokenBalance() {
 
   return {
     balance,
-    balanceFormatted: formatEther(balance),
+    balanceFormatted: formatTokenAmount(balance),
     allowance,
     loading,
     refetch: fetchBalanceAndAllowance

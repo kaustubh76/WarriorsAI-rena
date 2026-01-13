@@ -27,6 +27,7 @@ import {
   getCreatorTypeLabel,
   getTierLabel,
   getTierColor,
+  getTierIcon,
   getNextTier,
   getTierProgress,
   getRevenueSourceLabel,
@@ -379,6 +380,7 @@ class CreatorService {
       tier,
       label: getTierLabel(tier),
       color: getTierColor(tier),
+      icon: getTierIcon(tier),
       threshold: TIER_THRESHOLDS[tier],
       benefits: getTierBenefits(tier)
     };

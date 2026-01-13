@@ -220,14 +220,92 @@ interface InferenceResponse {
 const ZERO_G_CONFIG = {
   computeRpc: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
   chainId: parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '16602'),
+  // Known fallback providers for direct connection
+  fallbackProviders: [
+    '0xa48f01287233509FD694a22Bf840225062E67836',
+  ],
+  // Retry configuration
+  maxRetries: 3,
+  baseDelayMs: 1000,
 };
 
-// Test mode configuration - uses OpenAI directly when 0G services unavailable
-// CRITICAL: Test mode responses are marked as unverified and should NOT be used for on-chain trades
-const TEST_MODE_CONFIG = {
-  enabled: process.env.ENABLE_TEST_MODE === 'true',
-  openaiApiKey: process.env.OPENAI_API_KEY,
-};
+// Error codes for specific failure modes
+const ERROR_CODES = {
+  RPC_UNREACHABLE: '0G_RPC_UNREACHABLE',
+  WALLET_NO_BALANCE: '0G_WALLET_NO_BALANCE',
+  LEDGER_NOT_CREATED: '0G_LEDGER_NOT_CREATED',
+  LEDGER_LOW_BALANCE: '0G_LEDGER_LOW_BALANCE',
+  NO_PROVIDERS: '0G_NO_PROVIDERS',
+  PROVIDER_TIMEOUT: '0G_PROVIDER_TIMEOUT',
+  BROKER_INIT_FAILED: '0G_BROKER_INIT_FAILED',
+} as const;
+
+/**
+ * Retry wrapper with exponential backoff
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = ZERO_G_CONFIG.maxRetries,
+  baseDelay: number = ZERO_G_CONFIG.baseDelayMs
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`[0G] Attempt ${attempt + 1}/${maxRetries} failed:`, lastError.message);
+
+      if (attempt < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+// Singleton provider instances to prevent connection exhaustion
+let cachedProvider: ethers.JsonRpcProvider | null = null;
+let cachedWallet: ethers.Wallet | null = null;
+let lastProviderCheck = 0;
+const PROVIDER_CHECK_INTERVAL = 30000; // 30 seconds
+
+/**
+ * Get or create a cached provider instance
+ */
+async function getProvider(): Promise<ethers.JsonRpcProvider> {
+  const now = Date.now();
+
+  if (!cachedProvider || (now - lastProviderCheck > PROVIDER_CHECK_INTERVAL)) {
+    cachedProvider = new ethers.JsonRpcProvider(ZERO_G_CONFIG.computeRpc);
+    lastProviderCheck = now;
+  }
+
+  return cachedProvider;
+}
+
+/**
+ * Get or create a cached wallet instance
+ */
+async function getWallet(privateKey: string): Promise<ethers.Wallet> {
+  if (!cachedWallet) {
+    const provider = await getProvider();
+    cachedWallet = new ethers.Wallet(privateKey, provider);
+  }
+  return cachedWallet;
+}
+
+/**
+ * Reset cached instances on error
+ */
+function resetProviderCache(): void {
+  cachedProvider = null;
+  cachedWallet = null;
+  lastProviderCheck = 0;
+}
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -297,75 +375,146 @@ export async function POST(request: NextRequest) {
     // Dynamic imports for server-side only modules
     const { createZGComputeNetworkBroker } = await import('@0glabs/0g-serving-broker');
 
-    // Initialize provider and wallet
-    const provider = new ethers.JsonRpcProvider(ZERO_G_CONFIG.computeRpc);
-    const wallet = new ethers.Wallet(privateKey, provider);
+    // Initialize provider and wallet using singleton pattern
+    const wallet = await getWallet(privateKey);
 
-    // Create 0G broker
-    const broker = await createZGComputeNetworkBroker(wallet);
-
-    // Ensure ledger exists
+    // Create 0G broker with retry
+    let broker;
     try {
-      await broker.ledger.getLedger();
-    } catch {
+      broker = await withRetry(async () => {
+        return await createZGComputeNetworkBroker(wallet);
+      });
+      console.log('[0G] Broker initialized successfully');
+    } catch (brokerError: any) {
+      // Reset cache on broker creation failure
+      resetProviderCache();
+      console.error('[0G] Broker creation failed:', brokerError.message);
+
+      return NextResponse.json({
+        success: false,
+        error: `Failed to initialize 0G broker: ${brokerError.message}`,
+        errorCode: ERROR_CODES.BROKER_INIT_FAILED,
+        isVerified: false,
+        message: 'Cannot connect to 0G Compute Network. Check wallet balance and network status.',
+        diagnosticUrl: '/api/0g/health',
+      }, { status: 503 });
+    }
+
+    // Ensure ledger exists and has sufficient balance
+    const MIN_LEDGER_BALANCE = 0.5; // Minimum balance to attempt inference
+    const DEPOSIT_AMOUNT = 1.0; // Amount to deposit when balance is low
+
+    try {
+      const ledgerInfo = await broker.ledger.getLedger();
+      console.log('[0G] Ledger found:', ledgerInfo);
+
+      // Check if balance is sufficient - auto-deposit if low
+      const balance = parseFloat(ledgerInfo?.balance?.toString() || '0');
+      if (balance < MIN_LEDGER_BALANCE) {
+        console.warn(`[0G] Ledger balance low: ${balance} OG, attempting to deposit ${DEPOSIT_AMOUNT} OG...`);
+        try {
+          await broker.ledger.depositFund(DEPOSIT_AMOUNT);
+          console.log(`[0G] Deposited ${DEPOSIT_AMOUNT} OG to ledger`);
+        } catch (depositErr: any) {
+          if (depositErr.message?.includes('insufficient')) {
+            return NextResponse.json({
+              success: false,
+              error: 'Insufficient wallet balance to fund ledger.',
+              errorCode: ERROR_CODES.WALLET_NO_BALANCE,
+              isVerified: false,
+              message: `Wallet balance too low to deposit to ledger. Current ledger balance: ${balance} OG`,
+              diagnosticUrl: '/api/0g/health',
+            }, { status: 503 });
+          }
+          console.warn('[0G] Deposit warning:', depositErr.message);
+        }
+      }
+    } catch (ledgerError: any) {
+      console.log('[0G] Ledger not found, creating new one...');
       // Create ledger if it doesn't exist
       try {
-        await broker.ledger.depositFund(3.0); // Minimum deposit
+        await broker.ledger.depositFund(DEPOSIT_AMOUNT);
+        console.log(`[0G] Ledger created with ${DEPOSIT_AMOUNT} OG deposit`);
       } catch (depositError: any) {
-        if (!depositError.message?.includes('already exists')) {
-          console.error('Ledger creation error:', depositError);
+        if (depositError.message?.includes('already exists')) {
+          console.log('[0G] Ledger already exists');
+        } else if (depositError.message?.includes('insufficient')) {
+          return NextResponse.json({
+            success: false,
+            error: 'Insufficient wallet balance to create ledger.',
+            errorCode: ERROR_CODES.WALLET_NO_BALANCE,
+            isVerified: false,
+            message: 'Wallet needs OG tokens to create compute ledger. Fund the wallet and retry.',
+            walletAddress: wallet.address,
+            diagnosticUrl: '/api/0g/health',
+          }, { status: 503 });
+        } else {
+          console.error('[0G] Ledger creation error:', depositError.message);
+          // Continue anyway - ledger might exist
         }
       }
     }
 
-    // List available services and get a chatbot provider
+    // List available services and get a chatbot provider with retry logic
     let services: any[] = [];
-    let useTestMode = false;
+    let chatbotServices: any[] = [];
 
     try {
-      services = await broker.inference.listService();
-    } catch (listError) {
-      // 0G testnet may not have services registered
-      console.warn('0G listService error:', listError);
+      // Try listing services with retry
+      services = await withRetry(async () => {
+        const result = await broker.inference.listService();
+        console.log(`[0G] Found ${result.length} total services`);
+        return result;
+      });
 
-      // Check if test mode is enabled for development
-      if (TEST_MODE_CONFIG.enabled && TEST_MODE_CONFIG.openaiApiKey) {
-        console.log('0G services unavailable - using test mode with OpenAI');
-        useTestMode = true;
-      } else {
-        // CRITICAL: Fallback responses should NOT be accepted for on-chain decisions
+      chatbotServices = services.filter((s: any) => s.serviceType === 'chatbot');
+      console.log(`[0G] Found ${chatbotServices.length} chatbot services`);
+    } catch (listError: any) {
+      console.error('[0G] listService failed after retries:', listError.message);
+
+      // Try fallback to known provider
+      console.log('[0G] Attempting fallback to known provider...');
+      for (const fallbackProvider of ZERO_G_CONFIG.fallbackProviders) {
+        try {
+          // Try to get service metadata directly for known provider
+          const metadata = await broker.inference.getServiceMetadata(fallbackProvider as Address);
+          if (metadata && metadata.endpoint) {
+            console.log(`[0G] Fallback provider ${fallbackProvider} is available`);
+            chatbotServices = [{
+              provider: fallbackProvider,
+              serviceType: 'chatbot',
+              model: metadata.model || 'unknown',
+              url: metadata.endpoint,
+            }];
+            break;
+          }
+        } catch (fallbackError) {
+          console.warn(`[0G] Fallback provider ${fallbackProvider} unavailable:`, fallbackError);
+        }
+      }
+
+      // If still no providers, return error
+      if (chatbotServices.length === 0) {
         return NextResponse.json({
           success: false,
-          error: '0G Compute services unavailable. Cannot generate verifiable inference.',
-          fallbackMode: true,
+          error: '0G Compute services unavailable after retries.',
+          errorCode: ERROR_CODES.NO_PROVIDERS,
           isVerified: false,
-          message: '0G Compute services not available. Please try again later or check network status.'
+          message: '0G Compute services not available. Please check /api/0g/health for diagnostics.',
+          diagnosticUrl: '/api/0g/health',
         }, { status: 503 });
       }
     }
 
-    const chatbotServices = services.filter((s: any) => s.serviceType === 'chatbot');
-
-    if (chatbotServices.length === 0 && !useTestMode) {
-      // Check if test mode is enabled for development
-      if (TEST_MODE_CONFIG.enabled && TEST_MODE_CONFIG.openaiApiKey) {
-        console.log('No 0G chatbot services - using test mode with OpenAI');
-        useTestMode = true;
-      } else {
-        // CRITICAL: No providers means no verifiable inference
-        return NextResponse.json({
-          success: false,
-          error: 'No chatbot providers available on 0G network.',
-          fallbackMode: true,
-          isVerified: false,
-          message: 'No AI providers registered. Cannot generate verifiable inference.'
-        }, { status: 503 });
-      }
-    }
-
-    // TEST MODE: Use OpenAI directly (responses are NOT verified)
-    if (useTestMode) {
-      return await handleTestModeInference(prompt, model, maxTokens, temperature, startTime);
+    if (chatbotServices.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'No chatbot providers available on 0G network.',
+        errorCode: ERROR_CODES.NO_PROVIDERS,
+        isVerified: false,
+        message: 'No AI providers registered. Check /api/0g/health for network status.',
+        diagnosticUrl: '/api/0g/health',
+      }, { status: 503 });
     }
 
     // Select best provider based on health metrics
@@ -374,7 +523,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: 'Failed to select provider.',
-        fallbackMode: true,
         isVerified: false
       }, { status: 503 });
     }
@@ -438,7 +586,7 @@ export async function POST(request: NextRequest) {
     const responseTime = Date.now() - startTime;
     updateProviderHealth(providerAddress, true, responseTime);
 
-    const response: InferenceResponse & { isVerified: boolean; fallbackMode: boolean } = {
+    const response: InferenceResponse & { isVerified: boolean } = {
       success: true,
       chatId,
       response: responseText,
@@ -456,23 +604,19 @@ export async function POST(request: NextRequest) {
         outputTokens: completion.usage?.completion_tokens || 0,
         cost: '0' // Would calculate from provider prices
       },
-      isVerified: true,  // This response came from a real 0G provider
-      fallbackMode: false
+      isVerified: true  // This response came from a real 0G provider
     };
 
     return NextResponse.json(response);
   } catch (error) {
     console.error('0G Inference error:', error);
 
-    // Track provider health on failure if we have a provider address
-    // Note: providerAddress may not be defined if error occurred before selection
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
     return NextResponse.json(
       {
         success: false,
         error: errorMessage,
-        fallbackMode: true,
         isVerified: false
       },
       { status: 500 }
@@ -495,9 +639,22 @@ export async function GET() {
 
     const { createZGComputeNetworkBroker } = await import('@0glabs/0g-serving-broker');
 
-    const provider = new ethers.JsonRpcProvider(ZERO_G_CONFIG.computeRpc);
-    const wallet = new ethers.Wallet(privateKey, provider);
-    const broker = await createZGComputeNetworkBroker(wallet);
+    // Use singleton provider to prevent connection exhaustion
+    const wallet = await getWallet(privateKey);
+
+    let broker;
+    try {
+      broker = await createZGComputeNetworkBroker(wallet);
+    } catch (brokerError) {
+      // Reset cache and return gracefully
+      resetProviderCache();
+      console.warn('0G broker creation error:', brokerError);
+      return NextResponse.json({
+        success: true,
+        providers: [],
+        message: '0G Compute services not available. Using fallback mode.'
+      });
+    }
 
     let services: any[] = [];
     try {
@@ -542,80 +699,4 @@ export async function GET() {
  */
 function hashString(str: string): string {
   return ethers.keccak256(ethers.toUtf8Bytes(str));
-}
-
-/**
- * TEST MODE: Handle inference using OpenAI directly
- * CRITICAL: These responses are NOT verified and should NOT be used for on-chain trades
- * This is only for development/testing the UI flow
- */
-async function handleTestModeInference(
-  prompt: string,
-  model: string | undefined,
-  maxTokens: number,
-  temperature: number,
-  startTime: number
-): Promise<NextResponse> {
-  try {
-    const { default: OpenAI } = await import('openai');
-    const openai = new OpenAI({
-      apiKey: TEST_MODE_CONFIG.openaiApiKey
-    });
-
-    const completion = await openai.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: model || 'gpt-4o-mini',
-      max_tokens: maxTokens,
-      temperature: temperature
-    });
-
-    const responseText = completion.choices[0].message.content || '';
-    const chatId = completion.id;
-    const responseTime = Date.now() - startTime;
-
-    // Generate proof hashes (for testing structure, not for on-chain use)
-    const inputHash = hashString(prompt);
-    const outputHash = hashString(responseText);
-
-    // TEST MODE RESPONSE - Explicitly marked as unverified
-    const response = {
-      success: true,
-      chatId,
-      response: responseText,
-      provider: '0x0000000000000000000000000000000000000000' as const, // Zero address indicates test mode
-      timestamp: Date.now(),
-      proof: {
-        signature: `test_mode_${chatId}`,
-        modelHash: model || 'gpt-4o-mini',
-        inputHash,
-        outputHash,
-        providerAddress: '0x0000000000000000000000000000000000000000' as const
-      },
-      usage: {
-        inputTokens: completion.usage?.prompt_tokens || 0,
-        outputTokens: completion.usage?.completion_tokens || 0,
-        cost: '0'
-      },
-      // CRITICAL: Mark as unverified - UI should show warning, trades should be blocked
-      isVerified: false,
-      fallbackMode: true,
-      testMode: true,
-      warning: 'TEST MODE: This response is from OpenAI directly, NOT from 0G verified compute. Do NOT use for on-chain trades.'
-    };
-
-    console.log(`Test mode inference completed in ${responseTime}ms`);
-    return NextResponse.json(response);
-  } catch (error) {
-    console.error('Test mode inference error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Test mode inference failed',
-        fallbackMode: true,
-        isVerified: false,
-        testMode: true
-      },
-      { status: 500 }
-    );
-  }
 }

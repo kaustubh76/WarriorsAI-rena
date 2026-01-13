@@ -27,9 +27,20 @@ export const zeroGGalileo = defineChain({
   testnet: true,
 });
 
-export default getDefaultConfig({
-    appName: "WarriorsAI-rena",
-    projectId,
-    chains: [anvil, flowTestnet, flowMainnet, zeroGGalileo],
-    ssr: false
-})
+// Memoize the config to prevent WalletConnect multiple initialization
+// This singleton pattern ensures getDefaultConfig is only called once
+let cachedConfig: ReturnType<typeof getDefaultConfig> | null = null;
+
+function getConfig() {
+  if (!cachedConfig) {
+    cachedConfig = getDefaultConfig({
+      appName: "WarriorsAI-rena",
+      projectId,
+      chains: [anvil, flowTestnet, flowMainnet, zeroGGalileo],
+      ssr: true
+    });
+  }
+  return cachedConfig;
+}
+
+export default getConfig()

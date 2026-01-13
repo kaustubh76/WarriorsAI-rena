@@ -1,40 +1,95 @@
 /**
  * Custom hooks for Copy Trading functionality
+ * Uses AIAgentINFT contract on 0G Galileo Testnet (Chain ID: 16602)
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseEther, formatEther, type Address } from 'viem';
-import aiAgentService, {
-  type CopyTradeConfig,
-  type AgentStrategy,
-  type RiskProfile,
-  type Specialization,
-  type PersonaTraits
-} from '@/services/aiAgentService';
-import { AIAgentRegistryAbi, crownTokenAbi } from '@/constants';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain, useChainId } from 'wagmi';
+import { parseEther, formatEther, type Address, createPublicClient, http } from 'viem';
+import { chainsToContracts, getZeroGChainId } from '@/constants';
+import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+
+// 0G Galileo Testnet chain ID
+const ZEROG_CHAIN_ID = 16602;
+
+// 0G Galileo chain config for viem
+const zeroGGalileo = {
+  id: ZEROG_CHAIN_ID,
+  name: '0G Galileo Testnet',
+  nativeCurrency: { name: 'A0GI', symbol: 'A0GI', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://evmrpc-testnet.0g.ai'] },
+  },
+  blockExplorers: {
+    default: { name: 'Blockscout', url: 'https://chainscan-galileo.0g.ai' },
+  },
+} as const;
+
+// Create 0G public client for read operations
+const zeroGClient = createPublicClient({
+  chain: zeroGGalileo,
+  transport: http('https://evmrpc-testnet.0g.ai'),
+});
+
+// Get contract addresses for 0G chain
+function get0GContracts() {
+  const contracts = chainsToContracts[ZEROG_CHAIN_ID];
+  return {
+    aiAgentINFT: contracts.aiAgentINFT as Address,
+    crownToken: contracts.crownToken as Address,
+  };
+}
 
 /**
- * Hook to get copy trade configuration for a user and agent
+ * Copy trade config type matching the contract struct
  */
-export function useCopyTradeConfig(agentId: bigint | null) {
+interface CopyTradeConfig {
+  tokenId: bigint;
+  maxAmountPerTrade: bigint;
+  totalCopied: bigint;
+  startedAt: bigint;
+  isActive: boolean;
+}
+
+/**
+ * Hook to get copy trade configuration for a user and agent (iNFT)
+ */
+export function useCopyTradeConfig(tokenId: bigint | null) {
   const { address } = useAccount();
   const [config, setConfig] = useState<CopyTradeConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const addresses = get0GContracts();
+
   const fetchConfig = useCallback(async () => {
-    if (!address || agentId === null) return;
+    if (!address || tokenId === null) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
-      const configData = await aiAgentService.getCopyTradeConfig(address, agentId);
-      setConfig(configData);
+      const configData = await zeroGClient.readContract({
+        address: addresses.aiAgentINFT,
+        abi: AIAgentINFTAbi,
+        functionName: 'getCopyTradeConfig',
+        args: [address, tokenId],
+      }) as [bigint, bigint, bigint, bigint, boolean];
+
+      setConfig({
+        tokenId: configData[0],
+        maxAmountPerTrade: configData[1],
+        totalCopied: configData[2],
+        startedAt: configData[3],
+        isActive: configData[4],
+      });
     } catch (err) {
       console.error('Error fetching copy trade config:', err);
+      setConfig(null);
     } finally {
       setLoading(false);
     }
-  }, [address, agentId]);
+  }, [address, tokenId, addresses.aiAgentINFT]);
 
   useEffect(() => {
     fetchConfig();
@@ -54,53 +109,80 @@ export function useCopyTradeConfig(agentId: bigint | null) {
 }
 
 /**
- * Hook to follow/unfollow an AI agent for copy trading
+ * Hook to follow/unfollow an AI agent iNFT for copy trading
+ * Operates on 0G Galileo Testnet
  */
-export function useFollowAgent(agentId: bigint | null) {
+export function useFollowAgent(tokenId: bigint | null) {
+  const currentChainId = useChainId();
+  const { switchChain } = useSwitchChain();
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const addresses = aiAgentService.getAddresses();
+  const addresses = get0GContracts();
+  const needsChainSwitch = currentChainId !== ZEROG_CHAIN_ID;
+
+  // Switch to 0G chain if needed
+  const ensureCorrectChain = useCallback(async () => {
+    if (needsChainSwitch) {
+      try {
+        await switchChain({ chainId: ZEROG_CHAIN_ID });
+        // Wait a bit for the switch to complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (err) {
+        console.error('Failed to switch chain:', err);
+        throw new Error('Please switch to 0G Galileo Testnet to follow agents');
+      }
+    }
+  }, [needsChainSwitch, switchChain]);
 
   // Follow an agent (enable copy trading)
   const follow = useCallback(async (maxAmountPerTrade: string) => {
-    if (agentId === null) return;
+    if (tokenId === null) return;
+
+    await ensureCorrectChain();
 
     const maxAmount = parseEther(maxAmountPerTrade);
 
     writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
+      address: addresses.aiAgentINFT,
+      abi: AIAgentINFTAbi,
       functionName: 'followAgent',
-      args: [agentId, maxAmount]
+      args: [tokenId, maxAmount],
+      chainId: ZEROG_CHAIN_ID,
     });
-  }, [agentId, writeContract, addresses]);
+  }, [tokenId, writeContract, addresses, ensureCorrectChain]);
 
   // Unfollow an agent
   const unfollow = useCallback(async () => {
-    if (agentId === null) return;
+    if (tokenId === null) return;
+
+    await ensureCorrectChain();
 
     writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
+      address: addresses.aiAgentINFT,
+      abi: AIAgentINFTAbi,
       functionName: 'unfollowAgent',
-      args: [agentId]
+      args: [tokenId],
+      chainId: ZEROG_CHAIN_ID,
     });
-  }, [agentId, writeContract, addresses]);
+  }, [tokenId, writeContract, addresses, ensureCorrectChain]);
 
   // Update copy trade settings
   const updateSettings = useCallback(async (maxAmountPerTrade: string) => {
-    if (agentId === null) return;
+    if (tokenId === null) return;
+
+    await ensureCorrectChain();
 
     const maxAmount = parseEther(maxAmountPerTrade);
 
     writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
+      address: addresses.aiAgentINFT,
+      abi: AIAgentINFTAbi,
       functionName: 'updateCopyTradeConfig',
-      args: [agentId, maxAmount]
+      args: [tokenId, maxAmount],
+      chainId: ZEROG_CHAIN_ID,
     });
-  }, [agentId, writeContract, addresses]);
+  }, [tokenId, writeContract, addresses, ensureCorrectChain]);
 
   return {
     follow,
@@ -110,255 +192,143 @@ export function useFollowAgent(agentId: bigint | null) {
     isConfirming,
     isSuccess,
     error,
-    txHash: hash
+    txHash: hash,
+    needsChainSwitch,
+    switchTo0G: () => switchChain({ chainId: ZEROG_CHAIN_ID }),
   };
 }
 
 /**
- * Hook to register a new AI agent
+ * Hook to get agents a user is following
  */
-export function useRegisterAgent() {
+export function useUserFollowing() {
   const { address } = useAccount();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const [following, setFollowing] = useState<bigint[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const addresses = aiAgentService.getAddresses();
+  const addresses = get0GContracts();
 
-  // Approve tokens for staking
-  const approveStake = useCallback(async (amount: string) => {
-    const amountBigInt = parseEther(amount);
+  const fetchFollowing = useCallback(async () => {
+    if (!address) {
+      setLoading(false);
+      return;
+    }
 
-    writeContract({
-      address: addresses.crownToken,
-      abi: crownTokenAbi,
-      functionName: 'approve',
-      args: [addresses.aiAgentRegistry, amountBigInt]
-    });
-  }, [writeContract, addresses]);
+    try {
+      setLoading(true);
+      const followingIds = await zeroGClient.readContract({
+        address: addresses.aiAgentINFT,
+        abi: AIAgentINFTAbi,
+        functionName: 'getUserFollowing',
+        args: [address],
+      }) as bigint[];
 
-  // Register new agent
-  // Note: Contract registerAgent takes 7 params: name, description, strategy, riskProfile, specialization, traits (struct), stakeAmount
-  // enableCopyTrading and copyTradeFee are set via separate updateAgent call after registration
-  const registerAgent = useCallback(async (params: {
-    name: string;
-    description: string;
-    strategy: AgentStrategy;
-    riskProfile: RiskProfile;
-    specialization: Specialization;
-    personaTraits: PersonaTraits;
-    stakeAmount: string;
-    enableCopyTrading?: boolean;
-    copyTradeFee?: number; // Not used in registerAgent, kept for backwards compatibility
-  }) => {
-    const stakeAmountBigInt = parseEther(params.stakeAmount);
+      setFollowing(followingIds);
+    } catch (err) {
+      console.error('Error fetching user following:', err);
+      setFollowing([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [address, addresses.aiAgentINFT]);
 
-    // PersonaTraits must be passed as a struct object, not array
-    // Ensure values are within uint8 range (0-255)
-    const traits = {
-      patience: Math.min(255, Math.max(0, params.personaTraits.patience)),
-      conviction: Math.min(255, Math.max(0, params.personaTraits.conviction)),
-      contrarian: Math.min(255, Math.max(0, params.personaTraits.contrarian)),
-      momentum: Math.min(255, Math.max(0, params.personaTraits.momentum))
-    };
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'registerAgent',
-      args: [
-        params.name,
-        params.description,
-        params.strategy,
-        params.riskProfile,
-        params.specialization,
-        traits,
-        stakeAmountBigInt
-      ]
-    });
-  }, [writeContract, addresses]);
+  useEffect(() => {
+    fetchFollowing();
+  }, [fetchFollowing]);
 
   return {
-    approveStake,
-    registerAgent,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
-    txHash: hash
+    following,
+    loading,
+    refetch: fetchFollowing,
   };
 }
 
 /**
- * Hook to update agent profile
- * Contract function: updateAgent(agentId, description, copyTradingEnabled, traits)
+ * Hook to get followers of an agent
  */
-export function useUpdateAgent(agentId: bigint | null) {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+export function useAgentFollowers(tokenId: bigint | null) {
+  const [followers, setFollowers] = useState<Address[]>([]);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  const addresses = aiAgentService.getAddresses();
+  const addresses = get0GContracts();
 
-  // Update agent - full update function
-  // Contract signature: updateAgent(uint256 agentId, string description, bool copyTradingEnabled, PersonaTraits traits)
-  const updateAgent = useCallback(async (params: {
-    description: string;
-    copyTradingEnabled: boolean;
-    traits: PersonaTraits;
-  }) => {
-    if (agentId === null) return;
+  const fetchFollowers = useCallback(async () => {
+    if (tokenId === null) {
+      setLoading(false);
+      return;
+    }
 
-    // PersonaTraits must be passed as a struct object
-    const traits = {
-      patience: Math.min(255, Math.max(0, params.traits.patience)),
-      conviction: Math.min(255, Math.max(0, params.traits.conviction)),
-      contrarian: Math.min(255, Math.max(0, params.traits.contrarian)),
-      momentum: Math.min(255, Math.max(0, params.traits.momentum))
-    };
+    try {
+      setLoading(true);
 
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'updateAgent',
-      args: [agentId, params.description, params.copyTradingEnabled, traits]
-    });
-  }, [agentId, writeContract, addresses]);
+      const [followerList, count] = await Promise.all([
+        zeroGClient.readContract({
+          address: addresses.aiAgentINFT,
+          abi: AIAgentINFTAbi,
+          functionName: 'getAgentFollowers',
+          args: [tokenId],
+        }) as Promise<Address[]>,
+        zeroGClient.readContract({
+          address: addresses.aiAgentINFT,
+          abi: AIAgentINFTAbi,
+          functionName: 'getFollowerCount',
+          args: [tokenId],
+        }) as Promise<bigint>,
+      ]);
 
-  // Convenience wrapper for updating just description (calls updateAgent with current values)
-  const updateDescription = useCallback(async (description: string, currentTraits: PersonaTraits, currentCopyTrading: boolean) => {
-    await updateAgent({ description, copyTradingEnabled: currentCopyTrading, traits: currentTraits });
-  }, [updateAgent]);
+      setFollowers(followerList);
+      setFollowerCount(Number(count));
+    } catch (err) {
+      console.error('Error fetching agent followers:', err);
+      setFollowers([]);
+      setFollowerCount(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [tokenId, addresses.aiAgentINFT]);
 
-  // Convenience wrapper for updating just persona traits
-  const updatePersona = useCallback(async (traits: PersonaTraits, currentDescription: string, currentCopyTrading: boolean) => {
-    await updateAgent({ description: currentDescription, copyTradingEnabled: currentCopyTrading, traits });
-  }, [updateAgent]);
-
-  // Convenience wrapper for toggling copy trading
-  const toggleCopyTrading = useCallback(async (enabled: boolean, currentDescription: string, currentTraits: PersonaTraits) => {
-    await updateAgent({ description: currentDescription, copyTradingEnabled: enabled, traits: currentTraits });
-  }, [updateAgent]);
+  useEffect(() => {
+    fetchFollowers();
+  }, [fetchFollowers]);
 
   return {
-    updateAgent,
-    updateDescription,
-    updatePersona,
-    toggleCopyTrading,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
-    txHash: hash
+    followers,
+    followerCount,
+    loading,
+    refetch: fetchFollowers,
   };
 }
 
 /**
- * Hook to manage agent staking
+ * Hook to check if user is following a specific agent
  */
-export function useAgentStaking(agentId: bigint | null) {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+export function useIsFollowingAgent(tokenId: bigint | null) {
+  const { following, loading } = useUserFollowing();
 
-  const addresses = aiAgentService.getAddresses();
-
-  // Add stake to agent
-  const addStake = useCallback(async (amount: string) => {
-    if (agentId === null) return;
-
-    const amountBigInt = parseEther(amount);
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'addStake',
-      args: [agentId, amountBigInt]
-    });
-  }, [agentId, writeContract, addresses]);
-
-  // Remove stake from agent (requires minimum stake maintained)
-  const removeStake = useCallback(async (amount: string) => {
-    if (agentId === null) return;
-
-    const amountBigInt = parseEther(amount);
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'removeStake',
-      args: [agentId, amountBigInt]
-    });
-  }, [agentId, writeContract, addresses]);
-
-  // Deactivate agent (withdraws all stake)
-  const deactivateAgent = useCallback(async () => {
-    if (agentId === null) return;
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'deactivateAgent',
-      args: [agentId]
-    });
-  }, [agentId, writeContract, addresses]);
+  const isFollowing = tokenId !== null && following.some(id => id === tokenId);
 
   return {
-    addStake,
-    removeStake,
-    deactivateAgent,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
-    txHash: hash
-  };
-}
-
-/**
- * Hook to execute a copy trade (for automated systems)
- */
-export function useExecuteCopyTrade() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const addresses = aiAgentService.getAddresses();
-
-  // Execute copy trade on prediction market
-  const executeCopyTrade = useCallback(async (params: {
-    agentId: bigint;
-    marketId: bigint;
-    isYes: boolean;
-    amount: string;
-  }) => {
-    const amountBigInt = parseEther(params.amount);
-
-    writeContract({
-      address: addresses.aiAgentRegistry,
-      abi: AIAgentRegistryAbi,
-      functionName: 'executeCopyTrade',
-      args: [
-        params.agentId,
-        params.marketId,
-        params.isYes,
-        amountBigInt
-      ]
-    });
-  }, [writeContract, addresses]);
-
-  return {
-    executeCopyTrade,
-    isPending,
-    isConfirming,
-    isSuccess,
-    error,
-    txHash: hash
+    isFollowing,
+    loading,
   };
 }
 
 /**
  * Combined hook for common copy trading operations
  */
-export function useCopyTrade(agentId: bigint | null) {
-  const { config, isActive, maxAmount, loading: configLoading, refetch: refetchConfig } = useCopyTradeConfig(agentId);
-  const { follow, unfollow, updateSettings, isPending, isConfirming, isSuccess, error, txHash } = useFollowAgent(agentId);
+export function useCopyTrade(tokenId: bigint | null) {
+  const { config, isActive, maxAmount, loading: configLoading, refetch: refetchConfig } = useCopyTradeConfig(tokenId);
+  const { follow, unfollow, updateSettings, isPending, isConfirming, isSuccess, error, txHash, needsChainSwitch, switchTo0G } = useFollowAgent(tokenId);
+  const { followerCount, refetch: refetchFollowers } = useAgentFollowers(tokenId);
+
+  // Refetch both config and followers on success
+  useEffect(() => {
+    if (isSuccess) {
+      refetchConfig();
+      refetchFollowers();
+    }
+  }, [isSuccess, refetchConfig, refetchFollowers]);
 
   return {
     // Config state
@@ -366,11 +336,16 @@ export function useCopyTrade(agentId: bigint | null) {
     isFollowing: isActive,
     maxAmount,
     maxAmountFormatted: formatEther(maxAmount),
+    followerCount,
 
     // Actions
     follow,
     unfollow,
     updateSettings,
+
+    // Chain switching
+    needsChainSwitch,
+    switchTo0G,
 
     // Transaction state
     isPending,
@@ -381,6 +356,9 @@ export function useCopyTrade(agentId: bigint | null) {
 
     // Loading state
     loading: configLoading,
-    refetch: refetchConfig
+    refetch: () => {
+      refetchConfig();
+      refetchFollowers();
+    },
   };
 }

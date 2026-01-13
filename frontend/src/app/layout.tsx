@@ -8,6 +8,10 @@ import WarriorAssistant from "@/components/WarriorAssistant";
 import { WarriorMessageProvider } from "@/contexts/WarriorMessageContext";
 import { TestModeProvider } from "@/contexts/TestModeContext";
 import { TestModeBanner } from "@/components/0g/TestModeBanner";
+import { NotificationProvider } from "@/contexts/NotificationContext";
+import { GamificationProvider } from "@/contexts/GamificationContext";
+import { ToastContainer } from "@/components/gamification/ToastContainer";
+import { GamificationOverlay } from "@/components/gamification/GamificationOverlay";
 
 export const metadata: Metadata = {
   title: "WarriorsAI-rena",
@@ -28,13 +32,19 @@ export default function RootLayout(props: {children: ReactNode}) {
       <body suppressHydrationWarning>
         <Providers>
           <TestModeProvider>
-            <WarriorMessageProvider>
-              <Header />
-              <TestModeBanner />
-              {props.children}
-              <Footer />
-              <WarriorAssistant />
-            </WarriorMessageProvider>
+            <NotificationProvider>
+              <GamificationProvider>
+                <WarriorMessageProvider>
+                  <Header />
+                  <TestModeBanner />
+                  {props.children}
+                  <Footer />
+                  <WarriorAssistant />
+                  <ToastContainer />
+                  <GamificationOverlay />
+                </WarriorMessageProvider>
+              </GamificationProvider>
+            </NotificationProvider>
           </TestModeProvider>
         </Providers>
       </body>

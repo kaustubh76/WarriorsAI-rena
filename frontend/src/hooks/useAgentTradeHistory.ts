@@ -2,14 +2,13 @@
  * useAgentTradeHistory Hook
  * Fetch and display agent trade history from blockchain events
  *
- * IMPORTANT: This hook operates on Flow Testnet (Chain ID: 545)
- * where the AIAgentRegistry contract emits TradeRecorded events
+ * IMPORTANT: This hook operates on 0G Galileo Testnet (Chain ID: 16602)
+ * where the AIAgentINFT contract emits TradeRecorded events
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatEther, type Address, parseAbiItem } from 'viem';
-import { getPublicClient } from '@/lib/rpcClient';
-import { chainsToContracts, getChainId } from '@/constants';
+import { formatEther, type Address, parseAbiItem, createPublicClient, http } from 'viem';
+import { chainsToContracts, getZeroGChainId } from '@/constants';
 
 // ============================================================================
 // Types
@@ -37,39 +36,59 @@ export interface UseAgentTradeHistoryResult {
 // Constants
 // ============================================================================
 
-const FLOW_CHAIN_ID = getChainId(); // 545 Flow Testnet
+const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602 0G Galileo Testnet
 
-// TradeRecorded event from AIAgentRegistry
-// event TradeRecorded(uint256 indexed agentId, uint256 indexed marketId, bool won, int256 pnl, uint256 confidence)
+// 0G Galileo chain config for viem
+const zeroGGalileo = {
+  id: ZEROG_CHAIN_ID,
+  name: '0G Galileo Testnet',
+  nativeCurrency: { name: 'A0GI', symbol: 'A0GI', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://evmrpc-testnet.0g.ai'] },
+  },
+  blockExplorers: {
+    default: { name: 'Blockscout', url: 'https://chainscan-galileo.0g.ai' },
+  },
+} as const;
+
+// Create 0G public client for read operations
+const zeroGClient = createPublicClient({
+  chain: zeroGGalileo,
+  transport: http('https://evmrpc-testnet.0g.ai'),
+});
+
+// TradeRecorded event from AIAgentINFT (on 0G chain)
+// event TradeRecorded(uint256 indexed tokenId, bool won, int256 pnl)
 const TRADE_RECORDED_EVENT = parseAbiItem(
-  'event TradeRecorded(uint256 indexed agentId, uint256 indexed marketId, bool won, int256 pnl, uint256 confidence)'
+  'event TradeRecorded(uint256 indexed tokenId, bool won, int256 pnl)'
 );
 
 // Max number of trades to display
 const MAX_TRADES = 20;
 
-// Total block range to search (approximately 24 hours on Flow)
+// Total block range to search (reduced for performance)
 const TOTAL_BLOCK_RANGE = BigInt(50000);
 
-// Max blocks per query (Flow RPC limits eth_getLogs to 10,000 blocks)
-const MAX_BLOCKS_PER_QUERY = BigInt(10000);
+// Max blocks per query (0G RPC limits, use 5000 to be safe)
+const MAX_BLOCKS_PER_QUERY = BigInt(5000);
 
 // ============================================================================
 // Main Hook
 // ============================================================================
 
 /**
- * Hook to fetch agent trade history from TradeRecorded events
+ * Hook to fetch agent trade history from TradeRecorded events on 0G chain
  */
 export function useAgentTradeHistory(agentId: bigint | undefined): UseAgentTradeHistoryResult {
   const [trades, setTrades] = useState<TradeHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const registryAddress = chainsToContracts[FLOW_CHAIN_ID]?.aiAgentRegistry as Address;
+  // AIAgentINFT contract on 0G chain
+  const aiAgentINFTAddress = chainsToContracts[ZEROG_CHAIN_ID]?.aiAgentINFT as Address;
 
   const fetchTradeHistory = useCallback(async () => {
-    if (!agentId || !registryAddress) {
+    if (!agentId || !aiAgentINFTAddress) {
       setTrades([]);
       return;
     }
@@ -78,13 +97,11 @@ export function useAgentTradeHistory(agentId: bigint | undefined): UseAgentTrade
     setError(null);
 
     try {
-      const publicClient = getPublicClient();
-
-      // Get current block
-      const currentBlock = await publicClient.getBlockNumber();
+      // Get current block from 0G chain
+      const currentBlock = await zeroGClient.getBlockNumber();
       const startBlock = currentBlock > TOTAL_BLOCK_RANGE ? currentBlock - TOTAL_BLOCK_RANGE : BigInt(0);
 
-      console.log(`Fetching trade history for agent #${agentId} from block ${startBlock} to ${currentBlock}`);
+      console.log(`Fetching trade history for agent #${agentId} from 0G block ${startBlock} to ${currentBlock}`);
 
       // Chunk the query into multiple smaller queries to avoid RPC limits
       const allLogs: any[] = [];
@@ -96,11 +113,11 @@ export function useAgentTradeHistory(agentId: bigint | undefined): UseAgentTrade
           : fromBlock + MAX_BLOCKS_PER_QUERY;
 
         try {
-          const logs = await publicClient.getLogs({
-            address: registryAddress,
+          const logs = await zeroGClient.getLogs({
+            address: aiAgentINFTAddress,
             event: TRADE_RECORDED_EVENT,
             args: {
-              agentId: agentId,
+              tokenId: agentId,
             },
             fromBlock,
             toBlock,
@@ -120,21 +137,21 @@ export function useAgentTradeHistory(agentId: bigint | undefined): UseAgentTrade
         fromBlock = toBlock + BigInt(1);
       }
 
-      console.log(`Found ${allLogs.length} trade events for agent #${agentId}`);
+      console.log(`Found ${allLogs.length} trade events for agent #${agentId} on 0G chain`);
       const logs = allLogs;
 
       // Parse and sort trades (most recent first)
       const parsedTrades: TradeHistoryEntry[] = logs
         .map((log) => ({
-          agentId: log.args.agentId as bigint,
-          marketId: log.args.marketId as bigint,
+          agentId: log.args.tokenId as bigint,
+          marketId: BigInt(0), // Not available in this event, placeholder
           won: log.args.won as boolean,
           pnl: log.args.pnl as bigint,
-          confidence: log.args.confidence as bigint,
+          confidence: BigInt(0), // Not available in this event, placeholder
           blockNumber: log.blockNumber,
           transactionHash: log.transactionHash,
-          // Estimate timestamp (Flow ~2 sec blocks)
-          timestamp: Math.floor(Date.now() / 1000) - Number(currentBlock - log.blockNumber) * 2,
+          // Estimate timestamp (0G ~1 sec blocks)
+          timestamp: Math.floor(Date.now() / 1000) - Number(currentBlock - log.blockNumber),
         }))
         .sort((a, b) => Number(b.blockNumber - a.blockNumber))
         .slice(0, MAX_TRADES);
@@ -147,7 +164,7 @@ export function useAgentTradeHistory(agentId: bigint | undefined): UseAgentTrade
     } finally {
       setIsLoading(false);
     }
-  }, [agentId, registryAddress]);
+  }, [agentId, aiAgentINFTAddress]);
 
   // Initial fetch when agentId changes
   useEffect(() => {
@@ -180,7 +197,7 @@ export function formatTradePnL(pnl: bigint): string {
  */
 export function formatConfidence(confidence: bigint): string {
   // Confidence is stored in basis points (0-10000)
-  return `${(Number(confidence) / 100).toFixed(0)}%`;
+  return `${(Number(confidence) / 100).toFixed(1)}%`;
 }
 
 /**

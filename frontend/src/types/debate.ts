@@ -371,5 +371,5 @@ export function canSubmitRebuttal(phase: DebatePhase): boolean {
 }
 
 export function formatConfidence(confidence: bigint): string {
-  return `${Number(confidence) / 100}%`;
+  return `${(Number(confidence) / 100).toFixed(1)}%`;
 }

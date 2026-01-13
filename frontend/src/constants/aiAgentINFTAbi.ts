@@ -5,7 +5,8 @@
 
 import AIAgentINFTAbiJson from './aiAgentINFTAbi.json';
 
-export const AIAgentINFTAbi = AIAgentINFTAbiJson as const;
+// Type assertion without const (JSON imports don't support const assertions)
+export const AIAgentINFTAbi = AIAgentINFTAbiJson;
 
 // Export commonly used function signatures for type safety
 export const AIAgentINFTFunctions = {
@@ -33,6 +34,15 @@ export const AIAgentINFTFunctions = {
   // Configuration
   setCopyTradingEnabled: 'setCopyTradingEnabled(uint256,bool)',
   setAgentActive: 'setAgentActive(uint256,bool)',
+
+  // Copy Trading
+  followAgent: 'followAgent(uint256,uint256)',
+  unfollowAgent: 'unfollowAgent(uint256)',
+  updateCopyTradeConfig: 'updateCopyTradeConfig(uint256,uint256)',
+  getCopyTradeConfig: 'getCopyTradeConfig(address,uint256)',
+  getUserFollowing: 'getUserFollowing(address)',
+  getAgentFollowers: 'getAgentFollowers(uint256)',
+  getFollowerCount: 'getFollowerCount(uint256)',
 
   // View functions
   ownerOf: 'ownerOf(uint256)',
@@ -63,4 +73,7 @@ export const AIAgentINFTEvents = {
   StakeWithdrawn: 'StakeWithdrawn(uint256,uint256,uint256)',
   TierUpdated: 'TierUpdated(uint256,uint8,uint8)',
   TradeRecorded: 'TradeRecorded(uint256,bool,int256)',
+  CopyTradeStarted: 'CopyTradeStarted(address,uint256,uint256)',
+  CopyTradeStopped: 'CopyTradeStopped(address,uint256)',
+  CopyTradeConfigUpdated: 'CopyTradeConfigUpdated(address,uint256,uint256)',
 } as const;

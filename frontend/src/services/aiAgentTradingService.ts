@@ -13,6 +13,7 @@ import type { Address } from 'viem';
 import { parseEther, formatEther } from 'viem';
 import predictionMarketService, { type Market, MarketStatus } from './predictionMarketService';
 import aiAgentService from './aiAgentService';
+import { agentINFTService } from './agentINFTService';
 import { zeroGStorageService } from './zeroGStorageService';
 import { warriorsNFTService } from './warriorsNFTService';
 import type { BattleDataIndex } from '../types/zeroG';
@@ -28,7 +29,6 @@ export interface TradingPrediction {
   confidence: number;
   reasoning: string;
   isVerified: boolean;
-  fallbackMode: boolean;
   chatId: string;
   proof: {
     inputHash: string;
@@ -62,7 +62,6 @@ export interface AgentTradingConfig {
 
 class AIAgentTradingService {
   private readonly minConfidenceThreshold = 60; // Minimum confidence to trade
-  private readonly requireVerification = true;   // CRITICAL: Require 0G verification
 
   /**
    * Generate AI prediction for a market using 0G Compute
@@ -80,22 +79,51 @@ class AIAgentTradingService {
         return null;
       }
 
-      // Get agent data
-      const agent = await aiAgentService.getAgent(agentId);
+      // Get agent data - try iNFT first (0G chain), then legacy registry (Flow chain)
+      let agent: { id: bigint; strategy: number; riskProfile: number; isActive: boolean } | null = null;
+
+      // First try iNFT service (agents are primarily iNFTs now)
+      const inft = await agentINFTService.getINFT(agentId);
+      if (inft && inft.onChainData.isActive) {
+        agent = {
+          id: agentId,
+          strategy: 0, // Strategy is encrypted in iNFT metadata
+          riskProfile: 1, // Risk profile is encrypted in iNFT metadata
+          isActive: inft.onChainData.isActive
+        };
+        console.log(`[Trading] Using iNFT agent #${agentId}`);
+      } else {
+        // Fallback to legacy registry
+        const legacyAgent = await aiAgentService.getAgent(agentId);
+        if (legacyAgent && legacyAgent.isActive) {
+          agent = {
+            id: agentId,
+            strategy: legacyAgent.strategy,
+            riskProfile: legacyAgent.riskProfile,
+            isActive: legacyAgent.isActive
+          };
+          console.log(`[Trading] Using legacy agent #${agentId}`);
+        }
+      }
+
       if (!agent || !agent.isActive) {
         console.error('Agent not active or not found');
         return null;
       }
 
-      // Build battle data from market
+      // Build battle data from market (handles warrior ID 0 gracefully)
       const battleData = await this.buildBattleData(market);
 
-      // Get historical context from 0G storage
-      const historicalContext = await zeroGStorageService.getBattleContext(
-        market.warrior1Id,
-        market.warrior2Id,
-        5
-      );
+      // Get historical context from 0G storage (only if warriors exist)
+      let historicalContext: BattleDataIndex[] = [];
+      if (market.warrior1Id && market.warrior1Id !== BigInt(0) &&
+          market.warrior2Id && market.warrior2Id !== BigInt(0)) {
+        historicalContext = await zeroGStorageService.getBattleContext(
+          market.warrior1Id,
+          market.warrior2Id,
+          5
+        );
+      }
 
       // Build prompt for 0G inference
       const prompt = this.buildTradingPrompt(market, battleData, agent, historicalContext);
@@ -136,7 +164,6 @@ class AIAgentTradingService {
         confidence: parsed.confidence,
         reasoning: parsed.reasoning,
         isVerified: result.isVerified === true,
-        fallbackMode: result.fallbackMode === true,
         chatId: result.chatId,
         proof: result.proof,
         timestamp: Date.now()
@@ -157,14 +184,17 @@ class AIAgentTradingService {
   } {
     const reasons: string[] = [];
 
-    // CRITICAL: Require 0G verification
-    if (this.requireVerification && !prediction.isVerified) {
-      reasons.push('Prediction is not verified by 0G Compute');
-    }
+    console.log('[Validation] Checking prediction:', {
+      isVerified: prediction.isVerified,
+      confidence: prediction.confidence,
+      hasProof: !!prediction.proof,
+      outputHash: prediction.proof?.outputHash,
+      providerAddress: prediction.proof?.providerAddress
+    });
 
-    // Reject fallback predictions
-    if (prediction.fallbackMode) {
-      reasons.push('Prediction is in fallback mode (not from real 0G provider)');
+    // Require 0G verification - no exceptions
+    if (!prediction.isVerified) {
+      reasons.push('Prediction is not verified by 0G Compute');
     }
 
     // Check confidence threshold
@@ -182,6 +212,8 @@ class AIAgentTradingService {
         prediction.proof.providerAddress === '0x0000000000000000000000000000000000000000') {
       reasons.push('Invalid provider address');
     }
+
+    console.log('[Validation] Result:', { valid: reasons.length === 0, reasons });
 
     return {
       valid: reasons.length === 0,
@@ -201,6 +233,20 @@ class AIAgentTradingService {
       console.log(`[AgentTrading] Executing server-side trade for agent #${prediction.agentId}`);
       console.log(`   Market: #${prediction.marketId}, Position: ${prediction.isYes ? 'YES' : 'NO'}`);
       console.log(`   Amount: ${formatEther(amount)} CRwN, Confidence: ${prediction.confidence}%`);
+      console.log(`   Verified: ${prediction.isVerified}, Proof: ${prediction.proof?.outputHash ? 'present' : 'missing'}`);
+
+      // Serialize prediction properly (convert BigInt to string)
+      const serializedPrediction = {
+        marketId: prediction.marketId.toString(),
+        agentId: prediction.agentId.toString(),
+        isYes: prediction.isYes,
+        confidence: prediction.confidence,
+        reasoning: prediction.reasoning,
+        isVerified: prediction.isVerified,
+        chatId: prediction.chatId,
+        proof: prediction.proof,
+        timestamp: prediction.timestamp
+      };
 
       const response = await fetch('/api/agents/execute-trade', {
         method: 'POST',
@@ -210,7 +256,7 @@ class AIAgentTradingService {
           marketId: prediction.marketId.toString(),
           isYes: prediction.isYes,
           amount: amount.toString(),
-          prediction
+          prediction: serializedPrediction
         })
       });
 
@@ -335,14 +381,14 @@ class AIAgentTradingService {
       };
     }
 
-    // Scale amount based on confidence
-    const confidenceMultiplier = prediction.confidence / 100;
-    const scaledAmount = BigInt(Math.floor(Number(maxAmount) * confidenceMultiplier));
+    // Use the maxAmount directly - confidence is already validated above threshold (60%)
+    // Don't scale by confidence as this causes unexpected large trades
+    // The validation ensures we only trade when confidence is sufficient
 
     return {
       shouldTrade: true,
       position: prediction.isYes ? 'yes' : 'no',
-      amount: scaledAmount,
+      amount: maxAmount,
       reasons: [`Verified prediction with ${prediction.confidence}% confidence`]
     };
   }
@@ -350,26 +396,42 @@ class AIAgentTradingService {
   /**
    * Build battle data from market for prediction
    * Fetches real warrior data from the WarriorsNFT contract with fallback
+   * Handles generic prediction markets (warrior IDs = 0) gracefully
    */
   private async buildBattleData(market: Market): Promise<BattleDataIndex> {
-    // Helper to create default warrior data
+    // Check if this is a battle market or a generic prediction market
+    const isBattleMarket = market.warrior1Id && market.warrior1Id !== BigInt(0) &&
+                           market.warrior2Id && market.warrior2Id !== BigInt(0);
+
+    // Helper to create default warrior data for generic markets
     const createDefaultWarrior = (warriorId: bigint, index: number) => ({
-      id: warriorId,
-      name: warriorId > BigInt(0) ? `Warrior #${warriorId}` : `Warrior ${index + 1}`,
+      id: warriorId || BigInt(index + 1),
+      name: warriorId > BigInt(0) ? `Warrior #${warriorId}` : `Option ${index === 0 ? 'Yes' : 'No'}`,
       traits: { strength: 50, wit: 50, charisma: 50, defence: 50, luck: 50 },
       totalBattles: 0,
       wins: 0,
       losses: 0
     });
 
+    // For generic markets (no warriors), return placeholder data
+    if (!isBattleMarket) {
+      // This is a generic prediction market, not a warrior battle
+      return {
+        battleId: market.battleId || BigInt(0),
+        timestamp: Number(market.createdAt) * 1000,
+        warriors: [
+          createDefaultWarrior(BigInt(0), 0),
+          createDefaultWarrior(BigInt(0), 1)
+        ],
+        rounds: [],
+        outcome: 'draw',
+        totalDamage: { warrior1: 0, warrior2: 0 },
+        totalRounds: 0
+      };
+    }
+
     // Helper to fetch warrior data with fallback
     const getWarriorData = async (warriorId: bigint, index: number) => {
-      // Validate warrior ID - ERC721 tokens start at 1, ID 0 is invalid
-      if (!warriorId || warriorId === BigInt(0)) {
-        console.warn(`Invalid warrior ID ${warriorId}, using defaults`);
-        return createDefaultWarrior(warriorId, index);
-      }
-
       try {
         const details = await warriorsNFTService.getWarriorsDetails(Number(warriorId));
         return {
@@ -405,6 +467,7 @@ class AIAgentTradingService {
 
   /**
    * Build trading prompt for 0G inference
+   * Handles both battle markets (with warriors) and generic prediction markets
    */
   private buildTradingPrompt(
     market: Market,
@@ -415,18 +478,37 @@ class AIAgentTradingService {
     const w1 = battleData.warriors[0];
     const w2 = battleData.warriors[1];
 
+    // Check if this is a battle market or generic prediction
+    const isBattleMarket = market.warrior1Id && market.warrior1Id !== BigInt(0);
+
+    // Calculate yes probability safely
+    const totalTokens = Number(market.yesTokens) + Number(market.noTokens);
+    const yesProbability = totalTokens > 0
+      ? (Number(market.yesTokens) / totalTokens * 100).toFixed(1)
+      : '50.0';
+
+    // Strategy labels
+    const strategyLabels = ['Superforecaster', 'Warrior Analyst', 'Trend Follower', 'Mean Reversion', 'Micro Specialist', 'Custom'];
+    const riskLabels = ['Conservative', 'Moderate', 'Aggressive'];
+    const strategyName = strategyLabels[agent.strategy] || 'Analytical';
+    const riskName = riskLabels[agent.riskProfile] || 'Moderate';
+
     let prompt = `
 You are an AI trading agent for the Warriors AI Arena prediction market.
-Your strategy is: ${agent.strategy}
-Your risk profile is: ${agent.riskProfile}
+Your strategy is: ${strategyName}
+Your risk profile is: ${riskName}
 
 MARKET QUESTION: ${market.question}
 
 CURRENT MARKET STATE:
-- Yes probability: ${Number(market.yesTokens) / (Number(market.yesTokens) + Number(market.noTokens)) * 100}%
+- Yes probability: ${yesProbability}%
 - Total volume: ${formatEther(market.totalVolume)} CRwN
 - Liquidity: ${formatEther(market.liquidity)} CRwN
+`;
 
+    // Add warrior data only for battle markets
+    if (isBattleMarket) {
+      prompt += `
 WARRIOR 1 (ID: ${w1.id}):
 - Strength: ${w1.traits.strength}
 - Wit: ${w1.traits.wit}
@@ -442,11 +524,19 @@ WARRIOR 2 (ID: ${w2.id}):
 - Charisma: ${w2.traits.charisma}
 `;
 
-    if (context.length > 0) {
-      prompt += `\n\nHISTORICAL CONTEXT (${context.length} previous battles):`;
-      for (const battle of context.slice(0, 3)) {
-        prompt += `\n- Battle #${battle.battleId}: ${battle.outcome} after ${battle.totalRounds} rounds`;
+      if (context.length > 0) {
+        prompt += `\n\nHISTORICAL CONTEXT (${context.length} previous battles):`;
+        for (const battle of context.slice(0, 3)) {
+          prompt += `\n- Battle #${battle.battleId}: ${battle.outcome} after ${battle.totalRounds} rounds`;
+        }
       }
+    } else {
+      prompt += `
+This is a general prediction market. Analyze the question based on:
+- Current market sentiment (${yesProbability}% Yes)
+- Available information and logical reasoning
+- Your ${strategyName} strategy with ${riskName} risk profile
+`;
     }
 
     prompt += `

@@ -7,11 +7,17 @@ export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'ima
 // ============================================================================
 
 /**
+ * Supported chain IDs for the application
+ */
+export type SupportedChainId = 545 | 16602 | 747 | 31337;
+
+/**
  * Get the current chain ID from environment or default to Flow Testnet (545)
  * Use this instead of hardcoding chain IDs throughout the codebase
  */
-export const getChainId = (): number => {
-  return parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '545', 10);
+export const getChainId = (): SupportedChainId => {
+  const chainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '545', 10);
+  return chainId as SupportedChainId;
 };
 
 /**
@@ -38,8 +44,9 @@ export const getZeroGComputeRpc = (): string => {
 /**
  * Get 0G Chain ID from environment
  */
-export const getZeroGChainId = (): number => {
-  return parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '16602', 10);
+export const getZeroGChainId = (): SupportedChainId => {
+  const chainId = parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '16602', 10);
+  return chainId as SupportedChainId;
 };
 
 /**
@@ -110,6 +117,12 @@ interface ContractsConfig {
     // ERC-7857 AI Agent iNFT Contracts
     aiAgentINFT?: string;
     agentINFTOracle?: string;
+    // Optional tokens
+    outcomeToken?: string;
+    zeroGOracle?: string;
+    // External Market Mirror Contracts (Polymarket/Kalshi integration)
+    flowVRFOracle?: string;
+    externalMarketMirror?: string;
   };
 }
 
@@ -135,7 +148,10 @@ export const chainsToContracts: ContractsConfig = {
         // NOTE: iNFT contracts are deployed on 0G Galileo (16602) ONLY - not on Flow
         // The agentINFTService reads from 0G chain directly
         aiAgentINFT: "0x0000000000000000000000000000000000000000",
-        agentINFTOracle: "0x0000000000000000000000000000000000000000"
+        agentINFTOracle: "0x0000000000000000000000000000000000000000",
+        // External Market Mirror Contracts (Polymarket/Kalshi integration) - Deployed January 2026
+        flowVRFOracle: "0xd81373eEd88FacE56c21CFA4787c80C325e0bC6E",
+        externalMarketMirror: "0x7485019de6Eca5665057bAe08229F9E660ADEfDa"
     },
     // 0G Galileo Testnet (Chain ID: 16602) - AI Agent iNFT Contracts
     16602: {
@@ -154,8 +170,8 @@ export const chainsToContracts: ContractsConfig = {
         predictionMarketAMM: "0x0000000000000000000000000000000000000000",
         zeroGOracle: "0x0000000000000000000000000000000000000000",
         // ERC-7857 AI Agent iNFT Contracts (0G native)
-        aiAgentINFT: "0x7C8484a8082b9E922b594D0Be2f82b4425B65E05",
-        agentINFTOracle: "0x05Ca49f32B482e0Dce58e39A22F31e5f56A43Ee7"
+        aiAgentINFT: "0x88f3133C6e506Eaa68bB0de1a4765E9B73b15BBC",
+        agentINFTOracle: "0x9A712e70b20e7dcfCa45f36051A6810db04A751B"
     }
 }
 

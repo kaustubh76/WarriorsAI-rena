@@ -207,9 +207,9 @@ export function MarketChart({ market }: MarketChartProps) {
         <div className="relative h-48 w-full">
           {/* Y-axis labels */}
           <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 w-8">
-            <span>{maxPrice.toFixed(0)}%</span>
-            <span>{((maxPrice + minPrice) / 2).toFixed(0)}%</span>
-            <span>{minPrice.toFixed(0)}%</span>
+            <span>{maxPrice.toFixed(1)}%</span>
+            <span>{((maxPrice + minPrice) / 2).toFixed(1)}%</span>
+            <span>{minPrice.toFixed(1)}%</span>
           </div>
 
           {/* Chart area */}

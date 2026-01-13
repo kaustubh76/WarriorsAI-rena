@@ -8,10 +8,12 @@ import { useAgent, useAgentPerformance, useAgentFollowers } from '@/hooks/useAge
 import { AgentPerformanceChart, PersonaTraitsCard, FollowButton, INFTBadge, TransferAgentModal, AuthorizeUsageModal } from '@/components/agents';
 import { useAgentINFT, useMyAgentINFTs } from '@/hooks/useAgentINFT';
 import { useAgentTradeHistory, formatTradePnL, formatConfidence, formatTradeTime, getTradePnLColor } from '@/hooks/useAgentTradeHistory';
+import { useAgentExternalTrading } from '@/hooks/useAgentExternalTrading';
+import { formatEther } from 'viem';
 
 export default function AgentProfilePage() {
   const params = useParams();
-  const agentId = params.id ? BigInt(params.id as string) : null;
+  const agentId = params?.id ? BigInt(params.id as string) : null;
   const { address, isConnected } = useAccount();
 
   // Modal states
@@ -22,6 +24,20 @@ export default function AgentProfilePage() {
   const { performance, loading: perfLoading } = useAgentPerformance(agentId);
   const { followers, followerCount, loading: followersLoading } = useAgentFollowers(agentId);
   const { trades, isLoading: tradesLoading, error: tradesError } = useAgentTradeHistory(agentId ?? undefined);
+
+  // External trading hook
+  const {
+    canTradePolymarket,
+    canTradeKalshi,
+    externalPerformance,
+    loading: externalLoading,
+    error: externalError,
+    enableExternalTrading,
+    refreshPermissions: refreshExternalPermissions,
+  } = useAgentExternalTrading(agentId);
+
+  // Tab state for trade history
+  const [activeTradeTab, setActiveTradeTab] = useState<'native' | 'external'>('native');
 
   // iNFT detection - check if this agent has an associated iNFT
   const isINFT = agent?.isINFT === true;
@@ -229,6 +245,167 @@ export default function AgentProfilePage() {
           </div>
         </div>
 
+        {/* External Market Trading Section */}
+        {isINFT && (
+          <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700 mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <h3 className="text-xl font-bold text-white">External Market Trading</h3>
+                <span className="px-2 py-1 text-xs bg-blue-500/20 text-blue-400 rounded-full">
+                  Dual-Chain
+                </span>
+              </div>
+              <button
+                onClick={refreshExternalPermissions}
+                disabled={externalLoading}
+                className="p-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                title="Refresh"
+              >
+                <svg className={`w-5 h-5 ${externalLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Platform Toggles */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-purple-400" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-white font-medium">Polymarket</p>
+                    <p className="text-xs text-gray-400">Trade mirrored markets</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => enableExternalTrading(!canTradePolymarket, canTradeKalshi)}
+                  disabled={externalLoading || !canManageINFT}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    canTradePolymarket ? 'bg-purple-600' : 'bg-gray-600'
+                  } ${!canManageINFT ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                    canTradePolymarket ? 'left-7' : 'left-1'
+                  }`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-orange-400" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-white font-medium">Kalshi</p>
+                    <p className="text-xs text-gray-400">Trade mirrored markets</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => enableExternalTrading(canTradePolymarket, !canTradeKalshi)}
+                  disabled={externalLoading || !canManageINFT}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    canTradeKalshi ? 'bg-orange-600' : 'bg-gray-600'
+                  } ${!canManageINFT ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                    canTradeKalshi ? 'left-7' : 'left-1'
+                  }`} />
+                </button>
+              </div>
+            </div>
+
+            {/* External Performance Stats */}
+            {externalPerformance && (
+              <div className="grid grid-cols-4 gap-4">
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-white">
+                    {externalPerformance.externalTradeCount}
+                  </p>
+                  <p className="text-sm text-gray-400">External Trades</p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <p className={`text-2xl font-bold ${
+                    externalPerformance.externalPnL >= 0n ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {externalPerformance.externalPnL >= 0n ? '+' : ''}
+                    {Number(formatEther(externalPerformance.externalPnL)).toFixed(4)}
+                  </p>
+                  <p className="text-sm text-gray-400">External PnL</p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-white">
+                    {externalPerformance.winRate.toFixed(1)}%
+                  </p>
+                  <p className="text-sm text-gray-400">Win Rate</p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-white">
+                    {externalPerformance.topMarkets.length}
+                  </p>
+                  <p className="text-sm text-gray-400">Top Markets</p>
+                </div>
+              </div>
+            )}
+
+            {/* Top Performing Markets */}
+            {externalPerformance && externalPerformance.topMarkets.length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-sm font-medium text-gray-400 mb-3">Top Performing External Markets</h4>
+                <div className="space-y-2">
+                  {externalPerformance.topMarkets.slice(0, 3).map((market, index) => (
+                    <div
+                      key={market.marketId}
+                      className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-500 text-sm">#{index + 1}</span>
+                        <span className={`px-2 py-0.5 text-xs rounded ${
+                          market.source === 'polymarket'
+                            ? 'bg-purple-500/20 text-purple-400'
+                            : 'bg-orange-500/20 text-orange-400'
+                        }`}>
+                          {market.source === 'polymarket' ? 'Polymarket' : 'Kalshi'}
+                        </span>
+                        <span className="text-white text-sm truncate max-w-xs">
+                          {market.marketId}
+                        </span>
+                      </div>
+                      <span className={`text-sm font-medium ${
+                        market.pnl >= 0n ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {market.pnl >= 0n ? '+' : ''}
+                        {Number(formatEther(market.pnl)).toFixed(4)} CRwN
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Error Display */}
+            {externalError && (
+              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <p className="text-red-400 text-sm">{externalError}</p>
+              </div>
+            )}
+
+            {/* Not Owner Notice */}
+            {!canManageINFT && (
+              <div className="mt-4 p-3 bg-gray-800/50 border border-gray-700 rounded-lg">
+                <p className="text-gray-400 text-sm text-center">
+                  Only the iNFT owner can modify external trading settings
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Performance */}
@@ -237,7 +414,37 @@ export default function AgentProfilePage() {
 
             {/* Trade History */}
             <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-4">Recent Trades</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Trade History</h3>
+                {isINFT && (
+                  <div className="flex bg-gray-800 rounded-lg p-1">
+                    <button
+                      onClick={() => setActiveTradeTab('native')}
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        activeTradeTab === 'native'
+                          ? 'bg-purple-600 text-white'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Native
+                    </button>
+                    <button
+                      onClick={() => setActiveTradeTab('external')}
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        activeTradeTab === 'external'
+                          ? 'bg-purple-600 text-white'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      External
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Native Trades Tab */}
+              {activeTradeTab === 'native' && (
+                <>
               {tradesLoading ? (
                 <div className="space-y-3">
                   {[...Array(5)].map((_, i) => (
@@ -292,6 +499,70 @@ export default function AgentProfilePage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+                </>
+              )}
+
+              {/* External Trades Tab */}
+              {activeTradeTab === 'external' && (
+                <div className="space-y-2">
+                  {externalPerformance && externalPerformance.externalTradeCount > 0 ? (
+                    externalPerformance.topMarkets.map((market, index) => (
+                      <div
+                        key={`external-${market.marketId}-${index}`}
+                        className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                            market.pnl >= 0n ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {market.pnl >= 0n ? (
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-white text-sm font-medium truncate max-w-xs">
+                              {market.marketId}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-1.5 py-0.5 text-xs rounded ${
+                                market.source === 'polymarket'
+                                  ? 'bg-purple-500/20 text-purple-400'
+                                  : 'bg-orange-500/20 text-orange-400'
+                              }`}>
+                                {market.source === 'polymarket' ? 'Polymarket' : 'Kalshi'}
+                              </span>
+                              <span className="text-gray-500 text-xs flex items-center gap-1">
+                                <svg className="w-3 h-3 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                                0G Verified
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-sm font-medium ${
+                            market.pnl >= 0n ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {market.pnl >= 0n ? '+' : ''}
+                            {Number(formatEther(market.pnl)).toFixed(4)} CRwN
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-400 text-center py-8">
+                      No external market trades yet. Enable Polymarket or Kalshi trading above to get started.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useCopyTrade } from '@/hooks/useCopyTrade';
 import { useIsFollowing, useAgent } from '@/hooks/useAgents';
+import { useGamificationContext } from '@/contexts/GamificationContext';
 
 interface FollowButtonProps {
   agentId: bigint;
@@ -14,10 +15,18 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
   const { address, isConnected } = useAccount();
   const { isFollowing, loading: followingLoading } = useIsFollowing(agentId);
   const { agent, loading: agentLoading } = useAgent(agentId);
-  const { follow, unfollow, isPending, isConfirming, error } = useCopyTrade(agentId);
+  const { follow, unfollow, isPending, isConfirming, error, needsChainSwitch, switchTo0G } = useCopyTrade(agentId);
   const [showModal, setShowModal] = useState(false);
   const [maxAmount, setMaxAmount] = useState('100');
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // Gamification context - safely access (may not be available during SSR)
+  let gamification: ReturnType<typeof useGamificationContext> | null = null;
+  try {
+    gamification = useGamificationContext();
+  } catch {
+    // Context not available (SSR or not wrapped in provider)
+  }
 
   // Check if user is the operator (cannot follow own agent)
   const isOwnAgent = agent?.operator?.toLowerCase() === address?.toLowerCase();
@@ -90,6 +99,12 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
     try {
       await follow(maxAmount);
       setShowModal(false);
+
+      // Gamification: Track follow action
+      if (gamification) {
+        gamification.handleFollowAgent();
+      }
+
       onSuccess?.();
     } catch (err) {
       console.error('Error following agent:', err);
@@ -103,6 +118,18 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
         className="px-4 py-2 bg-gray-700 text-gray-400 rounded-lg cursor-not-allowed"
       >
         Connect Wallet
+      </button>
+    );
+  }
+
+  // Show chain switch button if user needs to switch to 0G
+  if (needsChainSwitch) {
+    return (
+      <button
+        onClick={() => switchTo0G()}
+        className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 transition-colors"
+      >
+        Switch to 0G
       </button>
     );
   }

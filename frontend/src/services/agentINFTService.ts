@@ -13,6 +13,7 @@ import {
   toHex,
   createPublicClient,
   http,
+  defineChain,
 } from 'viem';
 import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
 import { chainsToContracts, crownTokenAbi, getChainId, getZeroGChainId, getZeroGComputeRpc } from '../constants';
@@ -61,6 +62,24 @@ const CACHE_TTL = {
 const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602
 const ZEROG_RPC_URL = getZeroGComputeRpc();
 
+// 0G Galileo Testnet chain definition for wallet transactions
+const zeroGGalileo = defineChain({
+  id: ZEROG_CHAIN_ID,
+  name: '0G Galileo Testnet',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'A0GI',
+    symbol: 'A0GI',
+  },
+  rpcUrls: {
+    default: { http: [ZEROG_RPC_URL] },
+  },
+  blockExplorers: {
+    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
+  },
+  testnet: true,
+});
+
 // Create a dedicated 0G public client for iNFT reads
 const zeroGPublicClient = createPublicClient({
   transport: http(ZEROG_RPC_URL),
@@ -88,6 +107,14 @@ class AIAgentINFTService {
     this.contractAddress = (contracts as any).aiAgentINFT || ZERO_ADDRESS;
     // CrownToken on 0G for staking with iNFT
     this.crownTokenAddress = contracts.crownToken as Address;
+
+    console.log('[iNFT Service] Initialized with:', {
+      chainId: ZEROG_CHAIN_ID,
+      contractAddress: this.contractAddress,
+      crownTokenAddress: this.crownTokenAddress,
+      rpcUrl: ZEROG_RPC_URL,
+      isDeployed: this.contractAddress !== ZERO_ADDRESS,
+    });
   }
 
   /**
@@ -133,9 +160,11 @@ class AIAgentINFTService {
    * Get iNFT by token ID
    */
   async getINFT(tokenId: bigint): Promise<AIAgentINFT | null> {
+    console.log(`[iNFT] getINFT(${tokenId}) called, contractDeployed=${this.isContractDeployed()}`);
     if (!this.isContractDeployed()) return null;
 
     try {
+      console.log(`[iNFT] Fetching data for token ${tokenId}...`);
       const [owner, encryptedMetadataRef, metadataHash, onChainData, performance, pendingTransfer] =
         await Promise.all([
           this.getOwner(tokenId),
@@ -146,7 +175,19 @@ class AIAgentINFTService {
           this.getPendingTransfer(tokenId),
         ]);
 
-      if (!owner || owner === ZERO_ADDRESS) return null;
+      console.log(`[iNFT] Token ${tokenId} data:`, {
+        owner,
+        encryptedMetadataRef,
+        metadataHash,
+        onChainData,
+        performance,
+        pendingTransfer,
+      });
+
+      if (!owner || owner === ZERO_ADDRESS) {
+        console.log(`[iNFT] Token ${tokenId} has no owner, returning null`);
+        return null;
+      }
 
       return {
         tokenId,
@@ -158,7 +199,7 @@ class AIAgentINFTService {
         pendingTransfer: pendingTransfer?.isPending ? pendingTransfer : undefined,
       };
     } catch (error) {
-      console.error('Error fetching iNFT:', error);
+      console.error(`[iNFT] Error fetching iNFT ${tokenId}:`, error);
       return null;
     }
   }
@@ -225,8 +266,10 @@ class AIAgentINFTService {
         functionName: 'getAgentData',
         args: [tokenId],
       });
+      console.log(`[iNFT] getAgentData(${tokenId}) returned:`, data);
       return data;
-    } catch {
+    } catch (error) {
+      console.error('[iNFT] getAgentData error for token', tokenId.toString(), ':', error);
       return null;
     }
   }
@@ -243,7 +286,8 @@ class AIAgentINFTService {
         args: [tokenId],
       });
       return perf;
-    } catch {
+    } catch (error) {
+      console.error('[iNFT] getAgentPerformance error for token', tokenId.toString(), ':', error);
       return null;
     }
   }
@@ -260,7 +304,8 @@ class AIAgentINFTService {
         args: [tokenId],
       });
       return transfer;
-    } catch {
+    } catch (error) {
+      console.error('[iNFT] getPendingTransfer error for token', tokenId.toString(), ':', error);
       return null;
     }
   }
@@ -277,7 +322,8 @@ class AIAgentINFTService {
         args: [tokenId, executor],
       });
       return auth;
-    } catch {
+    } catch (error) {
+      console.error('[iNFT] getAuthorization error:', error);
       return null;
     }
   }
@@ -545,6 +591,7 @@ class AIAgentINFTService {
 
   /**
    * Mint a new iNFT with encrypted metadata
+   * IMPORTANT: This function operates on 0G Galileo Testnet (Chain ID: 16602)
    */
   async mintINFT(
     metadata: EncryptedAgentMetadata,
@@ -554,34 +601,61 @@ class AIAgentINFTService {
     account: `0x${string}`,
     storageService: { uploadEncryptedMetadata: (data: Uint8Array) => Promise<string> }
   ): Promise<{ txHash: string; tokenId?: bigint }> {
+    console.log('[iNFT Service] Starting mint process...');
+    console.log('[iNFT Service] Account:', account);
+    console.log('[iNFT Service] Stake amount:', stakeAmount.toString());
+    console.log('[iNFT Service] Copy trading enabled:', copyTradingEnabled);
+
     // 1. Encrypt metadata
+    console.log('[iNFT Service] Step 1: Encrypting metadata...');
     const encryptedData = await agentEncryptionService.encrypt(metadata, walletClient, account);
 
     // 2. Serialize for storage
+    console.log('[iNFT Service] Step 2: Serializing encrypted data...');
     const { serializeEncryptedData } = await import('./agentEncryptionService');
     const serialized = serializeEncryptedData(encryptedData);
 
     // 3. Upload to 0G Storage
+    console.log('[iNFT Service] Step 3: Uploading to 0G Storage...');
     const encryptedMetadataRef = await storageService.uploadEncryptedMetadata(serialized);
+    console.log('[iNFT Service] Metadata ref:', encryptedMetadataRef);
 
     // 4. Compute metadata hash
+    console.log('[iNFT Service] Step 4: Computing metadata hash...');
     const metadataHash = computeMetadataHash(metadata);
+    console.log('[iNFT Service] Metadata hash:', metadataHash);
 
-    // 5. Approve tokens for staking
+    // 5. Approve tokens for staking on 0G chain
+    console.log('[iNFT Service] Step 5: Approving CRwN tokens for staking...');
+    console.log('[iNFT Service] CRwN token address:', this.crownTokenAddress);
+    console.log('[iNFT Service] iNFT contract address:', this.contractAddress);
     const approveTx = this.prepareApproveToken(stakeAmount);
     const approveHash = await walletClient.writeContract({
       ...approveTx,
       account,
-      chain: null,
+      chain: zeroGGalileo,
     });
+    console.log('[iNFT Service] Approve tx hash:', approveHash);
 
-    // 6. Mint iNFT
+    // Wait a bit for the approval to be mined
+    console.log('[iNFT Service] Waiting for approval confirmation...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // 6. Mint iNFT on 0G chain
+    console.log('[iNFT Service] Step 6: Minting iNFT...');
     const mintTx = this.prepareMint(encryptedMetadataRef, metadataHash, stakeAmount, copyTradingEnabled);
+    console.log('[iNFT Service] Mint tx args:', {
+      encryptedMetadataRef,
+      metadataHash,
+      stakeAmount: stakeAmount.toString(),
+      copyTradingEnabled,
+    });
     const mintHash = await walletClient.writeContract({
       ...mintTx,
       account,
-      chain: null,
+      chain: zeroGGalileo,
     });
+    console.log('[iNFT Service] Mint tx hash:', mintHash);
 
     return { txHash: mintHash };
   }
@@ -589,6 +663,7 @@ class AIAgentINFTService {
   /**
    * Transfer iNFT with re-encryption via 0G TEE Oracle
    * Requests a real re-encryption proof from the oracle before transfer
+   * IMPORTANT: This function operates on 0G Galileo Testnet (Chain ID: 16602)
    */
   async transferINFTWithReEncryption(
     tokenId: bigint,
@@ -622,7 +697,7 @@ class AIAgentINFTService {
     const hash = await walletClient.writeContract({
       ...tx,
       account,
-      chain: null,
+      chain: zeroGGalileo,
     });
 
     return hash;
@@ -669,6 +744,106 @@ class AIAgentINFTService {
       hasEncryptedMetadata: inft.encryptedMetadataRef.length > 0,
       canDecrypt: false, // Set by caller based on ownership/authorization
     };
+  }
+
+  // ============================================================================
+  // Copy Trading Read Functions
+  // ============================================================================
+
+  /**
+   * Get copy trade config for a user and token
+   */
+  async getCopyTradeConfig(user: Address, tokenId: bigint): Promise<{
+    tokenId: bigint;
+    maxAmountPerTrade: bigint;
+    totalCopied: bigint;
+    startedAt: bigint;
+    isActive: boolean;
+  } | null> {
+    if (!this.isContractDeployed()) return null;
+
+    try {
+      const config = await readContractOnZeroG<[bigint, bigint, bigint, bigint, boolean]>({
+        address: this.contractAddress,
+        abi: AIAgentINFTAbi,
+        functionName: 'getCopyTradeConfig',
+        args: [user, tokenId],
+      });
+
+      return {
+        tokenId: config[0],
+        maxAmountPerTrade: config[1],
+        totalCopied: config[2],
+        startedAt: config[3],
+        isActive: config[4],
+      };
+    } catch (error) {
+      console.error('[iNFT] Error fetching copy trade config:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all agents a user is following
+   */
+  async getUserFollowing(user: Address): Promise<bigint[]> {
+    if (!this.isContractDeployed()) return [];
+
+    try {
+      const following = await readContractOnZeroG<readonly bigint[]>({
+        address: this.contractAddress,
+        abi: AIAgentINFTAbi,
+        functionName: 'getUserFollowing',
+        args: [user],
+      });
+
+      return [...following];
+    } catch (error) {
+      console.error('[iNFT] Error fetching user following:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all followers of an agent
+   */
+  async getAgentFollowers(tokenId: bigint): Promise<Address[]> {
+    if (!this.isContractDeployed()) return [];
+
+    try {
+      const followers = await readContractOnZeroG<readonly Address[]>({
+        address: this.contractAddress,
+        abi: AIAgentINFTAbi,
+        functionName: 'getAgentFollowers',
+        args: [tokenId],
+      });
+
+      return [...followers];
+    } catch (error) {
+      console.error('[iNFT] Error fetching agent followers:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get follower count for an agent
+   */
+  async getFollowerCount(tokenId: bigint): Promise<number> {
+    if (!this.isContractDeployed()) return 0;
+
+    try {
+      const count = await readContractOnZeroG<bigint>({
+        address: this.contractAddress,
+        abi: AIAgentINFTAbi,
+        functionName: 'getFollowerCount',
+        args: [tokenId],
+      });
+
+      return Number(count);
+    } catch (error) {
+      console.error('[iNFT] Error fetching follower count:', error);
+      return 0;
+    }
   }
 
   // ============================================================================

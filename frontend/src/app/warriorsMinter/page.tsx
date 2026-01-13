@@ -896,11 +896,11 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
 
       <div className="border-t border-orange-600 pt-4">
         <div className="flex justify-between items-center">
-          <span 
+          <span
             className="text-sm text-green-400"
             style={{fontFamily: 'Press Start 2P, monospace'}}
           >
-            {warriors.totalWinnings} CRwN
+            {warriors.totalWinnings.toFixed(2)} CRwN
           </span>
           <span 
             className="text-xs text-gray-400"
@@ -1770,11 +1770,11 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
                         </div>
                       </div>
                       
-                      <p 
+                      <p
                         className="text-sm text-green-400 mb-2"
                         style={{fontFamily: 'Press Start 2P, monospace'}}
                       >
-                        TOTAL WINNINGS: {selectedWarriors.totalWinnings} CRwN
+                        TOTAL WINNINGS: {selectedWarriors.totalWinnings.toFixed(2)} CRwN
                       </p>
                       
                       <p 

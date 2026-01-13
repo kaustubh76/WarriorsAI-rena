@@ -45,6 +45,13 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
     error AIAgentINFT__CooldownActive();
     error AIAgentINFT__TransferNotAllowed();
     error AIAgentINFT__OracleNotSet();
+    error AIAgentINFT__AgentNotFound();
+    error AIAgentINFT__AgentNotActive();
+    error AIAgentINFT__CopyTradingDisabled();
+    error AIAgentINFT__AlreadyFollowing();
+    error AIAgentINFT__NotFollowing();
+    error AIAgentINFT__CannotFollowSelf();
+    error AIAgentINFT__ExternalTradingDisabled();
 
     // ============ Enums ============
 
@@ -80,6 +87,10 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
         uint256 stakedAmount;
         bool isActive;
         bool copyTradingEnabled;
+        bool polymarketEnabled;      // Enable Polymarket trading
+        bool kalshiEnabled;          // Enable Kalshi trading
+        uint256 externalTradeCount;  // Total external trades
+        int256 externalPnL;          // External market P&L
         uint256 createdAt;
         uint256 lastUpdatedAt;
     }
@@ -90,6 +101,15 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
         uint256 winningTrades;
         int256 totalPnL;
         uint256 accuracyBps;
+    }
+
+    /// @notice Copy trading configuration for a follower
+    struct CopyTradeConfig {
+        uint256 tokenId;
+        uint256 maxAmountPerTrade;
+        uint256 totalCopied;
+        uint256 startedAt;
+        bool isActive;
     }
 
     // ============ Constants ============
@@ -130,6 +150,12 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
 
     // Unstake cooldown tracking
     mapping(address => uint256) public unstakeRequestTime;
+
+    // Copy trading state
+    mapping(address => mapping(uint256 => CopyTradeConfig)) public copyTradeConfigs;
+    mapping(address => uint256[]) public userFollowing;
+    mapping(uint256 => address[]) public agentFollowers;
+    mapping(uint256 => uint256) public agentFollowerCount;
 
     // ============ Events ============
     event INFTMinted(
@@ -201,6 +227,21 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
 
     event OracleUpdated(address indexed oldOracle, address indexed newOracle);
 
+    event CopyTradeStarted(address indexed follower, uint256 indexed tokenId, uint256 maxAmount);
+
+    event CopyTradeStopped(address indexed follower, uint256 indexed tokenId);
+
+    event CopyTradeConfigUpdated(address indexed follower, uint256 indexed tokenId, uint256 maxAmount);
+
+    event ExternalTradingEnabled(uint256 indexed tokenId, bool polymarket, bool kalshi);
+    event ExternalTradeRecorded(
+        uint256 indexed tokenId,
+        bool isPolymarket,
+        string marketId,
+        bool won,
+        int256 pnl
+    );
+
     // ============ Constructor ============
     constructor(
         address _crownToken,
@@ -252,6 +293,10 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
             stakedAmount: stakeAmount,
             isActive: true,
             copyTradingEnabled: copyTradingEnabled,
+            polymarketEnabled: false,
+            kalshiEnabled: false,
+            externalTradeCount: 0,
+            externalPnL: 0,
             createdAt: block.timestamp,
             lastUpdatedAt: block.timestamp
         });
@@ -603,6 +648,209 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
 
         _agentData[tokenId].isActive = active;
         _agentData[tokenId].lastUpdatedAt = block.timestamp;
+    }
+
+    // ============ Copy Trading Functions ============
+
+    /**
+     * @notice Start following an agent for copy trading
+     * @param tokenId Token ID of the agent to follow
+     * @param maxAmountPerTrade Maximum amount to copy per trade
+     */
+    function followAgent(uint256 tokenId, uint256 maxAmountPerTrade) external {
+        // Check token exists
+        if (tokenId == 0 || tokenId >= _nextTokenId) revert AIAgentINFT__AgentNotFound();
+
+        AgentOnChainData storage data = _agentData[tokenId];
+        if (!data.isActive) revert AIAgentINFT__AgentNotActive();
+        if (!data.copyTradingEnabled) revert AIAgentINFT__CopyTradingDisabled();
+
+        address agentOwner = ownerOf(tokenId);
+        if (agentOwner == msg.sender) revert AIAgentINFT__CannotFollowSelf();
+
+        CopyTradeConfig storage config = copyTradeConfigs[msg.sender][tokenId];
+        if (config.isActive) revert AIAgentINFT__AlreadyFollowing();
+
+        config.tokenId = tokenId;
+        config.maxAmountPerTrade = maxAmountPerTrade;
+        config.totalCopied = 0;
+        config.startedAt = block.timestamp;
+        config.isActive = true;
+
+        userFollowing[msg.sender].push(tokenId);
+        agentFollowers[tokenId].push(msg.sender);
+        agentFollowerCount[tokenId]++;
+
+        emit CopyTradeStarted(msg.sender, tokenId, maxAmountPerTrade);
+    }
+
+    /**
+     * @notice Stop following an agent
+     * @param tokenId Token ID of the agent to unfollow
+     */
+    function unfollowAgent(uint256 tokenId) external {
+        CopyTradeConfig storage config = copyTradeConfigs[msg.sender][tokenId];
+        if (!config.isActive) revert AIAgentINFT__NotFollowing();
+
+        config.isActive = false;
+        agentFollowerCount[tokenId]--;
+
+        // Remove from userFollowing array
+        uint256[] storage following = userFollowing[msg.sender];
+        for (uint256 i = 0; i < following.length; i++) {
+            if (following[i] == tokenId) {
+                following[i] = following[following.length - 1];
+                following.pop();
+                break;
+            }
+        }
+
+        emit CopyTradeStopped(msg.sender, tokenId);
+    }
+
+    /**
+     * @notice Update copy trade configuration
+     * @param tokenId Token ID of the agent
+     * @param maxAmountPerTrade New maximum amount per trade
+     */
+    function updateCopyTradeConfig(uint256 tokenId, uint256 maxAmountPerTrade) external {
+        CopyTradeConfig storage config = copyTradeConfigs[msg.sender][tokenId];
+        if (!config.isActive) revert AIAgentINFT__NotFollowing();
+
+        config.maxAmountPerTrade = maxAmountPerTrade;
+
+        emit CopyTradeConfigUpdated(msg.sender, tokenId, maxAmountPerTrade);
+    }
+
+    /**
+     * @notice Get copy trade config for a user and token
+     * @param user Address of the follower
+     * @param tokenId Token ID of the agent
+     * @return CopyTradeConfig struct
+     */
+    function getCopyTradeConfig(address user, uint256 tokenId) external view returns (CopyTradeConfig memory) {
+        return copyTradeConfigs[user][tokenId];
+    }
+
+    /**
+     * @notice Get all agents a user is following
+     * @param user Address of the follower
+     * @return Array of token IDs
+     */
+    function getUserFollowing(address user) external view returns (uint256[] memory) {
+        return userFollowing[user];
+    }
+
+    /**
+     * @notice Get all followers of an agent
+     * @param tokenId Token ID of the agent
+     * @return Array of follower addresses
+     */
+    function getAgentFollowers(uint256 tokenId) external view returns (address[] memory) {
+        return agentFollowers[tokenId];
+    }
+
+    /**
+     * @notice Get follower count for an agent
+     * @param tokenId Token ID of the agent
+     * @return Number of active followers
+     */
+    function getFollowerCount(uint256 tokenId) external view returns (uint256) {
+        return agentFollowerCount[tokenId];
+    }
+
+    // ============ External Market Trading Functions ============
+
+    /**
+     * @notice Enable/disable external market trading for an agent
+     * @param tokenId Token ID
+     * @param polymarket Whether to enable Polymarket trading
+     * @param kalshi Whether to enable Kalshi trading
+     */
+    function enableExternalTrading(
+        uint256 tokenId,
+        bool polymarket,
+        bool kalshi
+    ) external {
+        if (ownerOf(tokenId) != msg.sender) revert AIAgentINFT__NotOwner();
+
+        AgentOnChainData storage data = _agentData[tokenId];
+        data.polymarketEnabled = polymarket;
+        data.kalshiEnabled = kalshi;
+        data.lastUpdatedAt = block.timestamp;
+
+        emit ExternalTradingEnabled(tokenId, polymarket, kalshi);
+    }
+
+    /**
+     * @notice Record an external market trade result
+     * @dev Called by authorized contracts (ExternalMarketMirror)
+     * @param tokenId Token ID
+     * @param isPolymarket True for Polymarket, false for Kalshi
+     * @param marketId External market identifier
+     * @param won Whether the trade was profitable
+     * @param pnl Profit/loss amount
+     */
+    function recordExternalTrade(
+        uint256 tokenId,
+        bool isPolymarket,
+        string calldata marketId,
+        bool won,
+        int256 pnl
+    ) external {
+        // In production: require msg.sender is authorized ExternalMarketMirror
+        AgentOnChainData storage data = _agentData[tokenId];
+
+        // Verify external trading is enabled
+        if (isPolymarket && !data.polymarketEnabled) {
+            revert AIAgentINFT__ExternalTradingDisabled();
+        }
+        if (!isPolymarket && !data.kalshiEnabled) {
+            revert AIAgentINFT__ExternalTradingDisabled();
+        }
+
+        data.externalTradeCount++;
+        data.externalPnL += pnl;
+        data.lastUpdatedAt = block.timestamp;
+
+        emit ExternalTradeRecorded(tokenId, isPolymarket, marketId, won, pnl);
+    }
+
+    /**
+     * @notice Check if external trading is enabled
+     * @param tokenId Token ID
+     * @param isPolymarket True for Polymarket, false for Kalshi
+     * @return True if enabled
+     */
+    function isExternalTradingEnabled(
+        uint256 tokenId,
+        bool isPolymarket
+    ) external view returns (bool) {
+        AgentOnChainData storage data = _agentData[tokenId];
+        return isPolymarket ? data.polymarketEnabled : data.kalshiEnabled;
+    }
+
+    /**
+     * @notice Get external trading stats for an agent
+     * @param tokenId Token ID
+     * @return polymarketEnabled Whether Polymarket trading is enabled
+     * @return kalshiEnabled Whether Kalshi trading is enabled
+     * @return tradeCount Total external trades
+     * @return pnl Total external P&L
+     */
+    function getExternalTradingStats(uint256 tokenId) external view returns (
+        bool polymarketEnabled,
+        bool kalshiEnabled,
+        uint256 tradeCount,
+        int256 pnl
+    ) {
+        AgentOnChainData storage data = _agentData[tokenId];
+        return (
+            data.polymarketEnabled,
+            data.kalshiEnabled,
+            data.externalTradeCount,
+            data.externalPnL
+        );
     }
 
     // ============ Performance Recording ============

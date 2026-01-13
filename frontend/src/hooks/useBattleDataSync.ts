@@ -224,7 +224,11 @@ export function useBattleHistorySync(arenaAddress?: Address, chainId: number = g
     setProgress({ synced: 0, total: 0 });
 
     try {
-      // Get GameFinished events from the arena
+      // Get current block and calculate safe range (Flow limits to 10,000 blocks)
+      const currentBlock = await publicClient.getBlockNumber();
+      const fromBlock = currentBlock > BigInt(5000) ? currentBlock - BigInt(5000) : BigInt(0);
+
+      // Get GameFinished events from the arena (limited range to avoid RPC errors)
       const logs = await publicClient.getLogs({
         address: arenaAddress,
         event: {
@@ -237,7 +241,7 @@ export function useBattleHistorySync(arenaAddress?: Address, chainId: number = g
             { type: 'uint256', name: 'damageOnWarriorTwo', indexed: false }
           ]
         },
-        fromBlock: 'earliest',
+        fromBlock,
         toBlock: 'latest'
       });
 

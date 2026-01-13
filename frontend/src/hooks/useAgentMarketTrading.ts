@@ -16,7 +16,8 @@ import aiAgentTradingService, {
   type TradeExecutionResult,
 } from '@/services/aiAgentTradingService';
 import type { AIAgentDisplay } from '@/services/aiAgentService';
-import { formatEther } from 'viem';
+import { formatEther, parseEther } from 'viem';
+import { TRADING_LIMITS } from '@/lib/apiConfig';
 
 // ============================================================================
 // Types
@@ -72,7 +73,8 @@ export interface UseAgentMarketTradingResult {
 // Default Values
 // ============================================================================
 
-const DEFAULT_MAX_AMOUNT = BigInt(100) * BigInt(10 ** 18); // 100 CRwN
+// Use the centralized default trade amount from apiConfig (10 CRwN)
+const DEFAULT_MAX_AMOUNT = parseEther(TRADING_LIMITS.defaultTradeAmount);
 
 // ============================================================================
 // Main Hook
@@ -153,7 +155,10 @@ export function useAgentMarketTrading(marketId: bigint): UseAgentMarketTradingRe
         outcome: pred.isYes ? 'YES' : 'NO',
         confidence: pred.confidence,
         verified: pred.isVerified,
-        valid: validation.valid
+        validationValid: validation.valid,
+        validationReasons: validation.reasons,
+        shouldTrade: recommendation.shouldTrade,
+        recommendationReasons: recommendation.reasons
       });
 
       return result;

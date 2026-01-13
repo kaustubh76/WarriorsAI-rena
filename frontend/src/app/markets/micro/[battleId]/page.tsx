@@ -9,7 +9,7 @@ import { type MicroMarketDisplay } from '@/services/microMarketService';
 
 export default function MicroMarketsPage() {
   const params = useParams();
-  const battleId = params.battleId ? BigInt(params.battleId as string) : null;
+  const battleId = params?.battleId ? BigInt(params.battleId as string) : null;
 
   const { markets, groupedMarkets, loading, error } = useBattleMicroMarkets(battleId);
   const { rounds, currentRoundNumber } = useRoundMarkets(battleId);

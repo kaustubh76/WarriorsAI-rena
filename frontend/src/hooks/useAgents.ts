@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
+import { formatTokenAmount } from '@/utils/format';
 import aiAgentService, {
   type AIAgent,
   type AIAgentDisplay,
@@ -36,15 +37,15 @@ export function useAgents(options?: {
   const filtersKey = useMemo(() => JSON.stringify(options?.filters ?? {}), [options?.filters]);
   const sortKey = useMemo(() => JSON.stringify(options?.sort ?? { field: 'winRate', direction: 'desc' }), [options?.sort]);
 
-  const fetchAgents = useCallback(async () => {
+  const fetchAgents = useCallback(async (skipCache = false) => {
     try {
       setLoading(true);
       const sort = JSON.parse(sortKey) as AgentSortOptions;
 
       // Only fetch iNFT agents from 0G chain (legacy registry agents deprecated)
-      const inftAgents = await fetchINFTAgents();
+      const inftAgents = await fetchINFTAgents(skipCache);
 
-      console.log(`[useAgents] Fetched ${inftAgents.length} iNFT agents`);
+      console.log(`[useAgents] Fetched ${inftAgents.length} iNFT agents (skipCache: ${skipCache})`);
 
       // Sort results
       const sortedAgents = sortAgents(inftAgents, sort);
@@ -66,77 +67,100 @@ export function useAgents(options?: {
     return () => clearInterval(interval);
   }, [fetchAgents]);
 
+  // Create stable refetch functions
+  const refetch = useCallback(() => fetchAgents(false), [fetchAgents]);
+  const refetchWithRefresh = useCallback(() => fetchAgents(true), [fetchAgents]);
+
   return {
     agents,
     loading,
     error,
-    refetch: fetchAgents
+    refetch,
+    refetchWithRefresh // Use this after minting to force blockchain refresh
   };
 }
 
 /**
- * Fetch iNFT agents from 0G chain and convert to AIAgentDisplay format
+ * Fetch iNFT agents from 0G chain via API route
+ * Uses server-side fetching to avoid browser CORS issues with 0G RPC
+ * @param skipCache - If true, forces a refresh from blockchain (useful after minting)
  */
-async function fetchINFTAgents(): Promise<AIAgentDisplay[]> {
+async function fetchINFTAgents(skipCache = false): Promise<AIAgentDisplay[]> {
   try {
-    const isDeployed = agentINFTService.isContractDeployed();
-    const contractAddress = agentINFTService.getContractAddress();
-    console.log(`[fetchINFTAgents] Contract deployed: ${isDeployed}, address: ${contractAddress}`);
+    const url = skipCache ? '/api/agents?refresh=true' : '/api/agents';
+    console.log(`[fetchINFTAgents] Fetching agents via API route... (skipCache: ${skipCache})`);
 
-    if (!isDeployed) {
-      console.log('[fetchINFTAgents] Contract not deployed, returning empty array');
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!data.success) {
+      console.error('[fetchINFTAgents] API error:', data.error);
       return [];
     }
 
-    const infts = await agentINFTService.getAllActiveINFTs();
-    console.log(`[fetchINFTAgents] Got ${infts.length} active iNFTs from service`);
+    console.log(`[fetchINFTAgents] Got ${data.agents.length} active iNFTs from API`);
 
-    // Convert iNFT format to AIAgentDisplay format
-    const displayAgents: AIAgentDisplay[] = await Promise.all(
-      infts.map(async (inft) => {
-        const display = await agentINFTService.toDisplayFormat(inft);
-        const traits = display.metadata?.traits || { patience: 50, conviction: 50, contrarian: 50, momentum: 50 };
+    // Convert API response to AIAgentDisplay format
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const displayAgents: AIAgentDisplay[] = data.agents.map((agent: any) => {
+      const traits = { patience: 50, conviction: 50, contrarian: 50, momentum: 50 };
+      const stakedAmount = BigInt(agent.onChainData.stakedAmount);
+      const totalTrades = BigInt(agent.performance.totalTrades);
+      const winningTrades = BigInt(agent.performance.winningTrades);
+      const totalPnL = BigInt(agent.performance.totalPnL);
 
-        // Map iNFT to AIAgentDisplay structure
-        return {
-          // AIAgent base fields
-          id: inft.tokenId,
-          operator: inft.owner,
-          name: display.metadata?.name || `iNFT Agent #${inft.tokenId}`,
-          description: display.metadata?.description || 'AI Agent iNFT with encrypted strategy',
-          strategy: display.metadata?.strategy?.type ?? 0,
-          riskProfile: display.metadata?.riskProfile ?? 1,
-          specialization: display.metadata?.specialization ?? 4,
-          traits: traits,
-          stakedAmount: inft.onChainData.stakedAmount,
-          tier: inft.onChainData.tier,
-          isActive: inft.onChainData.isActive,
-          copyTradingEnabled: inft.onChainData.copyTradingEnabled,
-          createdAt: inft.onChainData.createdAt,
-          lastTradeAt: inft.onChainData.lastUpdatedAt,
-          // AIAgentDisplay computed fields
-          winRate: display.winRate,
-          pnlFormatted: display.pnlFormatted,
-          stakedFormatted: display.stakedFormatted,
-          tierLabel: display.tierLabel,
-          strategyLabel: display.strategyLabel,
-          riskLabel: display.riskLabel,
-          specializationLabel: display.specializationLabel,
-          isOnline: display.isOnline,
-          totalTrades: inft.performance.totalTrades,
-          isOfficial: false,
-          personaTraits: traits,
-          followerCount: display.followerCount,
-          // iNFT specific
-          isINFT: true,
-          inftTokenId: inft.tokenId,
-        } as AIAgentDisplay;
-      })
-    );
+      // Calculate win rate
+      const winRate = totalTrades > BigInt(0) ? Number((winningTrades * BigInt(100)) / totalTrades) : 0;
+
+      // Format stake
+      const stakedFormatted = `${(Number(stakedAmount) / 1e18).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CRwN`;
+
+      // Format PnL
+      const pnlAmount = Number(totalPnL) / 1e18;
+      const pnlFormatted = `${pnlAmount >= 0 ? '+' : ''}${pnlAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CRwN`;
+
+      // Get tier label
+      const tierLabels = ['Novice', 'Skilled', 'Expert', 'Oracle'];
+      const tierLabel = tierLabels[agent.onChainData.tier] || 'Unknown';
+
+      return {
+        // AIAgent base fields
+        id: BigInt(agent.tokenId),
+        operator: agent.owner,
+        name: `iNFT Agent #${agent.tokenId}`,
+        description: 'AI Agent iNFT with encrypted strategy',
+        strategy: 0, // Default - encrypted in metadata
+        riskProfile: 1, // Default - encrypted in metadata
+        specialization: 4, // Default - encrypted in metadata
+        traits: traits,
+        stakedAmount: stakedAmount,
+        tier: agent.onChainData.tier,
+        isActive: agent.onChainData.isActive,
+        copyTradingEnabled: agent.onChainData.copyTradingEnabled,
+        createdAt: BigInt(agent.onChainData.createdAt),
+        lastTradeAt: BigInt(agent.onChainData.lastUpdatedAt),
+        // AIAgentDisplay computed fields
+        winRate: winRate,
+        pnlFormatted: pnlFormatted,
+        stakedFormatted: stakedFormatted,
+        tierLabel: tierLabel,
+        strategyLabel: 'Encrypted',
+        riskLabel: 'Encrypted',
+        specializationLabel: 'Encrypted',
+        isOnline: true, // Assume online for now
+        totalTrades: totalTrades,
+        isOfficial: false,
+        personaTraits: traits,
+        followerCount: 0,
+        // iNFT specific
+        isINFT: true,
+        inftTokenId: BigInt(agent.tokenId),
+      } as AIAgentDisplay;
+    });
 
     return displayAgents;
   } catch (err) {
-    console.error('Error fetching iNFT agents:', err);
+    console.error('[fetchINFTAgents] Error:', err);
     return [];
   }
 }
@@ -325,7 +349,8 @@ export function useMyAgents() {
 }
 
 /**
- * Hook to get agents the user is following
+ * Hook to get agents (iNFTs) the user is following
+ * Uses 0G Galileo Testnet via API route
  */
 export function useFollowingAgents() {
   const { address } = useAccount();
@@ -334,18 +359,78 @@ export function useFollowingAgents() {
   const [loading, setLoading] = useState(true);
 
   const fetchFollowing = useCallback(async () => {
-    if (!address) return;
+    if (!address) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
-      const followingIds = await aiAgentService.getUserFollowing(address);
+
+      // Fetch following list from 0G chain via API
+      const response = await fetch(`/api/agents/following?address=${address}`);
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error('Error fetching following:', data.error);
+        setAgentIds([]);
+        setAgents([]);
+        return;
+      }
+
+      const followingIds = (data.following || []).map((id: string) => BigInt(id));
       setAgentIds(followingIds);
 
-      const agentPromises = followingIds.map(id => aiAgentService.getAgentWithDisplay(id));
-      const agentResults = await Promise.all(agentPromises);
-      setAgents(agentResults.filter((a): a is AIAgentDisplay => a !== null));
+      // Fetch agent details for each followed agent
+      if (followingIds.length > 0) {
+        const allAgentsResponse = await fetch('/api/agents');
+        const allAgentsData = await allAgentsResponse.json();
+
+        if (allAgentsData.success) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const followedAgents = allAgentsData.agents.filter((agent: any) =>
+            followingIds.some((id: bigint) => id === BigInt(agent.tokenId))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ).map((agent: any) => ({
+            id: BigInt(agent.tokenId),
+            operator: agent.owner,
+            name: `iNFT Agent #${agent.tokenId}`,
+            description: 'AI Agent iNFT with encrypted strategy',
+            strategy: 0,
+            riskProfile: 1,
+            specialization: 4,
+            traits: { patience: 50, conviction: 50, contrarian: 50, momentum: 50 },
+            stakedAmount: BigInt(agent.onChainData.stakedAmount),
+            tier: agent.onChainData.tier,
+            isActive: agent.onChainData.isActive,
+            copyTradingEnabled: agent.onChainData.copyTradingEnabled,
+            createdAt: BigInt(agent.onChainData.createdAt),
+            lastTradeAt: BigInt(agent.onChainData.lastUpdatedAt),
+            winRate: 0,
+            pnlFormatted: '+0.00 CRwN',
+            stakedFormatted: `${(Number(agent.onChainData.stakedAmount) / 1e18).toFixed(2)} CRwN`,
+            tierLabel: ['Novice', 'Skilled', 'Expert', 'Oracle'][agent.onChainData.tier] || 'Unknown',
+            strategyLabel: 'Encrypted',
+            riskLabel: 'Encrypted',
+            specializationLabel: 'Encrypted',
+            isOnline: true,
+            totalTrades: BigInt(agent.performance.totalTrades),
+            isOfficial: false,
+            personaTraits: { patience: 50, conviction: 50, contrarian: 50, momentum: 50 },
+            followerCount: 0,
+            isINFT: true,
+            inftTokenId: BigInt(agent.tokenId),
+          } as AIAgentDisplay));
+
+          setAgents(followedAgents);
+        }
+      } else {
+        setAgents([]);
+      }
     } catch (err) {
       console.error('Error fetching following agents:', err);
+      setAgentIds([]);
+      setAgents([]);
     } finally {
       setLoading(false);
     }
@@ -484,7 +569,7 @@ export function useAgentTokenBalance() {
 
   return {
     balance,
-    balanceFormatted: formatEther(balance),
+    balanceFormatted: formatTokenAmount(balance),
     allowance,
     loading,
     refetch: fetchBalanceAndAllowance
@@ -538,5 +623,62 @@ export function useMinStakeRequirements() {
       3: formatEther(requirements[3])
     },
     loading
+  };
+}
+
+/**
+ * Hook to fetch CRwN balance on 0G chain for iNFT staking
+ * This is separate from Flow CRwN balance used for trading
+ *
+ * Architecture:
+ * - 0G Galileo (16602): iNFT minting, AI compute, storage - uses 0G CRwN
+ * - Flow Testnet (545): Prediction markets, trading - uses Flow CRwN
+ */
+export function useZeroGTokenBalance() {
+  const { address } = useAccount();
+  const [balance, setBalance] = useState<bigint>(BigInt(0));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchBalance = useCallback(async () => {
+    if (!address) {
+      setBalance(BigInt(0));
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch 0G CRwN balance via API to avoid CORS issues
+      const response = await fetch(`/api/0g/balance?address=${address}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setBalance(BigInt(data.balance));
+      } else {
+        setError(data.error || 'Failed to fetch 0G balance');
+        setBalance(BigInt(0));
+      }
+    } catch (err) {
+      console.error('Error fetching 0G CRwN balance:', err);
+      setError('Failed to fetch 0G balance');
+      setBalance(BigInt(0));
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    fetchBalance();
+  }, [fetchBalance]);
+
+  return {
+    balance,
+    balanceFormatted: formatTokenAmount(balance),
+    loading,
+    error,
+    refetch: fetchBalance
   };
 }

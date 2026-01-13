@@ -359,7 +359,7 @@ class AIAgentService {
       ...agent,
       winRate,
       pnlFormatted: this.formatPnL(pnl),
-      stakedFormatted: `${formatEther(agent.stakedAmount)} CRwN`,
+      stakedFormatted: `${parseFloat(formatEther(agent.stakedAmount)).toFixed(2)} CRwN`,
       tierLabel: getTierLabel(agent.tier),
       strategyLabel: getStrategyLabel(agent.strategy),
       riskLabel: getRiskLabel(agent.riskProfile),
@@ -451,7 +451,7 @@ class AIAgentService {
           ...agent,
           winRate,
           pnlFormatted: this.formatPnL(pnl),
-          stakedFormatted: `${formatEther(agent.stakedAmount)} CRwN`,
+          stakedFormatted: `${parseFloat(formatEther(agent.stakedAmount)).toFixed(2)} CRwN`,
           tierLabel: getTierLabel(agent.tier),
           strategyLabel: getStrategyLabel(agent.strategy),
           riskLabel: getRiskLabel(agent.riskProfile),
@@ -508,7 +508,7 @@ class AIAgentService {
    * Format stake amount
    */
   formatStake(amount: bigint): string {
-    return `${formatEther(amount)} CRwN`;
+    return `${parseFloat(formatEther(amount)).toFixed(2)} CRwN`;
   }
 
   /**

@@ -8,7 +8,7 @@ import { DebatePanel, ConsensusIndicator } from '@/components/debate';
 
 export default function DebatePage() {
   const params = useParams();
-  const debateId = params.id ? BigInt(params.id as string) : null;
+  const debateId = params?.id ? BigInt(params.id as string) : null;
 
   // For now, using debateId as marketId and battleId (these would come from context in real app)
   const marketId = debateId;

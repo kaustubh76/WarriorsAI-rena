@@ -6,6 +6,7 @@ import { useAccount } from 'wagmi';
 import { useLiquidity, usePosition, useTokenBalance, clearMarketCache } from '@/hooks/useMarkets';
 import { type Market, MarketStatus } from '@/services/predictionMarketService';
 import { formatTokenAmount } from '@/utils/format';
+import { useGamificationContext } from '@/contexts/GamificationContext';
 
 interface LiquidityPanelProps {
   market: Market;
@@ -21,6 +22,14 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
 
   const [mode, setMode] = useState<LiquidityMode>('add');
   const [amount, setAmount] = useState('');
+
+  // Gamification context - safely access
+  let gamification: ReturnType<typeof useGamificationContext> | null = null;
+  try {
+    gamification = useGamificationContext();
+  } catch {
+    // Context not available
+  }
 
   const {
     addLiquidity,
@@ -45,11 +54,17 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
       // Refetch local data
       refetchBalance();
       refetchPosition();
+
+      // Gamification: Track liquidity added
+      if (gamification && mode === 'add') {
+        gamification.handleAddLiquidity();
+      }
+
       setAmount('');
       // Trigger parent refresh for all market data
       onComplete?.();
     }
-  }, [isSuccess, refetchBalance, refetchPosition, onComplete]);
+  }, [isSuccess, refetchBalance, refetchPosition, onComplete, gamification, mode]);
 
   const handleAmountChange = (value: string) => {
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
@@ -61,7 +76,7 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
     if (mode === 'add') {
       setAmount(balanceFormatted);
     } else if (position) {
-      setAmount(formatEther(position.lpShares));
+      setAmount(formatTokenAmount(position.lpShares));
     }
   };
 
@@ -87,7 +102,7 @@ export function LiquidityPanel({ market, onComplete }: LiquidityPanelProps) {
 
   // Calculate estimated LP tokens / shares
   const estimatedLpTokens = amount && parseFloat(amount) > 0
-    ? (parseFloat(amount) / parseFloat(formatEther(market.liquidity || BigInt(1)))) * 100
+    ? (parseFloat(amount) / parseFloat(formatTokenAmount(market.liquidity || BigInt(1)))) * 100
     : 0;
 
   return (
