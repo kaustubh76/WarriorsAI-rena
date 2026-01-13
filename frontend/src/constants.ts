@@ -21,10 +21,35 @@ export const getChainId = (): SupportedChainId => {
 };
 
 /**
+ * Flow RPC URLs - primary and fallback for reliability
+ */
+export const FLOW_RPC_URLS = {
+  testnet: {
+    primary: 'https://testnet.evm.nodes.onflow.org',
+    fallback: 'https://flow-testnet.gateway.tatum.io',
+  },
+  mainnet: {
+    primary: 'https://mainnet.evm.nodes.onflow.org',
+    fallback: 'https://flow-mainnet.gateway.tatum.io',
+  },
+};
+
+/**
  * Get Flow RPC URL from environment or default to testnet
  */
 export const getFlowRpcUrl = (): string => {
-  return process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org';
+  return process.env.NEXT_PUBLIC_FLOW_RPC_URL || FLOW_RPC_URLS.testnet.primary;
+};
+
+/**
+ * Get Flow fallback RPC URL for when primary times out
+ */
+export const getFlowFallbackRpcUrl = (): string => {
+  const chainId = getChainId();
+  if (chainId === 747) {
+    return process.env.NEXT_PUBLIC_FLOW_FALLBACK_RPC_URL || FLOW_RPC_URLS.mainnet.fallback;
+  }
+  return process.env.NEXT_PUBLIC_FLOW_FALLBACK_RPC_URL || FLOW_RPC_URLS.testnet.fallback;
 };
 
 /**

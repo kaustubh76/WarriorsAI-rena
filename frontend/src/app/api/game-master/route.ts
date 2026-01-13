@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createWalletClient, http, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowTestnet } from 'viem/chains';
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  createFlowWalletClient,
+  executeWithFlowFallback,
+  RPC_TIMEOUT
+} from '@/lib/flowClient';
 
 // Import the contract ABI and helpers
 import { ArenaAbi, getApiBaseUrl } from '../../../constants';
@@ -82,8 +88,9 @@ async function getWarriorBattleData(
 // Lazy initialization of clients - only created when needed at runtime
 // This prevents build-time errors when env vars are not set
 let _gameMasterAccount: ReturnType<typeof privateKeyToAccount> | null = null;
-let _walletClient: ReturnType<typeof createWalletClient> | null = null;
-let _publicClient: ReturnType<typeof createPublicClient> | null = null;
+let _walletClient: ReturnType<typeof createFlowWalletClient> | null = null;
+let _publicClient: ReturnType<typeof createFlowPublicClient> | null = null;
+let _fallbackClient: ReturnType<typeof createFlowFallbackClient> | null = null;
 
 function getGameMasterAccount() {
   if (!_gameMasterAccount) {
@@ -99,23 +106,47 @@ function getGameMasterAccount() {
 
 function getWalletClient() {
   if (!_walletClient) {
-    _walletClient = createWalletClient({
-      account: getGameMasterAccount(),
-      chain: flowTestnet,
-      transport: http()
-    });
+    _walletClient = createFlowWalletClient(getGameMasterAccount());
   }
   return _walletClient;
 }
 
 function getPublicClient() {
   if (!_publicClient) {
-    _publicClient = createPublicClient({
-      chain: flowTestnet,
-      transport: http()
-    });
+    _publicClient = createFlowPublicClient();
   }
   return _publicClient;
+}
+
+function getFallbackClient() {
+  if (!_fallbackClient) {
+    _fallbackClient = createFlowFallbackClient();
+  }
+  return _fallbackClient;
+}
+
+// Helper to check if error is timeout
+function isTimeoutError(error: unknown): boolean {
+  const errMsg = (error as Error).message || '';
+  return errMsg.includes('timeout') ||
+         errMsg.includes('timed out') ||
+         errMsg.includes('took too long') ||
+         errMsg.includes('TimeoutError');
+}
+
+// Wait for receipt with fallback
+async function waitForReceiptWithFallback(hash: `0x${string}`) {
+  const primaryClient = getPublicClient();
+  const fallbackClient = getFallbackClient();
+  try {
+    return await primaryClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      console.warn('[Game Master] Primary RPC timed out waiting for receipt, trying fallback...');
+      return await fallbackClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+    }
+    throw error;
+  }
 }
 
 interface ArenaState {
@@ -144,51 +175,51 @@ async function getArenaState(arenaAddress: string): Promise<ArenaState | null> {
       playerOneBetAddresses,
       playerTwoBetAddresses
     ] = await Promise.all([
-      getPublicClient().readContract({
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getInitializationStatus',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getCurrentRound',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getIsBettingPeriodGoingOn',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getGameInitializedAt',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getLastRoundEndedAt',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getMinYodhaBettingPeriod',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getMinBattleRoundsInterval',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getPlayerOneBetAddresses',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getPlayerTwoBetAddresses',
-      })
+      }))
     ]);
 
     return {
@@ -223,11 +254,8 @@ async function startGame(arenaAddress: string): Promise<boolean> {
     console.log(`Game Master: Start game transaction sent: ${hash}`);
 
     // Wait for transaction confirmation
-    const receipt = await getPublicClient().waitForTransactionReceipt({
-      hash,
-      timeout: 60000 // 60 second timeout
-    });
-    
+    const receipt = await waitForReceiptWithFallback(hash);
+
     console.log(`Game Master: Game started successfully for arena ${arenaAddress}`);
     return receipt.status === 'success';
   } catch (error) {
@@ -240,31 +268,31 @@ async function generateAIMoves(arenaAddress: string): Promise<{ agent_1: { move:
   try {
     // Get current battle data from contract
     const [currentRound, damageOnYodhaOne, damageOnYodhaTwo, warriorsOneNFTId, warriorsTwoNFTId] = await Promise.all([
-      getPublicClient().readContract({
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getCurrentRound',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getDamageOnYodhaOne',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getDamageOnYodhaTwo',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getYodhaOneNFTId',
-      }),
-      getPublicClient().readContract({
+      })),
+      executeWithFlowFallback((client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getYodhaTwoNFTId',
-      })
+      }))
     ]);
 
     // Fetch actual NFT metadata for both warriors in parallel
@@ -430,11 +458,8 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
     console.log(`Game Master: Battle transaction sent: ${hash}`);
 
     // Wait for transaction confirmation
-    const receipt = await getPublicClient().waitForTransactionReceipt({
-      hash,
-      timeout: 60000 // 60 second timeout
-    });
-    
+    const receipt = await waitForReceiptWithFallback(hash);
+
     console.log(`Game Master: Next round executed successfully for arena ${arenaAddress}`);
     return receipt.status === 'success';
   } catch (error) {

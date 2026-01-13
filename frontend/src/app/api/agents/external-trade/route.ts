@@ -20,8 +20,11 @@ import {
   keccak256,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl } from '@/constants';
+import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+
+// RPC timeout configuration
+const RPC_TIMEOUT = 60000;
 
 // ============================================
 // CHAIN DEFINITIONS
@@ -140,13 +143,42 @@ function getOracleAccount() {
 
 const zeroGPublicClient = createPublicClient({
   chain: ZEROG_CHAIN,
-  transport: http(),
+  transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
 });
 
 const flowPublicClient = createPublicClient({
   chain: FLOW_CHAIN,
-  transport: http(),
+  transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
 });
+
+const flowFallbackClient = createPublicClient({
+  chain: FLOW_CHAIN,
+  transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
+});
+
+// Helper to check if error is timeout
+function isTimeoutError(error: unknown): boolean {
+  const errMsg = (error as Error).message || '';
+  return errMsg.includes('timeout') ||
+         errMsg.includes('timed out') ||
+         errMsg.includes('took too long') ||
+         errMsg.includes('TimeoutError');
+}
+
+// Execute Flow operation with fallback
+async function executeFlowWithFallback<T>(
+  operation: (client: typeof flowPublicClient) => Promise<T>
+): Promise<T> {
+  try {
+    return await operation(flowPublicClient);
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      console.warn('[External Trade] Flow primary RPC timed out, trying fallback...');
+      return await operation(flowFallbackClient);
+    }
+    throw error;
+  }
+}
 
 // ============================================
 // ROUTE HANDLER

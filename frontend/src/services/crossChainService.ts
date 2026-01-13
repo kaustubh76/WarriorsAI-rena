@@ -9,8 +9,11 @@
 
 import { createPublicClient, createWalletClient, http, parseEther, formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl } from '@/constants';
+import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+
+// RPC timeout configuration
+const RPC_TIMEOUT = 60000;
 
 // ============================================
 // CHAIN DEFINITIONS
@@ -133,13 +136,42 @@ const externalMarketMirrorAbi = [
 class CrossChainService {
   private zeroGClient = createPublicClient({
     chain: ZEROG_CHAIN,
-    transport: http(),
+    transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
   });
 
   private flowClient = createPublicClient({
     chain: FLOW_CHAIN,
-    transport: http(),
+    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
   });
+
+  private flowFallbackClient = createPublicClient({
+    chain: FLOW_CHAIN,
+    transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
+  });
+
+  // Helper to check if error is timeout
+  private isTimeoutError(error: unknown): boolean {
+    const errMsg = (error as Error).message || '';
+    return errMsg.includes('timeout') ||
+           errMsg.includes('timed out') ||
+           errMsg.includes('took too long') ||
+           errMsg.includes('TimeoutError');
+  }
+
+  // Execute Flow operation with fallback
+  private async executeFlowWithFallback<T>(
+    operation: (client: typeof this.flowClient) => Promise<T>
+  ): Promise<T> {
+    try {
+      return await operation(this.flowClient);
+    } catch (error) {
+      if (this.isTimeoutError(error)) {
+        console.warn('[CrossChain] Flow primary RPC timed out, trying fallback...');
+        return await operation(this.flowFallbackClient);
+      }
+      throw error;
+    }
+  }
 
   private get aiAgentINFTAddress(): `0x${string}` {
     const contracts = chainsToContracts[getZeroGChainId()];

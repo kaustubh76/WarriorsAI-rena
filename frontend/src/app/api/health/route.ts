@@ -9,6 +9,10 @@ import { NextResponse } from 'next/server';
 import { createPublicClient, http, defineChain } from 'viem';
 import { flowTestnet } from 'viem/chains';
 import { agentINFTService } from '@/services/agentINFTService';
+import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+
+// RPC timeout configuration
+const RPC_TIMEOUT = 60000;
 
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
@@ -64,14 +68,14 @@ async function checkZeroGChain(): Promise<ServiceStatus> {
 }
 
 /**
- * Check Flow Testnet chain connectivity
+ * Check Flow Testnet chain connectivity with fallback
  */
 async function checkFlowChain(): Promise<ServiceStatus> {
   const start = Date.now();
   try {
     const publicClient = createPublicClient({
       chain: flowTestnet,
-      transport: http(),
+      transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT }),
     });
 
     const blockNumber = await publicClient.getBlockNumber();
@@ -84,6 +88,30 @@ async function checkFlowChain(): Promise<ServiceStatus> {
       blockNumber: blockNumber.toString(),
     };
   } catch (error) {
+    // Try fallback RPC if primary times out
+    const errMsg = (error as Error).message || '';
+    if (errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('took too long')) {
+      console.warn('[Health Check] Flow primary RPC timed out, trying fallback...');
+      try {
+        const fallbackClient = createPublicClient({
+          chain: flowTestnet,
+          transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT }),
+        });
+        const blockNumber = await fallbackClient.getBlockNumber();
+        const latency = Date.now() - start;
+        return {
+          status: 'up',
+          latency,
+          chainId: flowTestnet.id,
+          blockNumber: blockNumber.toString(),
+        };
+      } catch (fallbackError) {
+        return {
+          status: 'down',
+          error: `Primary and fallback failed: ${(error as Error).message}`,
+        };
+      }
+    }
     return {
       status: 'down',
       error: error instanceof Error ? error.message : 'Unknown error',

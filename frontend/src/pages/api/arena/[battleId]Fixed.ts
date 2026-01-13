@@ -3,7 +3,10 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { createWalletClient, http, createPublicClient, keccak256, encodePacked } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defineChain } from 'viem';
-import { ArenaAbi, chainsToContracts } from '../../../constants';
+import { ArenaAbi, chainsToContracts, getFlowRpcUrl, getFlowFallbackRpcUrl } from '../../../constants';
+
+// RPC timeout configuration
+const RPC_TIMEOUT = 60000;
 
 // Define Flow EVM chains
 const flowTestnet = defineChain({
@@ -36,29 +39,45 @@ const lastTransactionHashes = new Map<string, string>();
 // Initialize viem clients for blockchain interaction
 let walletClient: any = null;
 let publicClient: any = null;
+let fallbackClient: any = null;
+
+// Helper to check if error is timeout
+function isTimeoutError(error: unknown): boolean {
+  const errMsg = (error as Error).message || '';
+  return errMsg.includes('timeout') ||
+         errMsg.includes('timed out') ||
+         errMsg.includes('took too long') ||
+         errMsg.includes('TimeoutError');
+}
 
 // Initialize blockchain clients
 function initializeClients() {
-  if (walletClient && publicClient) return { walletClient, publicClient };
+  if (walletClient && publicClient && fallbackClient) return { walletClient, publicClient, fallbackClient };
 
   try {
     // Use Flow testnet
     const chain = flowTestnet;
-    const rpcUrl = process.env.FLOW_TESTNET_RPC || 'https://testnet.evm.nodes.onflow.org';
+    const rpcUrl = getFlowRpcUrl();
+    const fallbackRpcUrl = getFlowFallbackRpcUrl();
 
     publicClient = createPublicClient({
       chain,
-      transport: http(rpcUrl)
+      transport: http(rpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
+    });
+
+    fallbackClient = createPublicClient({
+      chain,
+      transport: http(fallbackRpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
     });
 
     const gameMasterPrivateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY;
     if (!gameMasterPrivateKey) {
       console.warn('Game master private key not found - automation will be simulation only');
-      return { walletClient: null, publicClient };
+      return { walletClient: null, publicClient, fallbackClient };
     }
 
     const gameMasterAccount = privateKeyToAccount(
-      gameMasterPrivateKey.startsWith('0x') 
+      gameMasterPrivateKey.startsWith('0x')
         ? gameMasterPrivateKey as `0x${string}`
         : `0x${gameMasterPrivateKey}` as `0x${string}`
     );
@@ -66,14 +85,14 @@ function initializeClients() {
     walletClient = createWalletClient({
       account: gameMasterAccount,
       chain,
-      transport: http(rpcUrl)
+      transport: http(rpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
     });
 
     console.log('✅ Blockchain clients initialized successfully for Flow');
-    return { walletClient, publicClient };
+    return { walletClient, publicClient, fallbackClient };
   } catch (error) {
     console.error('❌ Failed to initialize blockchain clients:', error);
-    return { walletClient: null, publicClient: null };
+    return { walletClient: null, publicClient: null, fallbackClient: null };
   }
 }
 
@@ -115,12 +134,26 @@ async function executeStartGame(battleId: string) {
     
     console.log(`✅ Start game transaction sent: ${hash}`);
     console.log(`⏳ Waiting for transaction confirmation...`);
-    
-    const receipt = await publicClient.waitForTransactionReceipt({
-      hash: hash as `0x${string}`,
-      timeout: 60000
-    });
-    
+
+    // Wait for receipt with fallback
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({
+        hash: hash as `0x${string}`,
+        timeout: RPC_TIMEOUT
+      });
+    } catch (waitError) {
+      if (isTimeoutError(waitError) && fallbackClient) {
+        console.warn('[Arena] Primary RPC timed out waiting for receipt, trying fallback...');
+        receipt = await fallbackClient.waitForTransactionReceipt({
+          hash: hash as `0x${string}`,
+          timeout: RPC_TIMEOUT
+        });
+      } else {
+        throw waitError;
+      }
+    }
+
     // Store the transaction hash for verification
     lastTransactionHashes.set(battleId, hash as string);
     
@@ -137,42 +170,56 @@ async function executeStartGame(battleId: string) {
 async function executeBattle(battleId: string, move1: number, move2: number) {
   console.log(`⚔️ Executing battle() on contract ${battleId} with moves: ${move1} vs ${move2}`);
   
-  const { walletClient, publicClient } = initializeClients();
+  const { walletClient, publicClient, fallbackClient } = initializeClients();
   if (!walletClient || !publicClient) {
     return { success: false, error: 'No wallet or public client available' };
   }
 
   try {
     const contractAddress = battleId;
-    
+
     // Create signature for the battle moves
     const encodedMoves = encodePacked(['uint8', 'uint8'], [move1, move2]);
     const dataHash = keccak256(encodedMoves);
     const ethSignedMessageHash = keccak256(
       encodePacked(['string', 'bytes32'], ['\x19Ethereum Signed Message:\n32', dataHash])
     );
-    
+
     const signature = await walletClient.signMessage({
       message: { raw: ethSignedMessageHash }
     });
-    
+
     console.log(`✍️ Generated signature for moves ${move1}, ${move2}`);
-    
+
     const hash = await walletClient.writeContract({
       address: contractAddress as `0x${string}`,
       abi: ArenaAbi,
       functionName: 'battle',
       args: [move1, move2, signature]
     });
-    
+
     console.log(`✅ Battle transaction sent: ${hash}`);
     console.log(`⏳ Waiting for transaction confirmation...`);
-    
-    const receipt = await publicClient.waitForTransactionReceipt({
-      hash: hash as `0x${string}`,
-      timeout: 60000
-    });
-    
+
+    // Wait for receipt with fallback
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({
+        hash: hash as `0x${string}`,
+        timeout: RPC_TIMEOUT
+      });
+    } catch (waitError) {
+      if (isTimeoutError(waitError) && fallbackClient) {
+        console.warn('[Arena] Primary RPC timed out waiting for receipt, trying fallback...');
+        receipt = await fallbackClient.waitForTransactionReceipt({
+          hash: hash as `0x${string}`,
+          timeout: RPC_TIMEOUT
+        });
+      } else {
+        throw waitError;
+      }
+    }
+
     // Store the transaction hash for verification
     lastTransactionHashes.set(battleId, hash as string);
     

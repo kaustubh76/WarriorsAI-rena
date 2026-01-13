@@ -5,17 +5,50 @@
 
 import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Address, type WalletClient } from 'viem';
 import { flowTestnet } from 'viem/chains';
-import { chainsToContracts, crownTokenAbi, CreatorRevenueShareAbi, MicroMarketFactoryAbi } from '../constants';
+import { chainsToContracts, crownTokenAbi, CreatorRevenueShareAbi, MicroMarketFactoryAbi, getFlowRpcUrl, getFlowFallbackRpcUrl } from '../constants';
 
 // Flow Testnet configuration
 const FLOW_CHAIN_ID = 545;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
 
-// Public client for read operations
+// RPC timeout - increased to handle slow endpoints
+const RPC_TIMEOUT = 60000;
+
+// Public client for read operations with fallback support
 const publicClient = createPublicClient({
   chain: flowTestnet,
-  transport: http('https://testnet.evm.nodes.onflow.org'),
+  transport: http(getFlowRpcUrl(), {
+    timeout: RPC_TIMEOUT,
+    retryCount: 2,
+    retryDelay: 1000,
+  }),
 });
+
+// Fallback client for when primary times out
+const fallbackClient = createPublicClient({
+  chain: flowTestnet,
+  transport: http(getFlowFallbackRpcUrl(), {
+    timeout: RPC_TIMEOUT,
+    retryCount: 2,
+    retryDelay: 1000,
+  }),
+});
+
+// Helper to execute with fallback
+async function executeWithFallback<T>(
+  operation: (client: typeof publicClient) => Promise<T>
+): Promise<T> {
+  try {
+    return await operation(publicClient);
+  } catch (error) {
+    const errMsg = (error as Error).message || '';
+    if (errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('took too long')) {
+      console.warn('[MarketCreation] Primary RPC timed out, trying fallback...');
+      return await operation(fallbackClient);
+    }
+    throw error;
+  }
+}
 
 // Market creation parameters
 export interface CreateMarketParams {
@@ -51,12 +84,14 @@ class MarketCreationService {
     const requiredAmount = parseEther(amount);
 
     try {
-      const allowance = await publicClient.readContract({
-        address: contracts.crownToken as Address,
-        abi: crownTokenAbi,
-        functionName: 'allowance',
-        args: [userAddress, contracts.microMarketFactory as Address],
-      });
+      const allowance = await executeWithFallback((client) =>
+        client.readContract({
+          address: contracts.crownToken as Address,
+          abi: crownTokenAbi,
+          functionName: 'allowance',
+          args: [userAddress, contracts.microMarketFactory as Address],
+        })
+      );
 
       return {
         hasApproval: (allowance as bigint) >= requiredAmount,
@@ -78,12 +113,14 @@ class MarketCreationService {
    */
   async checkBalance(userAddress: Address): Promise<bigint> {
     try {
-      const balance = await publicClient.readContract({
-        address: contracts.crownToken as Address,
-        abi: crownTokenAbi,
-        functionName: 'balanceOf',
-        args: [userAddress],
-      });
+      const balance = await executeWithFallback((client) =>
+        client.readContract({
+          address: contracts.crownToken as Address,
+          abi: crownTokenAbi,
+          functionName: 'balanceOf',
+          args: [userAddress],
+        })
+      );
       return balance as bigint;
     } catch (error) {
       console.error('[MarketCreation] Check balance error:', error);
@@ -115,7 +152,9 @@ class MarketCreationService {
     });
 
     // Wait for transaction confirmation
-    await publicClient.waitForTransactionReceipt({ hash });
+    await executeWithFallback((client) =>
+      client.waitForTransactionReceipt({ hash })
+    );
 
     return hash;
   }
@@ -148,12 +187,14 @@ class MarketCreationService {
 
       // Register creator in CreatorRevenueShare if not already registered
       try {
-        const creatorData = await publicClient.readContract({
-          address: contracts.creatorRevenueShare as Address,
-          abi: CreatorRevenueShareAbi,
-          functionName: 'getCreator',
-          args: [params.creatorAddress],
-        });
+        const creatorData = await executeWithFallback((client) =>
+          client.readContract({
+            address: contracts.creatorRevenueShare as Address,
+            abi: CreatorRevenueShareAbi,
+            functionName: 'getCreator',
+            args: [params.creatorAddress],
+          })
+        );
 
         // Check if creator is already registered (registeredAt > 0)
         const creator = creatorData as { registeredAt: bigint };
@@ -167,7 +208,9 @@ class MarketCreationService {
             account: walletClient.account,
             chain: flowTestnet,
           });
-          await publicClient.waitForTransactionReceipt({ hash: registerHash });
+          await executeWithFallback((client) =>
+            client.waitForTransactionReceipt({ hash: registerHash })
+          );
         }
       } catch (error) {
         // Creator might already be registered, continue
@@ -212,7 +255,9 @@ class MarketCreationService {
           chain: flowTestnet,
         });
 
-        await publicClient.waitForTransactionReceipt({ hash: setCreatorHash });
+        await executeWithFallback((client) =>
+          client.waitForTransactionReceipt({ hash: setCreatorHash })
+        );
 
         // Update database with on-chain reference
         await fetch('/api/markets/user-create', {
@@ -254,11 +299,13 @@ class MarketCreationService {
    */
   async getMinimumLiquidity(): Promise<string> {
     try {
-      const minLiquidity = await publicClient.readContract({
-        address: contracts.microMarketFactory as Address,
-        abi: MicroMarketFactoryAbi,
-        functionName: 'MIN_LIQUIDITY',
-      });
+      const minLiquidity = await executeWithFallback((client) =>
+        client.readContract({
+          address: contracts.microMarketFactory as Address,
+          abi: MicroMarketFactoryAbi,
+          functionName: 'MIN_LIQUIDITY',
+        })
+      );
       return formatEther(minLiquidity as bigint);
     } catch (error) {
       // Default to 100 CRwN if contract call fails

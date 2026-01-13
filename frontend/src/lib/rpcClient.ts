@@ -18,15 +18,16 @@ import {
   type ReadContractReturnType,
 } from 'viem';
 import { flowTestnet } from 'viem/chains';
-import { getChainId, getFlowRpcUrl } from '@/constants';
+import { getChainId, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 const CONFIG = {
-  // RPC Configuration - Using environment-driven URLs
+  // RPC Configuration - Using environment-driven URLs with fallback
   RPC_URL: getFlowRpcUrl(),
+  FALLBACK_RPC_URL: getFlowFallbackRpcUrl(),
   CHAIN_ID: getChainId(),
 
   // Rate Limiting - Keep well under 40 req/sec limit
@@ -38,6 +39,9 @@ const CONFIG = {
   INITIAL_RETRY_DELAY_MS: 1000,
   MAX_RETRY_DELAY_MS: 30000,
   BACKOFF_MULTIPLIER: 2,
+
+  // Timeout Configuration - Increased for slow RPC endpoints
+  REQUEST_TIMEOUT_MS: 60000, // 60 seconds (up from 30s default)
 
   // Cache Configuration
   DEFAULT_CACHE_TTL_MS: 10000, // 10 seconds default
@@ -315,13 +319,17 @@ class SharedRPCClient {
   private static instance: SharedRPCClient | null = null;
 
   private publicClient: PublicClient;
+  private fallbackClient: PublicClient;
   private cache: RequestCache;
   private rateLimiter: RateLimiter;
   private requestQueue: RequestQueue;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private useFallback: boolean = false;
+  private consecutiveFailures: number = 0;
+  private readonly FAILURE_THRESHOLD = 3;
 
   private constructor() {
-    // Create viem public client with basic retry config
+    // Create viem public client with increased timeout
     this.publicClient = createPublicClient({
       chain: flowTestnet,
       transport: http(CONFIG.RPC_URL, {
@@ -330,7 +338,20 @@ class SharedRPCClient {
           wait: CONFIG.BATCH_WAIT_MS,
         },
         retryCount: 0, // We handle retries ourselves
-        timeout: 30000,
+        timeout: CONFIG.REQUEST_TIMEOUT_MS,
+      }),
+    });
+
+    // Create fallback client for when primary times out
+    this.fallbackClient = createPublicClient({
+      chain: flowTestnet,
+      transport: http(CONFIG.FALLBACK_RPC_URL, {
+        batch: {
+          batchSize: CONFIG.BATCH_SIZE,
+          wait: CONFIG.BATCH_WAIT_MS,
+        },
+        retryCount: 0,
+        timeout: CONFIG.REQUEST_TIMEOUT_MS,
       }),
     });
 
@@ -342,6 +363,41 @@ class SharedRPCClient {
     this.cleanupInterval = setInterval(() => {
       this.cache.cleanup();
     }, 60000); // Cleanup every minute
+
+    console.log(`[RPC] Initialized with primary: ${CONFIG.RPC_URL}`);
+    console.log(`[RPC] Fallback available: ${CONFIG.FALLBACK_RPC_URL}`);
+  }
+
+  private getActiveClient(): PublicClient {
+    return this.useFallback ? this.fallbackClient : this.publicClient;
+  }
+
+  private handleRequestSuccess(): void {
+    this.consecutiveFailures = 0;
+    // Try switching back to primary after some successful requests on fallback
+    if (this.useFallback) {
+      console.log('[RPC] Request succeeded on fallback, will try primary on next batch');
+    }
+  }
+
+  private handleRequestFailure(error: Error): void {
+    this.consecutiveFailures++;
+    const isTimeoutError = error.message?.includes('timeout') ||
+                          error.message?.includes('timed out') ||
+                          error.message?.includes('took too long');
+
+    if (isTimeoutError && this.consecutiveFailures >= this.FAILURE_THRESHOLD && !this.useFallback) {
+      console.warn(`[RPC] Primary endpoint failing (${this.consecutiveFailures} failures), switching to fallback`);
+      this.useFallback = true;
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  // Reset to primary endpoint (can be called to retry primary)
+  resetToFallback(): void {
+    this.useFallback = false;
+    this.consecutiveFailures = 0;
+    console.log('[RPC] Reset to primary endpoint');
   }
 
   static getInstance(): SharedRPCClient {
@@ -382,10 +438,24 @@ class SharedRPCClient {
       }
     }
 
-    // Execute through queue with rate limiting
+    // Execute through queue with rate limiting and fallback support
     const result = await this.requestQueue.enqueue(
       async () => {
-        return this.publicClient.readContract(params) as Promise<ReadContractReturnType<TAbi, TFunctionName>>;
+        try {
+          const client = this.getActiveClient();
+          const res = await client.readContract(params) as ReadContractReturnType<TAbi, TFunctionName>;
+          this.handleRequestSuccess();
+          return res;
+        } catch (error) {
+          this.handleRequestFailure(error as Error);
+          // If we just switched to fallback, retry immediately with fallback
+          if (this.useFallback) {
+            const fallbackRes = await this.fallbackClient.readContract(params) as ReadContractReturnType<TAbi, TFunctionName>;
+            this.handleRequestSuccess();
+            return fallbackRes;
+          }
+          throw error;
+        }
       },
       priority
     );
@@ -441,7 +511,22 @@ class SharedRPCClient {
         const batchResults = await Promise.all(
           batch.map(({ params }) =>
             this.requestQueue.enqueue(
-              async () => this.publicClient.readContract(params),
+              async () => {
+                try {
+                  const client = this.getActiveClient();
+                  const res = await client.readContract(params);
+                  this.handleRequestSuccess();
+                  return res;
+                } catch (error) {
+                  this.handleRequestFailure(error as Error);
+                  if (this.useFallback) {
+                    const fallbackRes = await this.fallbackClient.readContract(params);
+                    this.handleRequestSuccess();
+                    return fallbackRes;
+                  }
+                  throw error;
+                }
+              },
               priority
             )
           )
@@ -467,7 +552,36 @@ class SharedRPCClient {
    * Use sparingly - prefer readContract for most reads
    */
   getPublicClient(): PublicClient {
-    return this.publicClient;
+    return this.getActiveClient();
+  }
+
+  /**
+   * Check if currently using fallback RPC
+   */
+  isUsingFallback(): boolean {
+    return this.useFallback;
+  }
+
+  /**
+   * Force switch to fallback RPC (useful when primary is known to be down)
+   */
+  switchToFallback(): void {
+    if (!this.useFallback) {
+      console.log('[RPC] Manually switching to fallback endpoint');
+      this.useFallback = true;
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  /**
+   * Force switch back to primary RPC
+   */
+  switchToPrimary(): void {
+    if (this.useFallback) {
+      console.log('[RPC] Manually switching to primary endpoint');
+      this.useFallback = false;
+      this.consecutiveFailures = 0;
+    }
   }
 
   /**
@@ -493,11 +607,15 @@ class SharedRPCClient {
     cacheSize: number;
     queueLength: number;
     availableTokens: number;
+    usingFallback: boolean;
+    consecutiveFailures: number;
   } {
     return {
       cacheSize: this.cache.size(),
       queueLength: this.requestQueue.getQueueLength(),
       availableTokens: this.rateLimiter.getAvailableTokens(),
+      usingFallback: this.useFallback,
+      consecutiveFailures: this.consecutiveFailures,
     };
   }
 

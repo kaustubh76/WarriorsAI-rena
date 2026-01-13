@@ -7,6 +7,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, createWalletClient, http, type Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowTestnet } from 'viem/chains';
+import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+
+// RPC timeout configuration
+const RPC_TIMEOUT = 60000;
 
 // Resolution outcome type
 type ResolutionOutcome = 'yes' | 'no' | 'draw';
@@ -205,13 +209,27 @@ async function submitToContract(
   const walletClient = createWalletClient({
     account,
     chain: flowTestnet,
-    transport: http()
+    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
   });
 
   const publicClient = createPublicClient({
     chain: flowTestnet,
-    transport: http()
+    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
   });
+
+  const fallbackPublicClient = createPublicClient({
+    chain: flowTestnet,
+    transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
+  });
+
+  // Helper to check if error is timeout
+  const isTimeoutError = (error: unknown): boolean => {
+    const errMsg = (error as Error).message || '';
+    return errMsg.includes('timeout') ||
+           errMsg.includes('timed out') ||
+           errMsg.includes('took too long') ||
+           errMsg.includes('TimeoutError');
+  };
 
   // Oracle contract address - update after deployment
   const oracleAddress = process.env.ZERO_G_ORACLE_ADDRESS as Address;
@@ -233,8 +251,17 @@ async function submitToContract(
 
   const hash = await walletClient.writeContract(request);
 
-  // Wait for confirmation
-  await publicClient.waitForTransactionReceipt({ hash });
+  // Wait for confirmation with fallback
+  try {
+    await publicClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      console.warn('[Oracle Resolve] Primary RPC timed out waiting for receipt, trying fallback...');
+      await fallbackPublicClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+    } else {
+      throw error;
+    }
+  }
 
   return hash;
 }

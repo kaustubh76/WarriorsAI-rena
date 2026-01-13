@@ -10,9 +10,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createWalletClient, createPublicClient, http, parseEther, formatEther } from 'viem';
+import { parseEther, formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowTestnet } from 'viem/chains';
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  createFlowWalletClient,
+  executeWithFlowFallback,
+  RPC_TIMEOUT
+} from '@/lib/flowClient';
 
 // ============================================================================
 // Types
@@ -160,19 +167,42 @@ const CRWN_TOKEN = process.env.NEXT_PUBLIC_CRWN_TOKEN_ADDRESS || '0x9Fd6CCEE1243
 // ============================================================================
 
 function getPublicClient() {
-  return createPublicClient({
-    chain: flowTestnet,
-    transport: http(),
-  });
+  return createFlowPublicClient();
+}
+
+function getFallbackPublicClient() {
+  return createFlowFallbackClient();
 }
 
 function getWalletClient(privateKey: `0x${string}`) {
   const account = privateKeyToAccount(privateKey);
-  return createWalletClient({
-    account,
-    chain: flowTestnet,
-    transport: http(),
-  });
+  return createFlowWalletClient(account);
+}
+
+// Helper to check if error is timeout
+function isTimeoutError(error: unknown): boolean {
+  const errMsg = (error as Error).message || '';
+  return errMsg.includes('timeout') ||
+         errMsg.includes('timed out') ||
+         errMsg.includes('took too long') ||
+         errMsg.includes('TimeoutError');
+}
+
+// Wait for receipt with fallback
+async function waitForReceiptWithFallback(
+  hash: `0x${string}`,
+  primaryClient: ReturnType<typeof getPublicClient>,
+  fallbackClient: ReturnType<typeof getFallbackPublicClient>
+) {
+  try {
+    return await primaryClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      console.warn('[Flow VRF Trade] Primary RPC timed out waiting for receipt, trying fallback...');
+      return await fallbackClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+    }
+    throw error;
+  }
 }
 
 // ============================================================================
@@ -240,17 +270,20 @@ export async function POST(request: NextRequest) {
     }
 
     const publicClient = getPublicClient();
+    const fallbackClient = getFallbackPublicClient();
     const walletClient = getWalletClient(privateKey);
     const account = walletClient.account;
 
     // Verify mirror market exists and is active
     try {
-      const mirrorMarket = await publicClient.readContract({
-        address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-        abi: ExternalMarketMirrorABI,
-        functionName: 'getMirrorMarket',
-        args: [mirrorKey as `0x${string}`],
-      });
+      const mirrorMarket = await executeWithFlowFallback((client) =>
+        client.readContract({
+          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+          abi: ExternalMarketMirrorABI,
+          functionName: 'getMirrorMarket',
+          args: [mirrorKey as `0x${string}`],
+        })
+      );
 
       if (!mirrorMarket.externalLink.isActive) {
         return NextResponse.json(
@@ -265,12 +298,14 @@ export async function POST(request: NextRequest) {
 
     // Check and approve CRwN if needed
     try {
-      const allowance = await publicClient.readContract({
-        address: CRWN_TOKEN as `0x${string}`,
-        abi: CRwNTokenABI,
-        functionName: 'allowance',
-        args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
-      });
+      const allowance = await executeWithFlowFallback((client) =>
+        client.readContract({
+          address: CRWN_TOKEN as `0x${string}`,
+          abi: CRwNTokenABI,
+          functionName: 'allowance',
+          args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
+        })
+      );
 
       if (allowance < amountWei) {
         // Approve max amount
@@ -281,7 +316,7 @@ export async function POST(request: NextRequest) {
           args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, amountWei * 10n], // Approve extra
         });
 
-        await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 60000 });
+        await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
       }
     } catch (approvalError) {
       console.warn('Token approval check failed:', approvalError);
@@ -320,10 +355,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Wait for confirmation
-    const receipt = await publicClient.waitForTransactionReceipt({
-      hash: txHash,
-      timeout: 60000,
-    });
+    const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
 
     // Store trade in 0G for audit trail
     if (prediction?.proof) {
@@ -408,12 +440,14 @@ export async function GET(request: NextRequest) {
     if (mirrorKey && EXTERNAL_MARKET_MIRROR !== '0x0000000000000000000000000000000000000000') {
       // Get mirror market info
       try {
-        const mirrorMarket = await publicClient.readContract({
-          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
-          functionName: 'getMirrorMarket',
-          args: [mirrorKey as `0x${string}`],
-        });
+        const mirrorMarket = await executeWithFlowFallback((client) =>
+          client.readContract({
+            address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+            abi: ExternalMarketMirrorABI,
+            functionName: 'getMirrorMarket',
+            args: [mirrorKey as `0x${string}`],
+          })
+        );
 
         return NextResponse.json({
           success: true,
