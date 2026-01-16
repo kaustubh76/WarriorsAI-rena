@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
 import { useAgent, useAgentPerformance, useAgentFollowers } from '@/hooks/useAgents';
-import { AgentPerformanceChart, PersonaTraitsCard, FollowButton, INFTBadge, TransferAgentModal, AuthorizeUsageModal } from '@/components/agents';
+import { AgentPerformanceChart, PersonaTraitsCard, FollowButton, INFTBadge, TransferAgentModal, AuthorizeUsageModal, CopyTradeSettings } from '@/components/agents';
 import { useAgentINFT, useMyAgentINFTs } from '@/hooks/useAgentINFT';
 import { useAgentTradeHistory, formatTradePnL, formatConfidence, formatTradeTime, getTradePnLColor } from '@/hooks/useAgentTradeHistory';
 import { useAgentExternalTrading } from '@/hooks/useAgentExternalTrading';
@@ -22,7 +22,7 @@ export default function AgentProfilePage() {
 
   const { agent, loading: agentLoading, error, refetch: refetchAgent } = useAgent(agentId);
   const { performance, loading: perfLoading } = useAgentPerformance(agentId);
-  const { followers, followerCount, loading: followersLoading } = useAgentFollowers(agentId);
+  const { followers, followerCount, loading: followersLoading, refetch: refetchFollowers } = useAgentFollowers(agentId);
   const { trades, isLoading: tradesLoading, error: tradesError } = useAgentTradeHistory(agentId ?? undefined);
 
   // External trading hook
@@ -182,7 +182,7 @@ export default function AgentProfilePage() {
 
             {/* Actions */}
             <div className="flex flex-col gap-3">
-              <FollowButton agentId={agent.id} />
+              <FollowButton agentId={agent.id} onSuccess={refetchFollowers} />
 
               {/* iNFT Owner Actions */}
               {isINFT && canManageINFT && inftTokenId !== undefined && (
@@ -570,6 +570,13 @@ export default function AgentProfilePage() {
 
           {/* Right Column - Persona */}
           <div className="space-y-8">
+            {/* Copy Trade Settings - Show if user is following this agent */}
+            <CopyTradeSettings
+              agentId={agent.id}
+              agentName={agent.name}
+              onUpdate={refetchAgent}
+            />
+
             <PersonaTraitsCard traits={agent.personaTraits} />
 
             {/* Followers */}

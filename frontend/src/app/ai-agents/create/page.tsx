@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther } from 'viem';
 import { useAgentTokenBalance, useMinStakeRequirements, useZeroGTokenBalance } from '@/hooks/useAgents';
-import { useMintINFT } from '@/hooks/useAgentINFT';
+import { useMintINFT, useMintCRwN } from '@/hooks/useAgentINFT';
 import { type AgentStrategy, type RiskProfile, type Specialization, type PersonaTraits } from '@/services/aiAgentService';
 import { INFTBadge } from '@/components/agents/INFTBadge';
 import { chainsToContracts, AIAgentRegistryAbi, crownTokenAbi, getChainId } from '@/constants';
@@ -15,9 +15,11 @@ export default function CreateAgentPage() {
   const router = useRouter();
   const { isConnected, address } = useAccount();
   const { balance, balanceFormatted } = useAgentTokenBalance(); // Flow CRwN (for trading)
-  const { balance: zeroGBalance, balanceFormatted: zeroGBalanceFormatted } = useZeroGTokenBalance(); // 0G CRwN (for iNFT staking)
+  const { balance: zeroGBalance, balanceFormatted: zeroGBalanceFormatted, loading: zeroGBalanceLoading } = useZeroGTokenBalance(); // 0G CRwN (for iNFT staking)
   const { requirementsFormatted } = useMinStakeRequirements();
   const { mint: mintINFT, isMinting, error: mintError } = useMintINFT();
+  const { mintCRwN, isMinting: isMintingCRwN, error: mintCRwNError } = useMintCRwN();
+  const { refetch: refetchZeroGBalance } = useZeroGTokenBalance();
 
   // Legacy registry contract addresses (Flow Testnet)
   const chainId = getChainId();
@@ -85,7 +87,7 @@ export default function CreateAgentPage() {
       maxDailyTrades: 10, // Maximum trades per day
       maxDailyExposure: '50', // Max total exposure per day in CRwN
     },
-    stakeAmount: '1', // Default to minimum (1 CRwN for NOVICE tier on 0G)
+    stakeAmount: '0.01', // Default to minimum (0.01 CRwN for NOVICE tier on 0G)
     enableCopyTrading: true,
     copyTradeFee: 100, // 1%
     mintAsINFT: true // New: Create as iNFT by default
@@ -142,13 +144,34 @@ export default function CreateAgentPage() {
     setNeedsApproval(false);
   };
 
+  // Handler for minting CRwN on 0G network
+  const handleMintCRwN = async () => {
+    try {
+      const hash = await mintCRwN('0.1'); // Mint 0.1 CRwN
+      alert(`CRwN mint transaction submitted!\n\nTx: ${hash}\n\nPlease wait for confirmation, then your balance will update.`);
+      // Refetch balance after a short delay
+      setTimeout(() => {
+        refetchZeroGBalance();
+      }, 5000);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to mint CRwN: ${errorMsg}`);
+    }
+  };
+
   // Check if user has enough 0G CRwN for staking
+  // Don't show error while balance is still loading
   const stakeAmountWei = BigInt(Math.floor(parseFloat(formData.stakeAmount || '0') * 1e18));
   const hasEnough0GBalance = zeroGBalance >= stakeAmountWei;
-  const insufficientBalanceError = formData.mintAsINFT && !hasEnough0GBalance && parseFloat(formData.stakeAmount) > 0;
+  const insufficientBalanceError = formData.mintAsINFT && !zeroGBalanceLoading && !hasEnough0GBalance && parseFloat(formData.stakeAmount) > 0;
 
   const handleCreate = async () => {
     if (formData.mintAsINFT) {
+      // Wait for balance to load before validating
+      if (zeroGBalanceLoading) {
+        alert('Please wait for balance to load...');
+        return;
+      }
       // Validate 0G CRwN balance before attempting mint
       if (!hasEnough0GBalance) {
         alert(`Insufficient CRwN on 0G chain!\n\nYou have: ${zeroGBalanceFormatted} CRwN\nRequired: ${formData.stakeAmount} CRwN\n\nPlease get more CRwN tokens on 0G Galileo testnet.`);
@@ -600,17 +623,32 @@ export default function CreateAgentPage() {
                   min={requirementsFormatted[0]}
                 />
                 {formData.mintAsINFT ? (
-                  <div className="mt-2 space-y-1">
-                    <p className={`text-xs ${insufficientBalanceError ? 'text-red-400' : 'text-gray-500'}`}>
-                      0G Balance: {zeroGBalanceFormatted} CRwN {insufficientBalanceError && '(Insufficient!)'}
-                    </p>
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className={`text-xs ${insufficientBalanceError ? 'text-red-400' : 'text-gray-500'}`}>
+                        0G Balance: {zeroGBalanceLoading ? 'Loading...' : `${zeroGBalanceFormatted} CRwN`} {insufficientBalanceError && '(Insufficient!)'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleMintCRwN}
+                        disabled={isMintingCRwN}
+                        className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white rounded transition-colors"
+                      >
+                        {isMintingCRwN ? 'Minting...' : 'Get 0.1 CRwN'}
+                      </button>
+                    </div>
                     {insufficientBalanceError && (
                       <p className="text-xs text-red-400">
                         You need {formData.stakeAmount} CRwN on 0G Galileo testnet to mint this iNFT.
                       </p>
                     )}
+                    {mintCRwNError && (
+                      <p className="text-xs text-red-400">
+                        Mint error: {mintCRwNError.message}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-600">
-                      Min: {requirementsFormatted[0]} CRwN | iNFT staking uses 0G chain CRwN
+                      Min: {requirementsFormatted[0]} CRwN | iNFT staking uses 0G chain CRwN | Requires 0G native tokens
                     </p>
                   </div>
                 ) : (

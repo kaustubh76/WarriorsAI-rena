@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { useAgents, useOfficialAgents, useAgentStats } from '@/hooks/useAgents';
+import { useAgents, useAgentStats } from '@/hooks/useAgents';
 import { AgentCard } from '@/components/agents';
 import { type AgentFilters, type AgentSortOptions } from '@/services/aiAgentService';
 
@@ -44,8 +44,17 @@ export default function AIAgentsPage() {
     filters: { ...filters, search: searchQuery },
     sort
   });
-  const { agents: officialAgents, loading: officialLoading } = useOfficialAgents();
-  const { totalAgentsNumber, totalStakedFormatted, loading: statsLoading } = useAgentStats();
+  const { totalAgentsNumber, totalStakedFormatted } = useAgentStats();
+
+  // Get top performing agents (featured) - real agents from blockchain sorted by win rate
+  const featuredAgents = useMemo(() => {
+    if (agents.length === 0) return [];
+    // Get top 3 agents by win rate that have at least some trades
+    return [...agents]
+      .filter(agent => agent.totalTrades > BigInt(0))
+      .sort((a, b) => (b.winRate || 0) - (a.winRate || 0))
+      .slice(0, 3);
+  }, [agents]);
 
   // Filter agents by type (iNFT vs Registry)
   const filteredAgents = useMemo(() => {
@@ -73,7 +82,7 @@ export default function AIAgentsPage() {
         </p>
 
         {/* Stats - Grid layout responsive */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 max-w-2xl mx-auto px-2">
+        <div className="grid grid-cols-3 gap-3 md:gap-4 max-w-xl mx-auto px-2">
           <div className="stat-card text-center">
             <p className="stat-card-value text-white">{totalAgentsNumber}</p>
             <p className="stat-card-label">Active Agents</p>
@@ -89,23 +98,19 @@ export default function AIAgentsPage() {
             </p>
             <p className="stat-card-label">Total Staked</p>
           </div>
-          <div className="stat-card text-center">
-            <p className="stat-card-value text-arcade-gold">{officialAgents.length}</p>
-            <p className="stat-card-label">Official Agents</p>
-          </div>
         </div>
       </div>
 
-      {/* Official Agents Section */}
-      {officialAgents.length > 0 && (
+      {/* Top Performers Section - Real blockchain agents with best performance */}
+      {featuredAgents.length > 0 && (
         <div className="mb-8 md:mb-12 animate-slide-up" style={{ animationDelay: '100ms' }}>
           <div className="flex items-center gap-3 mb-4 md:mb-6">
-            <span className="text-xl">⭐</span>
-            <h2 className="text-lg md:text-xl font-semibold text-white">Official Protocol Agents</h2>
-            <span className="badge badge-gold">Featured</span>
+            <span className="text-xl">🏆</span>
+            <h2 className="text-lg md:text-xl font-semibold text-white">Top Performers</h2>
+            <span className="badge badge-gold">Highest Win Rate</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {officialAgents.map((agent, index) => (
+            {featuredAgents.map((agent, index) => (
               <div
                 key={agent.id.toString()}
                 className="animate-slide-up"

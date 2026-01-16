@@ -44,6 +44,12 @@ export const AIAgentINFTFunctions = {
   getAgentFollowers: 'getAgentFollowers(uint256)',
   getFollowerCount: 'getFollowerCount(uint256)',
 
+  // External Market Trading
+  enableExternalTrading: 'enableExternalTrading(uint256,bool,bool)',
+  recordExternalTrade: 'recordExternalTrade(uint256,bool,string,bool,int256)',
+  isExternalTradingEnabled: 'isExternalTradingEnabled(uint256,bool)',
+  getExternalTradingStats: 'getExternalTradingStats(uint256)',
+
   // View functions
   ownerOf: 'ownerOf(uint256)',
   getEncryptedMetadataRef: 'getEncryptedMetadataRef(uint256)',
@@ -76,4 +82,6 @@ export const AIAgentINFTEvents = {
   CopyTradeStarted: 'CopyTradeStarted(address,uint256,uint256)',
   CopyTradeStopped: 'CopyTradeStopped(address,uint256)',
   CopyTradeConfigUpdated: 'CopyTradeConfigUpdated(address,uint256,uint256)',
+  ExternalTradingEnabled: 'ExternalTradingEnabled(uint256,bool,bool)',
+  ExternalTradeRecorded: 'ExternalTradeRecorded(uint256,bool,string,bool,int256)',
 } as const;

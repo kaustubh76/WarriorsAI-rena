@@ -659,3 +659,88 @@ export function useDecryptedMetadata(
 
   return { metadata, isDecrypting, error, accessType };
 }
+
+// CRwN Token ABI for minting
+const CRWN_TOKEN_ABI = [
+  {
+    name: 'mint',
+    type: 'function',
+    stateMutability: 'payable',
+    inputs: [{ name: '_amount', type: 'uint256' }],
+    outputs: [],
+  },
+] as const;
+
+// 0G CRwN Token address
+const ZEROG_CRWN_ADDRESS = '0xC13f60749ECfCDE5f79689dd2E5A361E9210f153' as const;
+
+interface UseMintCRwNResult {
+  mintCRwN: (amount: string) => Promise<string>;
+  isMinting: boolean;
+  error: Error | null;
+}
+
+/**
+ * Mint CRwN tokens on 0G Galileo Testnet
+ * Sends native 0G tokens to get equivalent CRwN (1:1 ratio)
+ */
+export function useMintCRwN(): UseMintCRwNResult {
+  const { address } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const currentChainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
+  const [isMinting, setIsMinting] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const mintCRwN = useCallback(
+    async (amount: string): Promise<string> => {
+      if (!address || !walletClient) {
+        throw new Error('Wallet not connected');
+      }
+
+      setIsMinting(true);
+      setError(null);
+
+      try {
+        // Check if on correct chain (0G Galileo)
+        if (currentChainId !== ZEROG_CHAIN_ID) {
+          console.log('Switching to 0G Galileo Testnet for CRwN mint...');
+          try {
+            await switchChainAsync({ chainId: ZEROG_CHAIN_ID });
+          } catch (switchError) {
+            throw new Error(
+              `Please switch to 0G Galileo Testnet (Chain ID: ${ZEROG_CHAIN_ID}) to mint CRwN tokens. ` +
+              `Add the network manually: RPC URL: https://evmrpc-testnet.0g.ai, Chain ID: 16602`
+            );
+          }
+        }
+
+        // Parse amount to wei
+        const amountWei = BigInt(Math.floor(parseFloat(amount) * 1e18));
+
+        // Call mint function with native 0G tokens as value
+        const hash = await walletClient.writeContract({
+          address: ZEROG_CRWN_ADDRESS,
+          abi: CRWN_TOKEN_ABI,
+          functionName: 'mint',
+          args: [amountWei],
+          value: amountWei, // Send native 0G tokens
+          account: address,
+          chain: zeroGGalileo,
+        });
+
+        console.log('CRwN mint transaction:', hash);
+        return hash;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error('Mint failed');
+        setError(error);
+        throw error;
+      } finally {
+        setIsMinting(false);
+      }
+    },
+    [address, walletClient, currentChainId, switchChainAsync]
+  );
+
+  return { mintCRwN, isMinting, error };
+}

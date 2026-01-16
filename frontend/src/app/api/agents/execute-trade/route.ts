@@ -25,6 +25,7 @@ import {
   RATE_LIMITS,
   getApiBaseUrl,
 } from '@/lib/apiConfig';
+import { prisma } from '@/lib/prisma';
 
 // Parse trade limits from config
 const MAX_TRADE_AMOUNT = ethers.parseEther(TRADING_LIMITS.maxTradeAmount);
@@ -247,6 +248,24 @@ export async function POST(request: NextRequest) {
     console.log(`   ✅ Trade executed successfully!`);
     console.log(`   TX Hash: ${receipt.hash}`);
     console.log(`   Balance after: ${ethers.formatEther(balanceAfter)} CRwN`);
+
+    // Track trade in database for later performance updates
+    try {
+      await prisma.agentTrade.create({
+        data: {
+          agentId: agentId,
+          marketId: marketId,
+          isYes: isYes,
+          amount: amount,
+          txHash: receipt.hash,
+          isCopyTrade: false,
+          recordedOn0G: false,
+        }
+      });
+      console.log(`   📊 Trade tracked in database`);
+    } catch (dbError) {
+      console.error('   ⚠️ Failed to track trade in database:', dbError);
+    }
 
     // Trigger copy trades for followers (fire and forget)
     let copyTradeResult = null;

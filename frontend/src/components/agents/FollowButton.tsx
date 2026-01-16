@@ -13,9 +13,9 @@ interface FollowButtonProps {
 
 export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
   const { address, isConnected } = useAccount();
-  const { isFollowing, loading: followingLoading } = useIsFollowing(agentId);
+  const { isFollowing, loading: followingLoading, refetch: refetchFollowing } = useIsFollowing(agentId);
   const { agent, loading: agentLoading } = useAgent(agentId);
-  const { follow, unfollow, isPending, isConfirming, error, needsChainSwitch, switchTo0G } = useCopyTrade(agentId);
+  const { follow, unfollow, isPending, isConfirming, isSuccess, error, needsChainSwitch, switchTo0G, refetch: refetchCopyTrade } = useCopyTrade(agentId);
   const [showModal, setShowModal] = useState(false);
   const [maxAmount, setMaxAmount] = useState('100');
   const [localError, setLocalError] = useState<string | null>(null);
@@ -27,6 +27,18 @@ export function FollowButton({ agentId, onSuccess }: FollowButtonProps) {
   } catch {
     // Context not available (SSR or not wrapped in provider)
   }
+
+  // Refetch following status when transaction succeeds
+  useEffect(() => {
+    if (isSuccess) {
+      // Wait a bit for blockchain to confirm, then refetch
+      const timer = setTimeout(() => {
+        refetchFollowing();
+        refetchCopyTrade();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSuccess, refetchFollowing, refetchCopyTrade]);
 
   // Check if user is the operator (cannot follow own agent)
   const isOwnAgent = agent?.operator?.toLowerCase() === address?.toLowerCase();

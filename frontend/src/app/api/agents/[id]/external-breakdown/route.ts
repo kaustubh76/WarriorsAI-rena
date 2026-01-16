@@ -1,0 +1,145 @@
+/**
+ * Agent External Breakdown API Route
+ * GET: Get agent's external market performance breakdown by source
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createPublicClient, http } from 'viem';
+import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc } from '@/constants';
+import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+import { prisma } from '@/lib/prisma';
+
+const RPC_TIMEOUT = 60000;
+
+const ZEROG_CHAIN = {
+  id: 16602,
+  name: '0G Galileo Testnet',
+  network: '0g-galileo',
+  nativeCurrency: { decimals: 18, name: '0G Token', symbol: '0G' },
+  rpcUrls: {
+    default: { http: [getZeroGComputeRpc()] },
+    public: { http: [getZeroGComputeRpc()] },
+  },
+} as const;
+
+const zeroGClient = createPublicClient({
+  chain: ZEROG_CHAIN,
+  transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
+});
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const agentId = BigInt(id);
+
+    // Get contract address
+    const contracts = chainsToContracts[getZeroGChainId()];
+    const aiAgentINFTAddress = contracts?.aiAgentINFT as `0x${string}`;
+
+    if (!aiAgentINFTAddress || aiAgentINFTAddress === '0x0000000000000000000000000000000000000000') {
+      return NextResponse.json(
+        { success: false, error: 'AI Agent iNFT contract not configured' },
+        { status: 500 }
+      );
+    }
+
+    // Get on-chain external trading stats
+    let onChainStats = null;
+    try {
+      onChainStats = await zeroGClient.readContract({
+        address: aiAgentINFTAddress,
+        abi: AIAgentINFTAbi,
+        functionName: 'getExternalTradingStats',
+        args: [agentId],
+      });
+    } catch (e) {
+      console.warn(`Failed to fetch on-chain stats for agent ${id}:`, e);
+    }
+
+    const [polymarketEnabled, kalshiEnabled, totalExternalTrades, totalExternalPnL] =
+      onChainStats as [boolean, boolean, bigint, bigint] || [false, false, 0n, 0n];
+
+    // Get breakdown from database - query agent trades joined with mirror markets
+    const dbBreakdown = await prisma.$queryRaw<
+      Array<{
+        source: string;
+        tradeCount: bigint;
+        wins: bigint;
+        totalPnL: string;
+      }>
+    >`
+      SELECT
+        mm.source as source,
+        COUNT(*) as tradeCount,
+        SUM(CASE WHEN mt.pnl > 0 THEN 1 ELSE 0 END) as wins,
+        COALESCE(SUM(CAST(mt.pnl AS REAL)), 0) as totalPnL
+      FROM MirrorTrade mt
+      LEFT JOIN MirrorMarket mm ON mt.mirrorKey = mm.mirrorKey
+      WHERE mt.agentId = ${id}
+      AND mm.source IS NOT NULL
+      GROUP BY mm.source
+    `;
+
+    // Process database results
+    const polymarketData = dbBreakdown.find((d) => d.source === 'polymarket');
+    const kalshiData = dbBreakdown.find((d) => d.source === 'kalshi');
+
+    const breakdown = {
+      polymarket: {
+        enabled: polymarketEnabled,
+        count: polymarketData ? Number(polymarketData.tradeCount) : 0,
+        wins: polymarketData ? Number(polymarketData.wins) : 0,
+        pnl: polymarketData?.totalPnL || '0',
+        winRate: polymarketData && Number(polymarketData.tradeCount) > 0
+          ? (Number(polymarketData.wins) / Number(polymarketData.tradeCount)) * 100
+          : 0,
+      },
+      kalshi: {
+        enabled: kalshiEnabled,
+        count: kalshiData ? Number(kalshiData.tradeCount) : 0,
+        wins: kalshiData ? Number(kalshiData.wins) : 0,
+        pnl: kalshiData?.totalPnL || '0',
+        winRate: kalshiData && Number(kalshiData.tradeCount) > 0
+          ? (Number(kalshiData.wins) / Number(kalshiData.tradeCount)) * 100
+          : 0,
+      },
+    };
+
+    // Calculate totals
+    const totalTrades = breakdown.polymarket.count + breakdown.kalshi.count;
+    const totalWins = breakdown.polymarket.wins + breakdown.kalshi.wins;
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        agentId: id,
+        breakdown,
+        totals: {
+          externalTrades: Number(totalExternalTrades) || totalTrades,
+          externalPnL: totalExternalPnL.toString(),
+          wins: totalWins,
+          winRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
+        },
+        onChain: {
+          polymarketEnabled,
+          kalshiEnabled,
+          totalExternalTrades: totalExternalTrades.toString(),
+          totalExternalPnL: totalExternalPnL.toString(),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[API] Agent external breakdown error:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to fetch agent external breakdown',
+        message: (error as Error).message,
+      },
+      { status: 500 }
+    );
+  }
+}

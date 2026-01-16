@@ -197,56 +197,6 @@ function sortAgents(agents: AIAgentDisplay[], sort: AgentSortOptions): AIAgentDi
 }
 
 /**
- * Hook to fetch official protocol agents
- * NOTE: Legacy registry deprecated - returning empty for now
- */
-export function useOfficialAgents() {
-  // Return empty - legacy registry agents deprecated in favor of iNFTs
-  return {
-    agents: [] as AIAgentDisplay[],
-    loading: false,
-    error: null,
-    refetch: async () => {}
-  };
-}
-
-/**
- * @deprecated Use useOfficialAgents() - kept for backwards compatibility
- */
-function _useOfficialAgentsLegacy() {
-  const [agents, setAgents] = useState<AIAgentDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchOfficialAgents = useCallback(async () => {
-    try {
-      setLoading(true);
-      const officialIds = await aiAgentService.getOfficialAgents();
-      const agentPromises = officialIds.map(id => aiAgentService.getAgentWithDisplay(id));
-      const agentResults = await Promise.all(agentPromises);
-      setAgents(agentResults.filter((a): a is AIAgentDisplay => a !== null));
-      setError(null);
-    } catch (err) {
-      setError('Failed to fetch official agents');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchOfficialAgents();
-  }, [fetchOfficialAgents]);
-
-  return {
-    agents,
-    loading,
-    error,
-    refetch: fetchOfficialAgents
-  };
-}
-
-/**
  * Hook to fetch a single agent
  */
 export function useAgent(agentId: bigint | null) {
@@ -453,17 +403,28 @@ export function useFollowingAgents() {
  */
 export function useAgentFollowers(agentId: bigint | null) {
   const [followers, setFollowers] = useState<Address[]>([]);
+  const [followerCount, setFollowerCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const fetchFollowers = useCallback(async () => {
-    if (agentId === null) return;
+    if (agentId === null) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
-      const followerList = await aiAgentService.getAgentFollowers(agentId);
+      // Fetch from 0G chain via agentINFTService (copy trading is on 0G)
+      const [followerList, count] = await Promise.all([
+        agentINFTService.getAgentFollowers(agentId),
+        agentINFTService.getFollowerCount(agentId),
+      ]);
       setFollowers(followerList);
+      setFollowerCount(Number(count));
     } catch (err) {
       console.error('Error fetching followers:', err);
+      setFollowers([]);
+      setFollowerCount(0);
     } finally {
       setLoading(false);
     }
@@ -475,7 +436,7 @@ export function useAgentFollowers(agentId: bigint | null) {
 
   return {
     followers,
-    followerCount: followers.length,
+    followerCount,
     loading,
     refetch: fetchFollowers
   };
@@ -526,14 +487,39 @@ export function useAgentStats() {
 
 /**
  * Hook to check if user is following a specific agent
+ * Uses direct contract read from 0G chain for accurate, real-time status
  */
 export function useIsFollowing(agentId: bigint | null) {
-  const { agentIds, loading: followingLoading } = useFollowingAgents();
+  const { address } = useAccount();
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Use string comparison for BigInt values to ensure correct comparison
-  const isFollowing = agentId !== null && agentIds.some(id => id.toString() === agentId.toString());
+  const checkFollowing = useCallback(async () => {
+    if (!address || agentId === null) {
+      setIsFollowing(false);
+      setLoading(false);
+      return;
+    }
 
-  return { isFollowing, loading: followingLoading };
+    try {
+      setLoading(true);
+      // Use the agentINFTService to check copy trade config directly
+      const config = await agentINFTService.getCopyTradeConfig(address, agentId);
+      // isFollowing is true if config exists and isActive is true
+      setIsFollowing(config?.isActive === true);
+    } catch (err) {
+      console.error('Error checking following status:', err);
+      setIsFollowing(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [address, agentId]);
+
+  useEffect(() => {
+    checkFollowing();
+  }, [checkFollowing]);
+
+  return { isFollowing, loading, refetch: checkFollowing };
 }
 
 /**
