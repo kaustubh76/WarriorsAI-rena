@@ -29,9 +29,10 @@ export const zeroGGalileo = defineChain({
 
 // Memoize the config to prevent WalletConnect multiple initialization
 // This singleton pattern ensures getDefaultConfig is only called once
+// The config is created lazily to avoid SSR issues with WalletConnect's indexedDB usage
 let cachedConfig: ReturnType<typeof getDefaultConfig> | null = null;
 
-function getConfig() {
+export function getConfig() {
   if (!cachedConfig) {
     cachedConfig = getDefaultConfig({
       appName: "WarriorsAI-rena",
@@ -43,4 +44,7 @@ function getConfig() {
   return cachedConfig;
 }
 
-export default getConfig()
+// Export a lazy getter that defers config creation
+// This prevents WalletConnect's indexedDB from being accessed during SSR
+const config = typeof window !== 'undefined' ? getConfig() : null;
+export default config as ReturnType<typeof getDefaultConfig>;

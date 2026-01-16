@@ -1,8 +1,8 @@
 "use client"
 
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query"
-import {type ReactNode, useMemo, useRef} from "react"
-import config from "@/rainbowKitConfig"
+import {type ReactNode, useRef} from "react"
+import {getConfig} from "@/rainbowKitConfig"
 import {WagmiProvider} from "wagmi"
 import {RainbowKitProvider} from "@rainbow-me/rainbowkit"
 import {useState, useEffect} from "react"
@@ -31,16 +31,28 @@ export function Providers(props: {children: ReactNode}) {
 
     const [mounted, setMounted] = useState(false)
 
+    // Get wagmi config lazily on client side only
+    const wagmiConfig = typeof window !== 'undefined' ? getConfig() : null
+
     useEffect(() => {
         setMounted(true)
     }, [])
 
+    // Don't render WagmiProvider until we're on the client and have a config
+    if (!mounted || !wagmiConfig) {
+        return (
+            <QueryClientProvider client={queryClientRef.current}>
+                {null}
+            </QueryClientProvider>
+        )
+    }
+
     return (
-        <WagmiProvider config={config} reconnectOnMount={false}>
+        <WagmiProvider config={wagmiConfig} reconnectOnMount={false}>
             <QueryClientProvider client={queryClientRef.current}>
                 <RainbowKitProvider>
                     <EncryptionCacheManager>
-                        {mounted ? props.children : null}
+                        {props.children}
                     </EncryptionCacheManager>
                 </RainbowKitProvider>
             </QueryClientProvider>

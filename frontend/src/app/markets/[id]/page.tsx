@@ -25,7 +25,7 @@ export default function MarketDetailPage({ params }: PageProps) {
   const { market, loading, error, refetch } = useMarket(isValidId ? marketId : BigInt(0));
   const { position, hasPosition, refetch: refetchPosition } = usePosition(marketId);
   const { activities, loading: activitiesLoading, error: activitiesError, refetch: refetchActivity } = useMarketActivity(isValidId ? marketId : null);
-  const { refetch: refetchPrice } = useMarketPrice(isValidId ? marketId : null);
+  const { yesProbability, noProbability, refetch: refetchPrice } = useMarketPrice(isValidId ? marketId : null);
   const { isConnected } = useAccount();
 
   // Callback to refresh ALL market data after a trade completes
@@ -241,7 +241,7 @@ export default function MarketDetailPage({ params }: PageProps) {
             {hasPosition && position && (
               <div className="bg-gray-900 rounded-xl p-6 border border-gray-700">
                 <h3 className="text-lg font-semibold text-white mb-4">Your Position</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                   <div>
                     <span className="text-gray-400 text-sm">YES Tokens</span>
                     <p className="text-green-400 font-bold text-xl">
@@ -272,6 +272,48 @@ export default function MarketDetailPage({ params }: PageProps) {
                     </p>
                   </div>
                 </div>
+
+                {/* Estimated Position Value based on current prices */}
+                {(position.yesTokens > BigInt(0) || position.noTokens > BigInt(0)) && (
+                  <div className="pt-4 border-t border-gray-700">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div>
+                        <span className="text-gray-400 text-sm">Current Market Value</span>
+                        <p className="text-white font-bold text-xl">
+                          {(() => {
+                            // Calculate current value: tokens × (price/100) since price is in basis points
+                            const yesValue = (position.yesTokens * BigInt(Math.round(yesProbability * 100))) / BigInt(10000);
+                            const noValue = (position.noTokens * BigInt(Math.round(noProbability * 100))) / BigInt(10000);
+                            return formatTokenAmount(yesValue + noValue);
+                          })()}{' '}
+                          CRwN
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-sm">Position Direction</span>
+                        <p className={`font-bold text-xl ${
+                          position.yesTokens > position.noTokens ? 'text-green-400' : 'text-red-400'
+                        }`}>
+                          {position.yesTokens > position.noTokens ? 'Long YES' :
+                           position.noTokens > position.yesTokens ? 'Long NO' : 'Neutral'}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-sm">Win Probability</span>
+                        <p className={`font-bold text-xl ${
+                          (position.yesTokens > position.noTokens ? yesProbability : noProbability) > 50
+                            ? 'text-green-400' : 'text-yellow-400'
+                        }`}>
+                          {position.yesTokens > position.noTokens
+                            ? yesProbability.toFixed(1)
+                            : position.noTokens > position.yesTokens
+                            ? noProbability.toFixed(1)
+                            : '50.0'}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

@@ -218,6 +218,19 @@ export const zeroGCircuit = new CircuitBreaker('0g', {
   halfOpenRequests: 2,
 });
 
+// Opinion rate limiter - 50 requests per minute (conservative estimate)
+export const opinionRateLimiter = new RateLimiter({
+  maxRequests: 50,
+  windowMs: 60000,
+});
+
+// Opinion circuit breaker
+export const opinionCircuit = new CircuitBreaker('opinion', {
+  failureThreshold: 5,
+  resetTimeout: 30000,
+  halfOpenRequests: 3,
+});
+
 // ============================================
 // EXPORTS
 // ============================================

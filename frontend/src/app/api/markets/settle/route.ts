@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import { prisma } from '@/lib/prisma';
 
 // Flow Testnet Configuration
 const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
 const PREDICTION_MARKET = '0x1b26203A2752557ecD4763a9A8A26119AC5e18e4';
+
+// 0G Galileo Configuration for updating agent performance
+const ZEROG_RPC = 'https://evmrpc-testnet.0g.ai';
+const AI_AGENT_INFT = '0x88f3133C6e506Eaa68bB0de1a4765E9B73b15BBC';
+
+// ABI for updating agent trade results
+const AI_AGENT_INFT_ABI = [
+  'function recordTrade(uint256 tokenId, bool won, int256 pnl)',
+];
 
 // Outcome enum matching contract
 enum Outcome {
@@ -74,6 +84,73 @@ function outcomeToString(outcome: Outcome): string {
     case Outcome.INVALID: return 'INVALID';
     case Outcome.UNDECIDED: return 'UNDECIDED';
     default: return 'UNKNOWN';
+  }
+}
+
+/**
+ * Update agent performance on 0G chain when market resolves
+ */
+async function updateAgentPerformance(marketId: number, outcome: Outcome, privateKey: string) {
+  try {
+    // Find all agent trades on this market that haven't been recorded yet
+    const trades = await prisma.agentTrade.findMany({
+      where: {
+        marketId: String(marketId),
+        recordedOn0G: false,
+      }
+    });
+
+    if (trades.length === 0) {
+      console.log(`   No agent trades to update for market #${marketId}`);
+      return;
+    }
+
+    console.log(`   📊 Updating ${trades.length} agent trades for market #${marketId}`);
+
+    // Setup 0G provider and wallet
+    const zeroGProvider = new ethers.JsonRpcProvider(ZEROG_RPC);
+    const zeroGWallet = new ethers.Wallet(privateKey, zeroGProvider);
+    const aiAgentINFT = new ethers.Contract(AI_AGENT_INFT, AI_AGENT_INFT_ABI, zeroGWallet);
+
+    for (const trade of trades) {
+      try {
+        // Determine if the trade won based on outcome and position
+        const won = (outcome === Outcome.YES && trade.isYes) || (outcome === Outcome.NO && !trade.isYes);
+
+        // Calculate approximate PnL (simplified: win = +90% of stake, lose = -100%)
+        const tradeAmount = BigInt(trade.amount);
+        const pnl = won
+          ? (tradeAmount * BigInt(90)) / BigInt(100)  // 90% profit on win
+          : -tradeAmount;  // Full loss on lose
+
+        // Record trade result on 0G chain
+        const recordTx = await aiAgentINFT.recordTrade(
+          BigInt(trade.agentId),
+          won,
+          pnl
+        );
+        const recordReceipt = await recordTx.wait();
+
+        // Update database
+        await prisma.agentTrade.update({
+          where: { id: trade.id },
+          data: {
+            outcome: outcome === Outcome.YES ? 'yes' : outcome === Outcome.NO ? 'no' : 'invalid',
+            won,
+            pnl: pnl.toString(),
+            recordedOn0G: true,
+            recordTxHash: recordReceipt.hash,
+            resolvedAt: new Date(),
+          }
+        });
+
+        console.log(`   ✅ Agent #${trade.agentId}: ${won ? 'WON' : 'LOST'} (PnL: ${ethers.formatEther(pnl)} CRwN)`);
+      } catch (tradeError) {
+        console.error(`   ⚠️ Failed to update agent #${trade.agentId}:`, tradeError);
+      }
+    }
+  } catch (error) {
+    console.error(`   ⚠️ Failed to update agent performance:`, error);
   }
 }
 
@@ -171,6 +248,9 @@ export async function POST(request: NextRequest) {
           txHash: receipt.hash
         });
         settledCount = 1;
+
+        // Update agent performance for trades on this market
+        await updateAgentPerformance(specificMarketId, outcome, privateKey);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         results.push({
@@ -214,6 +294,9 @@ export async function POST(request: NextRequest) {
             txHash: receipt.hash
           });
           settledCount++;
+
+          // Update agent performance for trades on this market
+          await updateAgentPerformance(marketId, outcome, privateKey);
 
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';

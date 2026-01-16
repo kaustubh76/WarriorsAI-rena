@@ -711,7 +711,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
         {hasPosition && position && (
           <div className="bg-gray-800 rounded-lg p-3">
             <div className="text-sm text-gray-400 mb-2">Your Position</div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-3 text-sm mb-2">
               <div>
                 <span className="text-green-400">YES:</span>{' '}
                 <span className="text-white">{formatTokenAmount(position.yesTokens)}</span>
@@ -721,6 +721,34 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
                 <span className="text-white">{formatTokenAmount(position.noTokens)}</span>
               </div>
             </div>
+            {/* Estimated Value */}
+            {(position.yesTokens > BigInt(0) || position.noTokens > BigInt(0)) && (
+              <div className="pt-2 border-t border-gray-700 space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Est. Value:</span>
+                  <span className="text-white font-medium">
+                    {(() => {
+                      const yesValue = (position.yesTokens * BigInt(Math.round(yesProbability * 100))) / BigInt(10000);
+                      const noValue = (position.noTokens * BigInt(Math.round(noProbability * 100))) / BigInt(10000);
+                      return formatTokenAmount(yesValue + noValue);
+                    })()} CRwN
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Win Prob:</span>
+                  <span className={`font-medium ${
+                    (position.yesTokens > position.noTokens ? yesProbability : noProbability) > 50
+                      ? 'text-green-400' : 'text-yellow-400'
+                  }`}>
+                    {position.yesTokens > position.noTokens
+                      ? yesProbability.toFixed(1)
+                      : position.noTokens > position.yesTokens
+                      ? noProbability.toFixed(1)
+                      : '50.0'}%
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

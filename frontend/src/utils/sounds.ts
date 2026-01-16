@@ -210,11 +210,51 @@ class SoundManager {
   }
 }
 
-// Singleton instance
-export const soundManager = new SoundManager();
+// Lazy singleton instance - only created when accessed on client side
+let _soundManager: SoundManager | null = null;
+
+function getSoundManager(): SoundManager {
+  if (typeof window === 'undefined') {
+    // Return a no-op proxy for SSR
+    return {
+      play: () => {},
+      playSequence: async () => {},
+      setEnabled: () => {},
+      isEnabled: () => false,
+      toggle: () => false,
+      setMasterVolume: () => {},
+      getMasterVolume: () => 1,
+      playTradeResult: () => {},
+      playStreakCelebration: () => {},
+      playLevelUp: () => {},
+    } as SoundManager;
+  }
+
+  if (!_soundManager) {
+    _soundManager = new SoundManager();
+  }
+  return _soundManager;
+}
+
+// Export getter instead of direct instance
+export const soundManager = {
+  get instance() {
+    return getSoundManager();
+  },
+  play: (type: SoundType) => getSoundManager().play(type),
+  playSequence: (types: SoundType[], delayMs?: number) => getSoundManager().playSequence(types, delayMs),
+  setEnabled: (enabled: boolean) => getSoundManager().setEnabled(enabled),
+  isEnabled: () => getSoundManager().isEnabled(),
+  toggle: () => getSoundManager().toggle(),
+  setMasterVolume: (volume: number) => getSoundManager().setMasterVolume(volume),
+  getMasterVolume: () => getSoundManager().getMasterVolume(),
+  playTradeResult: (isWin: boolean, profit: number) => getSoundManager().playTradeResult(isWin, profit),
+  playStreakCelebration: (streakLength: number) => getSoundManager().playStreakCelebration(streakLength),
+  playLevelUp: () => getSoundManager().playLevelUp(),
+};
 
 // Convenience functions
-export const playSound = (type: SoundType) => soundManager.play(type);
-export const toggleSound = () => soundManager.toggle();
-export const isSoundEnabled = () => soundManager.isEnabled();
-export const setSoundEnabled = (enabled: boolean) => soundManager.setEnabled(enabled);
+export const playSound = (type: SoundType) => getSoundManager().play(type);
+export const toggleSound = () => getSoundManager().toggle();
+export const isSoundEnabled = () => getSoundManager().isEnabled();
+export const setSoundEnabled = (enabled: boolean) => getSoundManager().setEnabled(enabled);
