@@ -134,10 +134,11 @@ contract AIAgentINFTTest is Test {
         bytes32 metadataHash = keccak256("test");
 
         vm.startPrank(user1);
-        crownToken.approve(address(aiAgentINFT), 50 ether);
+        // MIN_STAKE_NOVICE is 0.01 ether, so use less than that
+        crownToken.approve(address(aiAgentINFT), 0.001 ether);
 
         vm.expectRevert(AIAgentINFT.AIAgentINFT__InvalidStakeAmount.selector);
-        aiAgentINFT.mint(metadataRef, metadataHash, 50 ether, true);
+        aiAgentINFT.mint(metadataRef, metadataHash, 0.001 ether, true);
         vm.stopPrank();
     }
 
@@ -284,8 +285,10 @@ contract AIAgentINFTTest is Test {
         vm.warp(block.timestamp + 8 days);
 
         // Try to withdraw more than minimum allows
+        // MIN_STAKE_NOVICE is 0.01 ether, STAKE_AMOUNT is 500 ether
+        // Withdrawing 499.995 ether would leave only 0.005 ether (below minimum)
         vm.expectRevert(AIAgentINFT.AIAgentINFT__InsufficientStake.selector);
-        aiAgentINFT.withdrawStake(tokenId, 450 ether);
+        aiAgentINFT.withdrawStake(tokenId, 499.995 ether);
         vm.stopPrank();
     }
 

@@ -113,8 +113,8 @@ contract AIAgentINFT is ERC721Enumerable, Ownable, ReentrancyGuard {
     }
 
     // ============ Constants ============
-    // Testnet values (1 token minimum for easy testing)
-    uint256 public constant MIN_STAKE_NOVICE = 1 ether;
+    // Testnet values (0.01 token minimum for easy testing)
+    uint256 public constant MIN_STAKE_NOVICE = 0.01 ether;
     uint256 public constant MIN_STAKE_SKILLED = 5 ether;
     uint256 public constant MIN_STAKE_EXPERT = 20 ether;
     uint256 public constant MIN_STAKE_ORACLE = 100 ether;
