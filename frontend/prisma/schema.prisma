@@ -91,6 +91,41 @@ model TrackedTrader {
   @@unique([source, address])
 }
 
+// Copy trading: User follows whale
+model WhaleFollow {
+  id           String   @id @default(cuid())
+  userId       String   // User's wallet address as ID
+  userAddress  String   // User wallet address
+  whaleAddress String   // Whale trader address
+  config       String   // JSON config: { maxCopyAmount, copyPercentage, enabledSources, autoMirror }
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userAddress, whaleAddress])
+  @@index([whaleAddress])
+  @@index([isActive])
+}
+
+// Mirror copy trade execution log
+model MirrorCopyTrade {
+  id              String   @id @default(cuid())
+  userId          String   // User's wallet address as ID
+  whaleAddress    String
+  originalTradeId String   // Reference to WhaleTrade
+  mirrorKey       String   // Mirror market key
+  outcome         String   // 'yes' | 'no'
+  copyAmount      String   // Amount copied
+  status          String   @default("pending") // 'pending' | 'completed' | 'failed'
+  txHash          String?
+  vrfRequestId    String?  // VRF request ID if used
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([whaleAddress])
+  @@index([status])
+}
+
 // ============================================
 // USER AUTHENTICATION FOR EXTERNAL PLATFORMS
 // ============================================
@@ -420,6 +455,41 @@ model ArbitrageOpportunity {
 }
 
 // ============================================
+// AGENT TRADES (For tracking and performance updates)
+// ============================================
+
+model AgentTrade {
+  id              String   @id @default(cuid())
+  agentId         String   // iNFT token ID
+  marketId        String   // Flow chain market ID
+
+  // Trade details
+  isYes           Boolean
+  amount          String   // CRwN amount
+  txHash          String   // Trade transaction hash
+
+  // Copy trade info
+  isCopyTrade     Boolean  @default(false)
+  copiedFrom      String?  // Original agent if copy trade
+
+  // Resolution status
+  outcome         String?  // 'yes' | 'no' | null
+  won             Boolean?
+  pnl             String?  // Profit/loss
+
+  // Tracking
+  recordedOn0G    Boolean  @default(false) // Whether result was recorded on 0G
+  recordTxHash    String?  // 0G recordTrade tx hash
+
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+
+  @@index([agentId])
+  @@index([marketId])
+  @@index([recordedOn0G])
+}
+
+// ============================================
 // MIRROR MARKETS (Flow Chain)
 // ============================================
 
@@ -465,6 +535,7 @@ model MirrorTrade {
   id              String   @id @default(cuid())
   mirrorKey       String
   mirrorMarketId  String?
+  flowMarketId    String?  // Flow chain market ID
 
   // Trade details
   traderAddress   String
@@ -484,6 +555,10 @@ model MirrorTrade {
   // Prediction link (if verified)
   predictionId    String?
 
+  // Resolution status
+  pnl             String?  // Profit/loss after resolution
+  resolvedAt      DateTime?
+
   // 0G Storage
   storageRootHash String?
 
@@ -495,6 +570,7 @@ model MirrorTrade {
   @@index([mirrorKey])
   @@index([traderAddress])
   @@index([timestamp])
+  @@index([agentId])
 }
 
 // ============================================
@@ -562,4 +638,115 @@ model MarketSnapshot {
 
   @@index([marketId, source])
   @@index([timestamp])
+}
+
+// ============================================
+// PREDICTION ARENA (Warrior Debate Battles)
+// ============================================
+
+model PredictionBattle {
+  id                String   @id @default(cuid())
+
+  // External market link
+  externalMarketId  String
+  source            String   // 'polymarket' | 'kalshi'
+  question          String
+
+  // Warriors (WarriorsNFT tokenIds)
+  warrior1Id        Int      // YES side warrior
+  warrior1Owner     String
+  warrior2Id        Int      // NO side warrior
+  warrior2Owner     String
+
+  // Stakes & scores
+  stakes            String   // CRwN staked by each
+  warrior1Score     Int      @default(0)
+  warrior2Score     Int      @default(0)
+
+  // Battle state
+  status            String   @default("pending") // pending | active | completed | cancelled
+  currentRound      Int      @default(0)
+
+  // On-chain reference
+  onChainBattleId   String?  // Contract battle ID
+  txHash            String?
+
+  // 0G Storage
+  battleDataHash    String?  // Root hash of full battle data
+
+  createdAt         DateTime @default(now())
+  completedAt       DateTime?
+
+  // Relations
+  rounds            PredictionRound[]
+
+  @@index([status])
+  @@index([externalMarketId, source])
+  @@index([warrior1Id])
+  @@index([warrior2Id])
+}
+
+model PredictionRound {
+  id              String   @id @default(cuid())
+  battleId        String
+  roundNumber     Int      // 1-5
+
+  // Warrior 1 (YES) round data
+  w1Argument      String?  // AI-generated argument
+  w1Evidence      String?  // JSON array of sources
+  w1Move          String?  // STRIKE | TAUNT | DODGE | SPECIAL | RECOVER
+  w1Confidence    Int?     // 0-100
+  w1Score         Int      @default(0)
+
+  // Warrior 2 (NO) round data
+  w2Argument      String?
+  w2Evidence      String?
+  w2Move          String?
+  w2Confidence    Int?
+  w2Score         Int      @default(0)
+
+  // Round resolution
+  roundWinner     String?  // 'warrior1' | 'warrior2' | 'draw'
+  judgeReasoning  String?  // AI explanation
+
+  // 0G Storage
+  argumentsHash   String?  // Hash of arguments stored in 0G
+
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+
+  battle          PredictionBattle @relation(fields: [battleId], references: [id], onDelete: Cascade)
+
+  @@unique([battleId, roundNumber])
+  @@index([battleId])
+}
+
+model WarriorArenaStats {
+  id              String   @id @default(cuid())
+  warriorId       Int      @unique // WarriorsNFT tokenId
+
+  // Win/Loss record
+  totalBattles    Int      @default(0)
+  wins            Int      @default(0)
+  losses          Int      @default(0)
+  draws           Int      @default(0)
+
+  // Performance
+  totalEarnings   String   @default("0")
+  avgScore        Float?
+
+  // Streaks
+  currentStreak   Int      @default(0)
+  longestStreak   Int      @default(0)
+
+  // Elo-style rating
+  arenaRating     Int      @default(1000)
+  peakRating      Int      @default(1000)
+
+  // Category performance (JSON)
+  categoryStats   String?  // { "crypto": { wins: 5, losses: 2 }, ... }
+
+  updatedAt       DateTime @updatedAt
+
+  @@index([arenaRating])
 }
