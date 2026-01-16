@@ -400,41 +400,18 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Ensure ledger exists and has sufficient balance
-    const MIN_LEDGER_BALANCE = 0.5; // Minimum balance to attempt inference
-    const DEPOSIT_AMOUNT = 1.0; // Amount to deposit when balance is low
-
+    // Check ledger exists - balance check is unreliable as SDK may return raw wei values
+    // We'll let the actual inference fail if there's truly insufficient balance
     try {
       const ledgerInfo = await broker.ledger.getLedger();
-      console.log('[0G] Ledger found:', ledgerInfo);
-
-      // Check if balance is sufficient - auto-deposit if low
-      const balance = parseFloat(ledgerInfo?.balance?.toString() || '0');
-      if (balance < MIN_LEDGER_BALANCE) {
-        console.warn(`[0G] Ledger balance low: ${balance} OG, attempting to deposit ${DEPOSIT_AMOUNT} OG...`);
-        try {
-          await broker.ledger.depositFund(DEPOSIT_AMOUNT);
-          console.log(`[0G] Deposited ${DEPOSIT_AMOUNT} OG to ledger`);
-        } catch (depositErr: any) {
-          if (depositErr.message?.includes('insufficient')) {
-            return NextResponse.json({
-              success: false,
-              error: 'Insufficient wallet balance to fund ledger.',
-              errorCode: ERROR_CODES.WALLET_NO_BALANCE,
-              isVerified: false,
-              message: `Wallet balance too low to deposit to ledger. Current ledger balance: ${balance} OG`,
-              diagnosticUrl: '/api/0g/health',
-            }, { status: 503 });
-          }
-          console.warn('[0G] Deposit warning:', depositErr.message);
-        }
-      }
+      console.log('[0G] Ledger found:', JSON.stringify(ledgerInfo));
+      // Ledger exists, proceed with inference
     } catch (ledgerError: any) {
-      console.log('[0G] Ledger not found, creating new one...');
+      console.log('[0G] Ledger not found or error, creating new one...');
       // Create ledger if it doesn't exist
       try {
-        await broker.ledger.depositFund(DEPOSIT_AMOUNT);
-        console.log(`[0G] Ledger created with ${DEPOSIT_AMOUNT} OG deposit`);
+        await broker.ledger.depositFund(0.1); // Small initial deposit
+        console.log('[0G] Ledger created with 0.1 OG deposit');
       } catch (depositError: any) {
         if (depositError.message?.includes('already exists')) {
           console.log('[0G] Ledger already exists');
@@ -449,8 +426,8 @@ export async function POST(request: NextRequest) {
             diagnosticUrl: '/api/0g/health',
           }, { status: 503 });
         } else {
-          console.error('[0G] Ledger creation error:', depositError.message);
-          // Continue anyway - ledger might exist
+          console.error('[0G] Ledger error:', depositError.message);
+          // Continue anyway - ledger might exist with funds from previous deposit
         }
       }
     }
