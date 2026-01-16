@@ -4,7 +4,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { WhaleTrade, MarketSource, TrackedTrader } from '@/types/externalMarket';
+import {
+  WhaleTrade,
+  MarketSource,
+  TrackedTrader,
+  WhaleStats,
+  HotMarket,
+  TopWhale,
+} from '@/types/externalMarket';
 
 // ============================================
 // TYPES
@@ -282,6 +289,141 @@ export function useTraderTrades(address: string | null) {
     loading,
     error,
     refetch: fetchTrades,
+  };
+}
+
+// ============================================
+// HOOK: useWhaleStats
+// ============================================
+
+export function useWhaleStats() {
+  const [stats, setStats] = useState<WhaleStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch('/api/whale-alerts/stats');
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch whale stats');
+      }
+
+      setStats(data.data);
+    } catch (err) {
+      console.error('[useWhaleStats] Error:', err);
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+    // Refresh every 60 seconds
+    const interval = setInterval(fetchStats, 60000);
+    return () => clearInterval(interval);
+  }, [fetchStats]);
+
+  return {
+    stats,
+    loading,
+    error,
+    refetch: fetchStats,
+  };
+}
+
+// ============================================
+// HOOK: useHotMarkets
+// ============================================
+
+export function useHotMarkets(limit: number = 5) {
+  const [hotMarkets, setHotMarkets] = useState<HotMarket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchHotMarkets = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(`/api/whale-alerts/hot-markets?limit=${limit}`);
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch hot markets');
+      }
+
+      setHotMarkets(data.data.hotMarkets || []);
+    } catch (err) {
+      console.error('[useHotMarkets] Error:', err);
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [limit]);
+
+  useEffect(() => {
+    fetchHotMarkets();
+    // Refresh every 60 seconds
+    const interval = setInterval(fetchHotMarkets, 60000);
+    return () => clearInterval(interval);
+  }, [fetchHotMarkets]);
+
+  return {
+    hotMarkets,
+    loading,
+    error,
+    refetch: fetchHotMarkets,
+  };
+}
+
+// ============================================
+// HOOK: useTopWhales
+// ============================================
+
+export function useTopWhales(limit: number = 5) {
+  const [topWhales, setTopWhales] = useState<TopWhale[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTopWhales = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(`/api/whale-alerts/top-whales?limit=${limit}`);
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch top whales');
+      }
+
+      setTopWhales(data.data.topWhales || []);
+    } catch (err) {
+      console.error('[useTopWhales] Error:', err);
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [limit]);
+
+  useEffect(() => {
+    fetchTopWhales();
+    // Refresh every 60 seconds
+    const interval = setInterval(fetchTopWhales, 60000);
+    return () => clearInterval(interval);
+  }, [fetchTopWhales]);
+
+  return {
+    topWhales,
+    loading,
+    error,
+    refetch: fetchTopWhales,
   };
 }
 

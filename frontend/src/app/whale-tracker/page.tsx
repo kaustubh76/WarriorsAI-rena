@@ -5,10 +5,33 @@ import Link from 'next/link';
 import { WhaleAlertFeed } from '@/components/whale/WhaleAlertFeed';
 import { WhaleAlertCard } from '@/components/whale/WhaleAlertCard';
 import { TrackedTradersList } from '@/components/whale/TrackedTradersList';
-import { useWhaleHistory, useTrackedTraders } from '@/hooks/useWhaleAlerts';
+import {
+  useWhaleHistory,
+  useTrackedTraders,
+  useWhaleStats,
+  useHotMarkets,
+  useTopWhales,
+} from '@/hooks/useWhaleAlerts';
 import { MarketSource, TrackedTrader } from '@/types/externalMarket';
 
 type Tab = 'live' | 'history' | 'traders';
+
+// Helper functions for formatting
+function formatVolume(amount: number): string {
+  if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`;
+  if (amount >= 1000) return `$${(amount / 1000).toFixed(1)}K`;
+  return `$${amount.toFixed(0)}`;
+}
+
+function formatChange(change: number): string {
+  const sign = change >= 0 ? '+' : '';
+  return `${sign}${change.toFixed(0)}%`;
+}
+
+function shortenAddress(address: string): string {
+  if (address.length <= 10) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
 
 export default function WhaleTrackerPage() {
   const [activeTab, setActiveTab] = useState<Tab>('live');
@@ -18,10 +41,12 @@ export default function WhaleTrackerPage() {
   const {
     trades: historicalTrades,
     loading: historyLoading,
-    refetch: refetchHistory,
   } = useWhaleHistory(50, sourceFilter || undefined);
 
   const { traders } = useTrackedTraders();
+  const { stats, loading: statsLoading } = useWhaleStats();
+  const { hotMarkets, loading: hotMarketsLoading } = useHotMarkets(5);
+  const { topWhales, loading: topWhalesLoading } = useTopWhales(5);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
@@ -44,7 +69,7 @@ export default function WhaleTrackerPage() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-gray-400 text-sm">
-                {traders.length} traders tracked
+                {stats?.trackedTraderCount ?? traders.length} traders tracked
               </span>
             </div>
           </div>
@@ -54,28 +79,33 @@ export default function WhaleTrackerPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <StatCard
             label="24h Whale Volume"
-            value="$2.4M"
-            change="+12%"
+            value={statsLoading ? '...' : formatVolume(stats?.totalVolume24h ?? 0)}
+            change={stats?.volumeChange24h !== undefined ? formatChange(stats.volumeChange24h) : undefined}
             icon="💰"
-            positive
+            positive={stats?.volumeChange24h !== undefined ? stats.volumeChange24h >= 0 : undefined}
+            loading={statsLoading}
           />
           <StatCard
             label="Large Trades (24h)"
-            value="127"
-            change="+8"
+            value={statsLoading ? '...' : (stats?.tradeCount24h ?? 0).toString()}
+            change={stats?.tradeCountChange !== undefined ? formatChange(stats.tradeCountChange) : undefined}
             icon="📊"
-            positive
+            positive={stats?.tradeCountChange !== undefined ? stats.tradeCountChange >= 0 : undefined}
+            loading={statsLoading}
           />
           <StatCard
             label="Tracked Whales"
-            value={traders.length.toString()}
+            value={(stats?.trackedTraderCount ?? traders.length).toString()}
             icon="👀"
+            loading={statsLoading}
           />
           <StatCard
             label="Avg Trade Size"
-            value="$18.9K"
-            change="-3%"
+            value={statsLoading ? '...' : formatVolume(stats?.avgTradeSize ?? 0)}
+            change={stats?.avgTradeSizeChange !== undefined ? formatChange(stats.avgTradeSizeChange) : undefined}
             icon="📈"
+            positive={stats?.avgTradeSizeChange !== undefined ? stats.avgTradeSizeChange >= 0 : undefined}
+            loading={statsLoading}
           />
         </div>
 
@@ -161,28 +191,31 @@ export default function WhaleTrackerPage() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Quick Stats */}
+            {/* Hot Markets */}
             <div className="bg-gray-900/50 rounded-xl p-6 border border-gray-700">
               <h3 className="text-lg font-bold text-white mb-4">
                 🔥 Hot Markets
               </h3>
-              <div className="space-y-3">
-                <HotMarketItem
-                  question="Will BTC hit $100K?"
-                  whaleCount={23}
-                  bullishPercent={78}
-                />
-                <HotMarketItem
-                  question="2024 Election Winner"
-                  whaleCount={18}
-                  bullishPercent={52}
-                />
-                <HotMarketItem
-                  question="Fed Rate Cut?"
-                  whaleCount={15}
-                  bullishPercent={65}
-                />
-              </div>
+              {hotMarketsLoading ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500" />
+                </div>
+              ) : hotMarkets.length === 0 ? (
+                <div className="text-center py-4 text-gray-500 text-sm">
+                  No hot markets yet
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {hotMarkets.map((market) => (
+                    <HotMarketItem
+                      key={market.marketId}
+                      question={market.question}
+                      whaleCount={market.whaleTradeCount}
+                      bullishPercent={market.bullishPercent}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Top Whales */}
@@ -190,26 +223,27 @@ export default function WhaleTrackerPage() {
               <h3 className="text-lg font-bold text-white mb-4">
                 🏆 Top Whales (24h)
               </h3>
-              <div className="space-y-3">
-                <TopWhaleItem
-                  address="0x7a16..."
-                  volume="$420K"
-                  winRate={73}
-                  rank={1}
-                />
-                <TopWhaleItem
-                  address="0x3f82..."
-                  volume="$312K"
-                  winRate={68}
-                  rank={2}
-                />
-                <TopWhaleItem
-                  address="0x9c4d..."
-                  volume="$287K"
-                  winRate={71}
-                  rank={3}
-                />
-              </div>
+              {topWhalesLoading ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500" />
+                </div>
+              ) : topWhales.length === 0 ? (
+                <div className="text-center py-4 text-gray-500 text-sm">
+                  No whale activity yet
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {topWhales.map((whale, index) => (
+                    <TopWhaleItem
+                      key={`${whale.address}-${whale.source}`}
+                      address={whale.alias || shortenAddress(whale.address)}
+                      volume={formatVolume(whale.volume24h)}
+                      winRate={Math.round(whale.winRate * 100)}
+                      rank={index + 1}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Alert Settings */}
@@ -222,12 +256,15 @@ export default function WhaleTrackerPage() {
                   <label className="text-gray-400 text-sm">
                     Min Alert Amount
                   </label>
-                  <select className="w-full mt-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white">
-                    <option>$1,000+</option>
-                    <option>$5,000+</option>
-                    <option selected>$10,000+</option>
-                    <option>$50,000+</option>
-                    <option>$100,000+</option>
+                  <select
+                    className="w-full mt-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
+                    defaultValue="10000"
+                  >
+                    <option value="1000">$1,000+</option>
+                    <option value="5000">$5,000+</option>
+                    <option value="10000">$10,000+</option>
+                    <option value="50000">$50,000+</option>
+                    <option value="100000">$100,000+</option>
                   </select>
                 </div>
                 <div className="flex items-center justify-between">
@@ -258,28 +295,34 @@ function StatCard({
   change,
   icon,
   positive,
+  loading,
 }: {
   label: string;
   value: string;
   change?: string;
   icon: string;
   positive?: boolean;
+  loading?: boolean;
 }) {
   return (
     <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-700">
       <div className="flex items-center justify-between mb-2">
         <span className="text-2xl">{icon}</span>
-        {change && (
+        {change && !loading && (
           <span
             className={`text-xs ${
-              positive ? 'text-green-400' : change.startsWith('-') ? 'text-red-400' : 'text-gray-400'
+              positive ? 'text-green-400' : 'text-red-400'
             }`}
           >
             {change}
           </span>
         )}
       </div>
-      <div className="text-white text-2xl font-bold">{value}</div>
+      {loading ? (
+        <div className="h-8 w-20 bg-gray-700 animate-pulse rounded" />
+      ) : (
+        <div className="text-white text-2xl font-bold">{value}</div>
+      )}
       <div className="text-gray-400 text-sm">{label}</div>
     </div>
   );
@@ -322,7 +365,7 @@ function TopWhaleItem({
   winRate: number;
   rank: number;
 }) {
-  const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
+  const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
 
   return (
     <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
