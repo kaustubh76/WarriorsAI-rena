@@ -6,6 +6,12 @@
  * - Gamma API (https://gamma-api.polymarket.com) - Market discovery & metadata
  * - CLOB API (https://clob.polymarket.com) - Trading, orderbooks, prices
  * - WebSocket (wss://ws-subscriptions-clob.polymarket.com) - Real-time updates
+ *
+ * Robustness Features:
+ * - Schema validation with Zod
+ * - Adaptive rate limiting
+ * - Production-ready WebSocket with reconnection
+ * - Monitoring integration
  */
 
 import {
@@ -22,6 +28,16 @@ import {
   polymarketCircuit,
   withRetry,
 } from '@/lib/rateLimiter';
+import { polymarketAdaptiveRateLimiter } from '@/lib/adaptiveRateLimiter';
+import { polymarketWS, type PriceCallback } from './polymarketWebSocket';
+import { monitoredCall } from './monitoring';
+import {
+  PolymarketMarketsResponseSchema,
+  PolymarketMarketSchema,
+  PolymarketOrderbookSchema,
+  PolymarketTradesResponseSchema,
+  safeValidatePolymarket,
+} from './schemas/polymarketSchemas';
 
 // ============================================
 // CONSTANTS
@@ -38,6 +54,7 @@ const WHALE_THRESHOLD = 10000; // $10k USD
 // ============================================
 
 class PolymarketService {
+  // Legacy WebSocket (kept for backward compatibility)
   private wsConnection: WebSocket | null = null;
   private priceCallbacks: Map<string, ((price: number) => void)[]> = new Map();
 
@@ -47,55 +64,81 @@ class PolymarketService {
 
   /**
    * Get active markets from Polymarket
+   * Uses schema validation and adaptive rate limiting
    */
   async getActiveMarkets(
     limit: number = 100,
     offset: number = 0
   ): Promise<PolymarketMarket[]> {
-    return polymarketCircuit.execute(async () => {
-      await polymarketRateLimiter.acquire();
+    return monitoredCall(
+      'polymarket',
+      'getActiveMarkets',
+      async () => {
+        return polymarketCircuit.execute(async () => {
+          await polymarketAdaptiveRateLimiter.acquire();
 
-      const response = await withRetry(() =>
-        fetch(
-          `${GAMMA_API_BASE}/markets?` +
-            new URLSearchParams({
-              limit: limit.toString(),
-              offset: offset.toString(),
-              active: 'true',
-              closed: 'false',
-            })
-        )
-      );
+          const response = await withRetry(() =>
+            fetch(
+              `${GAMMA_API_BASE}/markets?` +
+                new URLSearchParams({
+                  limit: limit.toString(),
+                  offset: offset.toString(),
+                  active: 'true',
+                  closed: 'false',
+                })
+            )
+          );
 
-      if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-      }
+          polymarketAdaptiveRateLimiter.updateFromHeaders(response.headers);
 
-      return response.json();
-    });
+          if (!response.ok) {
+            throw new Error(`Polymarket API error: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          // Validate response (soft validation - returns raw on failure)
+          const markets = Array.isArray(data) ? data : data.markets || [];
+          return markets.map((m: unknown) =>
+            safeValidatePolymarket(m, PolymarketMarketSchema, 'getActiveMarkets') || m
+          ) as PolymarketMarket[];
+        });
+      },
+      { limit, offset }
+    );
   }
 
   /**
    * Get a single market by condition ID
    */
   async getMarket(conditionId: string): Promise<PolymarketMarket | null> {
-    return polymarketCircuit.execute(async () => {
-      await polymarketRateLimiter.acquire();
+    return monitoredCall(
+      'polymarket',
+      'getMarket',
+      async () => {
+        return polymarketCircuit.execute(async () => {
+          await polymarketAdaptiveRateLimiter.acquire();
 
-      const response = await withRetry(() =>
-        fetch(`${GAMMA_API_BASE}/markets/${conditionId}`)
-      );
+          const response = await withRetry(() =>
+            fetch(`${GAMMA_API_BASE}/markets/${conditionId}`)
+          );
 
-      if (response.status === 404) {
-        return null;
-      }
+          polymarketAdaptiveRateLimiter.updateFromHeaders(response.headers);
 
-      if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-      }
+          if (response.status === 404) {
+            return null;
+          }
 
-      return response.json();
-    });
+          if (!response.ok) {
+            throw new Error(`Polymarket API error: ${response.status}`);
+          }
+
+          const data = await response.json();
+          return safeValidatePolymarket(data, PolymarketMarketSchema, 'getMarket') || data;
+        });
+      },
+      { conditionId }
+    );
   }
 
   /**
@@ -298,79 +341,87 @@ class PolymarketService {
 
   /**
    * Connect to WebSocket for real-time price updates
+   * Uses robust WebSocket manager with reconnection support
    */
   connectPriceStream(
     tokenIds: string[],
     callback: (tokenId: string, price: number) => void
   ): void {
+    // Disconnect legacy connection if exists
     if (this.wsConnection) {
-      this.disconnectPriceStream();
+      this.wsConnection.close();
+      this.wsConnection = null;
     }
+    this.priceCallbacks.clear();
 
-    try {
-      this.wsConnection = new WebSocket(WS_BASE);
-
-      this.wsConnection.onopen = () => {
-        console.log('[Polymarket WS] Connected');
-
-        // Subscribe to price channels for each token
-        for (const tokenId of tokenIds) {
-          this.wsConnection?.send(
-            JSON.stringify({
-              type: 'subscribe',
-              channel: 'market',
-              markets: [tokenId],
-            })
-          );
-
-          // Store callback for this token
-          if (!this.priceCallbacks.has(tokenId)) {
-            this.priceCallbacks.set(tokenId, []);
+    // Use robust WebSocket manager
+    polymarketWS.connect().then(() => {
+      for (const tokenId of tokenIds) {
+        const unsubscribe = polymarketWS.subscribe(tokenId, (data) => {
+          if (data.price) {
+            const price = parseFloat(data.price);
+            callback(tokenId, price);
+          } else if (data.last_price) {
+            const price = parseFloat(data.last_price);
+            callback(tokenId, price);
           }
-          this.priceCallbacks.get(tokenId)!.push((price) =>
-            callback(tokenId, price)
-          );
+        });
+
+        // Store unsubscribe function (for backward compatibility tracking)
+        if (!this.priceCallbacks.has(tokenId)) {
+          this.priceCallbacks.set(tokenId, []);
         }
-      };
+      }
+    }).catch((err) => {
+      console.error('[Polymarket] WebSocket connection failed:', err);
+    });
+  }
 
-      this.wsConnection.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
+  /**
+   * Connect using robust WebSocket with type-safe callback
+   * Preferred method for new code
+   */
+  connectRobustPriceStream(
+    tokenIds: string[],
+    callback: PriceCallback
+  ): () => void {
+    const unsubscribers: (() => void)[] = [];
 
-          if (data.type === 'price_change' && data.asset_id) {
-            const callbacks = this.priceCallbacks.get(data.asset_id);
-            if (callbacks) {
-              const price = parseFloat(data.price);
-              callbacks.forEach((cb) => cb(price));
-            }
-          }
-        } catch (error) {
-          console.error('[Polymarket WS] Error parsing message:', error);
-        }
-      };
+    polymarketWS.connect().then(() => {
+      for (const tokenId of tokenIds) {
+        const unsub = polymarketWS.subscribe(tokenId, callback);
+        unsubscribers.push(unsub);
+      }
+    }).catch((err) => {
+      console.error('[Polymarket] Robust WebSocket connection failed:', err);
+    });
 
-      this.wsConnection.onerror = (error) => {
-        console.error('[Polymarket WS] Error:', error);
-      };
-
-      this.wsConnection.onclose = () => {
-        console.log('[Polymarket WS] Disconnected');
-        this.wsConnection = null;
-      };
-    } catch (error) {
-      console.error('[Polymarket WS] Connection error:', error);
-    }
+    // Return cleanup function
+    return () => {
+      unsubscribers.forEach((unsub) => unsub());
+    };
   }
 
   /**
    * Disconnect WebSocket
    */
   disconnectPriceStream(): void {
+    // Disconnect legacy
     if (this.wsConnection) {
       this.wsConnection.close();
       this.wsConnection = null;
-      this.priceCallbacks.clear();
     }
+    this.priceCallbacks.clear();
+
+    // Disconnect robust WebSocket
+    polymarketWS.disconnect();
+  }
+
+  /**
+   * Check WebSocket connection state
+   */
+  isWebSocketConnected(): boolean {
+    return polymarketWS.isConnected();
   }
 
   // ============================================

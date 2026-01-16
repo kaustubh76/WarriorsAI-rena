@@ -1,6 +1,11 @@
 /**
  * External Markets Service - Main Aggregator
  * Unifies Polymarket and Kalshi market data
+ *
+ * Robustness Features:
+ * - Monitoring integration
+ * - Schema validation (via underlying services)
+ * - Adaptive rate limiting (via underlying services)
  */
 
 import { prisma } from '@/lib/prisma';
@@ -15,6 +20,15 @@ import {
   ArbitrageOpportunity,
   WhaleTrade,
 } from '@/types/externalMarket';
+import { monitoredCall, externalMarketMonitor } from './monitoring';
+
+// Re-export monitoring for external access
+export { externalMarketMonitor } from './monitoring';
+
+// Re-export robust modules
+export { polymarketWS } from './polymarketWebSocket';
+export { kalshiAuth, kalshiTrading, kalshiWS, checkKalshiEligibility } from './kalshiService';
+export * from './schemas';
 
 // ============================================
 // CONSTANTS

@@ -11,6 +11,7 @@ export enum MarketSource {
   NATIVE = 'native',
   POLYMARKET = 'polymarket',
   KALSHI = 'kalshi',
+  OPINION = 'opinion',
 }
 
 export enum ExternalMarketStatus {
@@ -173,6 +174,49 @@ export interface KalshiOrderbook {
 export interface KalshiOrderbookSide {
   price: number[];
   quantity: number[];
+}
+
+// ============================================
+// OPINION TYPES
+// ============================================
+
+export interface OpinionMarket {
+  marketId: number;
+  marketTitle: string;
+  status: number;
+  statusEnum: string;
+  marketType: number; // 0=Binary, 1=Categorical
+  yesLabel?: string;
+  noLabel?: string;
+  volume: string;
+  volume24h?: string;
+  volume7d?: string;
+  quoteToken: string;
+  chainId: string;
+  yesTokenId: string;
+  noTokenId: string;
+  conditionId?: string;
+  resultTokenId?: string;
+  createdAt: string;
+  cutoffAt: string;
+  resolvedAt?: string;
+  childMarkets?: OpinionMarket[];
+}
+
+export interface OpinionPrice {
+  tokenId: string;
+  price: string;
+  side: string;
+  size: string;
+  timestamp: number;
+}
+
+export interface OpinionPriceHistory {
+  tokenId: string;
+  prices: Array<{
+    price: string;
+    timestamp: number;
+  }>;
 }
 
 // ============================================
@@ -510,4 +554,36 @@ export interface MarketShare {
   platform: 'twitter' | 'discord' | 'telegram';
   shareUrl?: string;
   createdAt: number;
+}
+
+// ============================================
+// WHALE STATS & AGGREGATIONS
+// ============================================
+
+export interface WhaleStats {
+  totalVolume24h: number;
+  tradeCount24h: number;
+  avgTradeSize: number;
+  volumeChange24h: number;
+  tradeCountChange: number;
+  avgTradeSizeChange: number;
+  trackedTraderCount: number;
+}
+
+export interface HotMarket {
+  marketId: string;
+  question: string;
+  source: MarketSource;
+  whaleTradeCount: number;
+  bullishPercent: number;
+  totalVolume: number;
+}
+
+export interface TopWhale {
+  address: string;
+  alias?: string;
+  source: MarketSource;
+  volume24h: number;
+  winRate: number;
+  tradeCount: number;
 }

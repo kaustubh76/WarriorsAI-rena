@@ -2,6 +2,11 @@
  * Whale Tracker Service
  * Tracks large trades on Polymarket and Kalshi
  * Supports WebSocket real-time and polling fallback
+ *
+ * Robustness Features:
+ * - WebSocket-based real-time tracking via robust WebSocket managers
+ * - Monitoring integration for observability
+ * - Schema validation for trade data
  */
 
 import { prisma } from '@/lib/prisma';
@@ -13,6 +18,9 @@ import {
   TrackedTrader,
 } from '@/types/externalMarket';
 import { parseEther } from 'viem';
+import { monitoredCall, externalMarketMonitor } from './monitoring';
+import { polymarketWS } from './polymarketWebSocket';
+import { kalshiWS } from './kalshiWebSocket';
 
 // ============================================
 // CONSTANTS

@@ -5,7 +5,14 @@
  * API: https://api.elections.kalshi.com/trade-api/v2
  * Docs: https://docs.kalshi.com
  *
- * Authentication: API key + JWT (30-min expiry)
+ * Authentication: API key + JWT (30-min expiry with auto-refresh)
+ *
+ * Robustness Features:
+ * - Schema validation with Zod
+ * - Adaptive rate limiting with header parsing
+ * - Automatic token refresh
+ * - Monitoring integration
+ * - Full trading API support
  */
 
 import {
@@ -18,6 +25,17 @@ import {
   WhaleTrade,
 } from '@/types/externalMarket';
 import { kalshiRateLimiter, kalshiCircuit, withRetry } from '@/lib/rateLimiter';
+import { kalshiAdaptiveRateLimiter } from '@/lib/adaptiveRateLimiter';
+import { kalshiAuth } from './kalshiAuth';
+import { kalshiTrading } from './kalshiTrading';
+import { kalshiWS, type KalshiWSMessage } from './kalshiWebSocket';
+import { monitoredCall } from './monitoring';
+import {
+  KalshiMarketsResponseSchema,
+  KalshiMarketSchema,
+  KalshiTradesResponseSchema,
+  safeValidateKalshi,
+} from './schemas/kalshiSchemas';
 
 // ============================================
 // CONSTANTS
@@ -50,6 +68,7 @@ interface KalshiTradesResponse {
 // ============================================
 
 class KalshiService {
+  // Legacy auth state (kept for backward compatibility)
   private authToken: string | null = null;
   private tokenExpiry: number = 0;
   private memberId: string | null = null;
@@ -60,50 +79,42 @@ class KalshiService {
 
   /**
    * Authenticate with Kalshi API using API key
+   * Uses the robust KalshiAuthManager with auto-refresh
    * Note: For server-side use only - never expose API keys client-side
    */
   async authenticate(apiKeyId: string, privateKey: string): Promise<void> {
-    const timestamp = Math.floor(Date.now() / 1000);
+    // Use the robust auth manager
+    kalshiAuth.setCredentials({ apiKeyId, privateKey });
+    await kalshiAuth.authenticate();
 
-    // Create signature for authentication
-    // Kalshi uses RSA signature with timestamp
-    const response = await withRetry(() =>
-      fetch(`${KALSHI_API_BASE}/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: apiKeyId,
-          password: privateKey,
-        }),
-      })
-    );
-
-    if (!response.ok) {
-      throw new Error(`Kalshi authentication failed: ${response.status}`);
-    }
-
-    const data: KalshiAuthResponse = await response.json();
-    this.authToken = data.token;
-    this.memberId = data.member_id;
-    this.tokenExpiry = Date.now() + 25 * 60 * 1000; // Refresh 5 min before expiry
+    // Also set legacy state for backward compatibility
+    const token = await kalshiAuth.getValidToken();
+    this.authToken = token;
+    this.memberId = kalshiAuth.getUserId();
+    this.tokenExpiry = Date.now() + 25 * 60 * 1000;
   }
 
   /**
-   * Refresh token if expired
+   * Refresh token if expired (now uses robust auth manager)
    */
   async refreshToken(): Promise<void> {
-    if (!this.authToken || Date.now() >= this.tokenExpiry) {
-      throw new Error('No valid token to refresh - please re-authenticate');
+    if (!kalshiAuth.hasCredentials()) {
+      throw new Error('No credentials configured - please authenticate first');
     }
+
+    // Auth manager handles refresh automatically
+    await kalshiAuth.authenticate();
+
+    // Update legacy state
+    this.authToken = await kalshiAuth.getValidToken();
+    this.tokenExpiry = Date.now() + 25 * 60 * 1000;
   }
 
   /**
    * Check if authenticated
    */
   isAuthenticated(): boolean {
-    return !!this.authToken && Date.now() < this.tokenExpiry;
+    return kalshiAuth.isAuthenticated();
   }
 
   /**
@@ -121,40 +132,70 @@ class KalshiService {
     return headers;
   }
 
+  /**
+   * Get authorization headers using robust auth manager
+   * Preferred method for new code
+   */
+  async getAuthHeaders(): Promise<Record<string, string>> {
+    if (kalshiAuth.isAuthenticated()) {
+      return kalshiAuth.getAuthHeaders();
+    }
+    return this.getHeaders();
+  }
+
   // ============================================
   // MARKET DATA (Public - No Auth Required)
   // ============================================
 
   /**
    * Get markets from Kalshi
+   * Uses adaptive rate limiting and schema validation
    */
   async getMarkets(
     status?: string,
     limit: number = 100,
     cursor?: string
   ): Promise<KalshiMarketsResponse> {
-    return kalshiCircuit.execute(async () => {
-      await kalshiRateLimiter.acquire();
+    return monitoredCall(
+      'kalshi',
+      'getMarkets',
+      async () => {
+        return kalshiCircuit.execute(async () => {
+          await kalshiAdaptiveRateLimiter.acquire();
 
-      const params = new URLSearchParams({
-        limit: limit.toString(),
-      });
+          const params = new URLSearchParams({
+            limit: limit.toString(),
+          });
 
-      if (status) params.append('status', status);
-      if (cursor) params.append('cursor', cursor);
+          if (status) params.append('status', status);
+          if (cursor) params.append('cursor', cursor);
 
-      const response = await withRetry(() =>
-        fetch(`${KALSHI_API_BASE}/markets?${params}`, {
-          headers: this.getHeaders(),
-        })
-      );
+          const response = await withRetry(() =>
+            fetch(`${KALSHI_API_BASE}/markets?${params}`, {
+              headers: this.getHeaders(),
+            })
+          );
 
-      if (!response.ok) {
-        throw new Error(`Kalshi API error: ${response.status}`);
-      }
+          kalshiAdaptiveRateLimiter.updateFromHeaders(response.headers);
 
-      return response.json();
-    });
+          if (!response.ok) {
+            throw new Error(`Kalshi API error: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          // Validate response (soft validation)
+          const validated = safeValidateKalshi(
+            data,
+            KalshiMarketsResponseSchema,
+            'getMarkets'
+          );
+
+          return validated || data;
+        });
+      },
+      { status, limit }
+    );
   }
 
   /**
@@ -446,6 +487,63 @@ class KalshiService {
       return data.events || [];
     });
   }
+
+  // ============================================
+  // TRADING API (via kalshiTrading)
+  // ============================================
+
+  /**
+   * Get trading service for order management
+   * Use this for placing/canceling orders
+   */
+  get trading() {
+    return kalshiTrading;
+  }
+
+  // ============================================
+  // WEBSOCKET (via kalshiWS)
+  // ============================================
+
+  /**
+   * Subscribe to orderbook updates
+   */
+  subscribeToOrderbook(
+    ticker: string,
+    callback: (msg: KalshiWSMessage) => void
+  ): () => void {
+    return kalshiWS.subscribeToOrderbook(ticker, callback);
+  }
+
+  /**
+   * Subscribe to trade updates
+   */
+  subscribeToTrades(
+    ticker: string,
+    callback: (msg: KalshiWSMessage) => void
+  ): () => void {
+    return kalshiWS.subscribeToTrades(ticker, callback);
+  }
+
+  /**
+   * Connect to WebSocket
+   */
+  async connectWebSocket(): Promise<void> {
+    return kalshiWS.connect();
+  }
+
+  /**
+   * Disconnect WebSocket
+   */
+  disconnectWebSocket(): void {
+    kalshiWS.disconnect();
+  }
+
+  /**
+   * Check WebSocket connection state
+   */
+  isWebSocketConnected(): boolean {
+    return kalshiWS.isConnected();
+  }
 }
 
 // ============================================
@@ -454,3 +552,13 @@ class KalshiService {
 
 export const kalshiService = new KalshiService();
 export default kalshiService;
+
+// Re-export related modules for convenience
+export { kalshiAuth } from './kalshiAuth';
+export { kalshiTrading, type KalshiOrderRequest } from './kalshiTrading';
+export { kalshiWS, type KalshiWSMessage } from './kalshiWebSocket';
+export {
+  checkKalshiEligibility,
+  requireKalshiEligibility,
+  KalshiComplianceError,
+} from './kalshiCompliance';
