@@ -10,6 +10,7 @@ import {
   ERC20_ABI,
   getServerPrivateKey,
 } from '@/lib/apiConfig';
+import { prisma } from '@/lib/prisma';
 
 // Copy trade config from AIAgentINFT (0G chain)
 interface CopyTradeConfig {
@@ -244,6 +245,25 @@ export async function POST(request: NextRequest) {
           txHash: receipt.hash,
           tokensReceived
         });
+
+        // Track copy trade in database for PnL calculation
+        try {
+          await prisma.agentTrade.create({
+            data: {
+              agentId: agentId.toString(),
+              marketId: marketId.toString(),
+              isYes: isYes,
+              amount: tradeAmount.toString(),
+              txHash: receipt.hash,
+              isCopyTrade: true,
+              copiedFrom: agentId.toString(),
+              recordedOn0G: false,
+            }
+          });
+          console.log(`   📊 Copy trade tracked for follower ${follower.slice(0, 8)}...`);
+        } catch (dbError) {
+          console.error('   ⚠️ Failed to track copy trade in database:', dbError);
+        }
 
         successCount++;
         totalVolume += tradeAmount;

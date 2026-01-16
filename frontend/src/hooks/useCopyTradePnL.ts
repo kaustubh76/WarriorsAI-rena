@@ -15,6 +15,19 @@ import { formatEther, parseEther, type Address } from 'viem';
 // Types
 // ============================================================================
 
+export interface TradeRecord {
+  id: string;
+  agentId: string;
+  marketId: string;
+  isYes: boolean;
+  amount: string;
+  outcome: string | null;
+  won: boolean | null;
+  pnl: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface FollowedAgentSummary {
   tokenId: number;
   isActive: boolean;
@@ -28,6 +41,9 @@ export interface FollowedAgentSummary {
     totalPnL: string;
   };
   estimatedPnL: string;
+  recentTrades?: TradeRecord[];
+  realizedPnL?: string;
+  unrealizedPnL?: string;
 }
 
 export interface CopyTradePnLResult {
@@ -35,13 +51,19 @@ export interface CopyTradePnLResult {
   activeFollowing: number;
   totalCopied: bigint;
   totalPnL: bigint;
+  realizedPnL: bigint;
+  unrealizedPnL: bigint;
   followedAgents: FollowedAgentSummary[];
 }
 
 export interface UseCopyTradePnLResult {
   pnl: CopyTradePnLResult | null;
   totalPnL: bigint;
+  realizedPnL: bigint;
+  unrealizedPnL: bigint;
   pnlFormatted: string;
+  realizedPnLFormatted: string;
+  unrealizedPnLFormatted: string;
   winRate: number;
   isLoading: boolean;
   error: Error | null;
@@ -94,6 +116,8 @@ export function useCopyTradePnL(): UseCopyTradePnLResult {
         activeFollowing: summary.activeFollowing,
         totalCopied: parseEther(summary.totalCopied),
         totalPnL: parseEther(summary.estimatedTotalPnL),
+        realizedPnL: parseEther(summary.realizedTotalPnL || '0'),
+        unrealizedPnL: parseEther(summary.unrealizedTotalPnL || '0'),
         followedAgents: summary.followedAgents,
       });
     } catch (err) {
@@ -105,6 +129,8 @@ export function useCopyTradePnL(): UseCopyTradePnLResult {
         activeFollowing: 0,
         totalCopied: BigInt(0),
         totalPnL: BigInt(0),
+        realizedPnL: BigInt(0),
+        unrealizedPnL: BigInt(0),
         followedAgents: [],
       });
     } finally {
@@ -119,7 +145,11 @@ export function useCopyTradePnL(): UseCopyTradePnLResult {
 
   // Computed values
   const totalPnL = pnl?.totalPnL ?? BigInt(0);
+  const realizedPnL = pnl?.realizedPnL ?? BigInt(0);
+  const unrealizedPnL = pnl?.unrealizedPnL ?? BigInt(0);
   const pnlFormatted = formatPnL(totalPnL);
+  const realizedPnLFormatted = formatPnL(realizedPnL);
+  const unrealizedPnLFormatted = formatPnL(unrealizedPnL);
 
   // Calculate win rate from followed agents' performance
   const totalTrades = pnl?.followedAgents.reduce(
@@ -135,7 +165,11 @@ export function useCopyTradePnL(): UseCopyTradePnLResult {
   return {
     pnl,
     totalPnL,
+    realizedPnL,
+    unrealizedPnL,
     pnlFormatted,
+    realizedPnLFormatted,
+    unrealizedPnLFormatted,
     winRate,
     isLoading,
     error,

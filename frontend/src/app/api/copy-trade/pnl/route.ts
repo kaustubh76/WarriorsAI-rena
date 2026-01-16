@@ -5,12 +5,14 @@ import {
   ZEROG_CONTRACTS,
   AI_AGENT_INFT_ABI,
 } from '@/lib/apiConfig';
+import { prisma } from '@/lib/prisma';
 
 // Extended ABI for PnL calculations
 const EXTENDED_ABI = [
   ...AI_AGENT_INFT_ABI,
   'function totalSupply() view returns (uint256)',
-  'function getAgentPerformance(uint256 tokenId) view returns (tuple(uint256 totalTrades, uint256 winningTrades, uint256 totalPnL, uint256 lastTradeTimestamp))',
+  'function getAgentPerformance(uint256 tokenId) view returns (tuple(uint256 totalTrades, uint256 winningTrades, int256 totalPnL, uint256 lastTradeTimestamp))',
+  'function getUserFollowing(address user) view returns (uint256[])',
 ];
 
 
@@ -31,6 +33,19 @@ interface AgentPerformance {
   lastTradeTimestamp: bigint;
 }
 
+interface TradeRecord {
+  id: string;
+  agentId: string;
+  marketId: string;
+  isYes: boolean;
+  amount: string;
+  outcome: string | null;
+  won: boolean | null;
+  pnl: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+}
+
 interface FollowedAgentSummary {
   tokenId: number;
   isActive: boolean;
@@ -44,11 +59,14 @@ interface FollowedAgentSummary {
     totalPnL: string;
   };
   estimatedPnL: string;
+  recentTrades: TradeRecord[];
+  realizedPnL: string;
+  unrealizedPnL: string;
 }
 
 /**
  * GET /api/copy-trade/pnl?address=0x...
- * Calculate copy trading PnL for a user by reading from 0G chain
+ * Calculate copy trading PnL for a user by reading from 0G chain and database
  */
 export async function GET(request: NextRequest) {
   try {
@@ -71,26 +89,29 @@ export async function GET(request: NextRequest) {
       zeroGProvider
     );
 
-    // Get total supply to iterate through all agents
-    let totalSupply: bigint;
+    // Get user's followed agents directly from contract
+    let followedAgentIds: bigint[] = [];
     try {
-      totalSupply = await inftContract.totalSupply();
+      const following = await inftContract.getUserFollowing(userAddress);
+      followedAgentIds = following.map((id: bigint) => id);
     } catch {
-      totalSupply = BigInt(10); // Fallback to checking first 10 agents
-    }
-
-    // Find agents that this user is following by checking copy configs
-    const followedAgentIds: bigint[] = [];
-    for (let i = 1; i <= Number(totalSupply); i++) {
+      // Fallback: iterate through agents
+      let totalSupply: bigint;
       try {
-        const config = await inftContract.getCopyTradeConfig(userAddress, BigInt(i));
-        // Check if config exists and has been started (startedAt > 0)
-        if (config && config.startedAt > BigInt(0)) {
-          followedAgentIds.push(BigInt(i));
-        }
+        totalSupply = await inftContract.totalSupply();
       } catch {
-        // Agent doesn't exist or no config
-        continue;
+        totalSupply = BigInt(10);
+      }
+
+      for (let i = 1; i <= Number(totalSupply); i++) {
+        try {
+          const config = await inftContract.getCopyTradeConfig(userAddress, BigInt(i));
+          if (config && config.startedAt > BigInt(0)) {
+            followedAgentIds.push(BigInt(i));
+          }
+        } catch {
+          continue;
+        }
       }
     }
 
@@ -103,6 +124,8 @@ export async function GET(request: NextRequest) {
           activeFollowing: 0,
           totalCopied: '0',
           estimatedTotalPnL: '0',
+          realizedTotalPnL: '0',
+          unrealizedTotalPnL: '0',
           followedAgents: []
         },
         chains: {
@@ -117,14 +140,16 @@ export async function GET(request: NextRequest) {
     const followedAgents: FollowedAgentSummary[] = [];
     let totalCopied = BigInt(0);
     let estimatedTotalPnL = BigInt(0);
+    let realizedTotalPnL = BigInt(0);
+    let unrealizedTotalPnL = BigInt(0);
     let activeCount = 0;
 
     for (const tokenId of followedAgentIds) {
       try {
-        // Get copy config
+        // Get copy config from 0G chain
         const config: CopyTradeConfig = await inftContract.getCopyTradeConfig(userAddress, tokenId);
 
-        // Get agent performance
+        // Get agent performance from 0G chain
         let performance: AgentPerformance;
         try {
           performance = await inftContract.getAgentPerformance(tokenId);
@@ -143,20 +168,65 @@ export async function GET(request: NextRequest) {
 
         totalCopied += config.totalCopied;
 
-        // Estimate user's PnL based on their copy amount and agent's performance
-        // This is an approximation: (user's total copied / agent's total trades) * agent's PnL
+        // Get actual trades from database for this agent
+        const agentIdStr = tokenId.toString();
+        const trades = await prisma.agentTrade.findMany({
+          where: { agentId: agentIdStr },
+          orderBy: { createdAt: 'desc' },
+          take: 20, // Last 20 trades
+        });
+
+        // Calculate realized PnL (from resolved trades)
+        const resolvedTrades = trades.filter(t => t.resolvedAt !== null && t.pnl !== null);
+        let agentRealizedPnL = BigInt(0);
+        for (const trade of resolvedTrades) {
+          if (trade.pnl) {
+            agentRealizedPnL += BigInt(trade.pnl);
+          }
+        }
+
+        // Calculate unrealized PnL (from pending trades - estimate based on current market)
+        const pendingTrades = trades.filter(t => t.resolvedAt === null);
+        let agentUnrealizedPnL = BigInt(0);
+        for (const trade of pendingTrades) {
+          // For pending trades, estimate potential PnL at 0 (break even until resolved)
+          // In a more sophisticated system, we'd check current market prices
+          agentUnrealizedPnL += BigInt(0);
+        }
+
+        // Calculate estimated PnL based on agent's overall performance
         let estimatedPnL = BigInt(0);
         if (performance.totalTrades > BigInt(0) && config.totalCopied > BigInt(0)) {
-          // Rough estimate based on agent's win rate applied to user's copied amount
           const winRate = Number(performance.winningTrades) / Number(performance.totalTrades);
-          const avgReturn = winRate * 0.9 - (1 - winRate); // 90% payout on wins, full loss on losses
+          const avgReturn = winRate * 0.9 - (1 - winRate);
           estimatedPnL = BigInt(Math.floor(Number(config.totalCopied) * avgReturn));
         }
-        estimatedTotalPnL += estimatedPnL;
+
+        // Use actual PnL from contract if available, otherwise use estimated
+        const actualPnL = performance.totalPnL;
+        const effectivePnL = actualPnL !== BigInt(0) ? actualPnL : estimatedPnL;
+
+        estimatedTotalPnL += effectivePnL;
+        realizedTotalPnL += agentRealizedPnL;
+        unrealizedTotalPnL += agentUnrealizedPnL;
 
         const winRate = Number(performance.totalTrades) > 0
           ? (Number(performance.winningTrades) / Number(performance.totalTrades)) * 100
           : 0;
+
+        // Format recent trades for response
+        const recentTrades: TradeRecord[] = trades.slice(0, 5).map(t => ({
+          id: t.id,
+          agentId: t.agentId,
+          marketId: t.marketId,
+          isYes: t.isYes,
+          amount: t.amount,
+          outcome: t.outcome,
+          won: t.won,
+          pnl: t.pnl,
+          createdAt: t.createdAt,
+          resolvedAt: t.resolvedAt,
+        }));
 
         followedAgents.push({
           tokenId: Number(tokenId),
@@ -172,7 +242,10 @@ export async function GET(request: NextRequest) {
             winRate: Math.round(winRate * 10) / 10,
             totalPnL: ethers.formatEther(performance.totalPnL)
           },
-          estimatedPnL: ethers.formatEther(estimatedPnL)
+          estimatedPnL: ethers.formatEther(effectivePnL),
+          recentTrades,
+          realizedPnL: ethers.formatEther(agentRealizedPnL),
+          unrealizedPnL: ethers.formatEther(agentUnrealizedPnL),
         });
 
       } catch (err) {
@@ -188,6 +261,8 @@ export async function GET(request: NextRequest) {
         activeFollowing: activeCount,
         totalCopied: ethers.formatEther(totalCopied),
         estimatedTotalPnL: ethers.formatEther(estimatedTotalPnL),
+        realizedTotalPnL: ethers.formatEther(realizedTotalPnL),
+        unrealizedTotalPnL: ethers.formatEther(unrealizedTotalPnL),
         followedAgents
       },
       chains: {

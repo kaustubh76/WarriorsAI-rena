@@ -1,18 +1,35 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import { useFollowingAgents, useAgentStats } from '@/hooks/useAgents';
-import { useCopyTradeConfig } from '@/hooks/useCopyTrade';
+import { useCopyTradeConfig, useCopyTrade } from '@/hooks/useCopyTrade';
 import { useCopyTradePnL, getPnLColorClass } from '@/hooks/useCopyTradePnL';
-import { AgentCard } from '@/components/agents';
 
 export default function CopyTradingPage() {
   const { isConnected } = useAccount();
-  const { agents: followingAgents, agentIds, loading, refetch } = useFollowingAgents();
+  const { agents: followingAgents, agentIds, loading, refetch: refetchFollowing } = useFollowingAgents();
   const { totalAgentsNumber } = useAgentStats();
-  const { totalPnL, pnlFormatted, isLoading: isPnLLoading } = useCopyTradePnL();
+  const {
+    totalPnL,
+    realizedPnL,
+    pnlFormatted,
+    realizedPnLFormatted,
+    winRate,
+    pnl,
+    isLoading: isPnLLoading,
+    refetch: refetchPnL
+  } = useCopyTradePnL();
+
+  // Handle agent unfollow - refresh the lists
+  const handleAgentUnfollow = () => {
+    // Wait for blockchain confirmation then refetch
+    setTimeout(() => {
+      refetchFollowing();
+      refetchPnL();
+    }, 2000);
+  };
 
   if (!isConnected) {
     return (
@@ -38,7 +55,7 @@ export default function CopyTradingPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto mb-12">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 max-w-4xl mx-auto mb-12">
           <div className="bg-gray-900 rounded-lg p-4 text-center">
             <p className="text-2xl font-bold text-white">{agentIds.length}</p>
             <p className="text-sm text-gray-400">Following</p>
@@ -51,9 +68,79 @@ export default function CopyTradingPage() {
             <p className={`text-2xl font-bold ${getPnLColorClass(totalPnL)}`}>
               {isPnLLoading ? '...' : pnlFormatted}
             </p>
-            <p className="text-sm text-gray-400">Copy PnL</p>
+            <p className="text-sm text-gray-400">Est. PnL</p>
+          </div>
+          <div className="bg-gray-900 rounded-lg p-4 text-center">
+            <p className={`text-2xl font-bold ${getPnLColorClass(realizedPnL)}`}>
+              {isPnLLoading ? '...' : realizedPnLFormatted}
+            </p>
+            <p className="text-sm text-gray-400">Realized PnL</p>
+          </div>
+          <div className="bg-gray-900 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-white">
+              {isPnLLoading ? '...' : `${winRate.toFixed(1)}%`}
+            </p>
+            <p className="text-sm text-gray-400">Win Rate</p>
           </div>
         </div>
+
+        {/* Recent Trades from Followed Agents */}
+        {pnl && pnl.followedAgents.some(a => a.recentTrades && a.recentTrades.length > 0) && (
+          <div className="mb-12">
+            <h2 className="text-xl font-semibold text-white mb-4">Recent Agent Trades</h2>
+            <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-800">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Agent</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Market</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Position</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Amount</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">PnL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {pnl.followedAgents.flatMap(agent =>
+                    (agent.recentTrades || []).slice(0, 3).map(trade => (
+                      <tr key={trade.id} className="hover:bg-gray-800/50">
+                        <td className="px-4 py-3 text-sm text-white">#{agent.tokenId}</td>
+                        <td className="px-4 py-3 text-sm text-gray-300">
+                          <Link href={`/markets/${trade.marketId}`} className="hover:text-purple-400">
+                            Market #{trade.marketId}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 text-xs rounded ${trade.isYes ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                            {trade.isYes ? 'YES' : 'NO'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-white">
+                          {(Number(trade.amount) / 1e18).toFixed(2)} CRwN
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            trade.resolvedAt
+                              ? trade.won ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                              : 'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {trade.resolvedAt ? (trade.won ? 'Won' : 'Lost') : 'Pending'}
+                          </span>
+                        </td>
+                        <td className={`px-4 py-3 text-sm font-medium ${
+                          trade.pnl && BigInt(trade.pnl) > 0n ? 'text-green-400' :
+                          trade.pnl && BigInt(trade.pnl) < 0n ? 'text-red-400' : 'text-gray-400'
+                        }`}>
+                          {trade.pnl ? `${(Number(trade.pnl) / 1e18).toFixed(4)}` : '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Following Agents */}
         <div className="mb-12">
@@ -86,7 +173,11 @@ export default function CopyTradingPage() {
           ) : (
             <div className="space-y-6">
               {followingAgents.map((agent) => (
-                <CopyTradeAgentRow key={agent.id.toString()} agent={agent} onUnfollow={refetch} />
+                <CopyTradeAgentRow
+                  key={agent.id.toString()}
+                  agent={agent}
+                  onUnfollow={handleAgentUnfollow}
+                />
               ))}
             </div>
           )}
@@ -132,12 +223,37 @@ export default function CopyTradingPage() {
 
 function CopyTradeAgentRow({
   agent,
-  onUnfollow
+  onUnfollow,
 }: {
   agent: any;
-  onUnfollow: () => void;
+  onUnfollow?: () => void;
 }) {
-  const { config, isActive, maxAmountFormatted } = useCopyTradeConfig(agent.id);
+  const { isActive, maxAmountFormatted, config } = useCopyTradeConfig(agent.id);
+  const { unfollow, isPending, isConfirming, isSuccess, needsChainSwitch, switchTo0G } = useCopyTrade(agent.id);
+  const [showConfirmUnfollow, setShowConfirmUnfollow] = useState(false);
+
+  // Handle successful unfollow
+  useEffect(() => {
+    if (isSuccess && showConfirmUnfollow) {
+      setShowConfirmUnfollow(false);
+      onUnfollow?.();
+    }
+  }, [isSuccess, showConfirmUnfollow, onUnfollow]);
+
+  const handleUnfollow = async () => {
+    try {
+      await unfollow();
+    } catch (err) {
+      console.error('Error unfollowing:', err);
+    }
+  };
+
+  const isLoading = isPending || isConfirming;
+
+  // Calculate estimated PnL from this agent
+  const estimatedPnL = config ?
+    (Number(agent.pnl || 0) * Number(config.totalCopied) / 1e18).toFixed(4) :
+    '0.00';
 
   return (
     <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
@@ -155,6 +271,8 @@ function CopyTradeAgentRow({
               <span className={`${agent.pnlFormatted.startsWith('+') ? 'text-green-400' : 'text-red-400'}`}>
                 {agent.pnlFormatted}
               </span>
+              <span className="text-gray-500">|</span>
+              <span className="text-gray-400">Win Rate: {agent.winRate?.toFixed(1) || '0.0'}%</span>
             </div>
           </div>
         </div>
@@ -165,17 +283,62 @@ function CopyTradeAgentRow({
             <p className="text-white font-medium">{maxAmountFormatted} CRwN</p>
           </div>
           <div className="text-right">
+            <p className="text-sm text-gray-400">Your Est. PnL</p>
+            <p className={`font-medium ${parseFloat(estimatedPnL) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {parseFloat(estimatedPnL) >= 0 ? '+' : ''}{estimatedPnL} CRwN
+            </p>
+          </div>
+          <div className="text-right">
             <p className="text-sm text-gray-400">Status</p>
             <p className={`font-medium ${isActive ? 'text-green-400' : 'text-gray-400'}`}>
               {isActive ? 'Active' : 'Inactive'}
             </p>
           </div>
-          <Link
-            href={`/ai-agents/${agent.id}`}
-            className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 text-sm"
-          >
-            Settings
-          </Link>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {needsChainSwitch ? (
+              <button
+                onClick={() => switchTo0G()}
+                className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 text-sm"
+              >
+                Switch Chain
+              </button>
+            ) : !showConfirmUnfollow ? (
+              <>
+                <Link
+                  href={`/ai-agents/${agent.id}`}
+                  className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 text-sm"
+                >
+                  Settings
+                </Link>
+                <button
+                  onClick={() => setShowConfirmUnfollow(true)}
+                  disabled={isLoading}
+                  className="px-4 py-2 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 text-sm disabled:opacity-50"
+                >
+                  Unfollow
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowConfirmUnfollow(false)}
+                  disabled={isLoading}
+                  className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 text-sm disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUnfollow}
+                  disabled={isLoading}
+                  className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 text-sm disabled:opacity-50"
+                >
+                  {isLoading ? 'Processing...' : 'Confirm'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
