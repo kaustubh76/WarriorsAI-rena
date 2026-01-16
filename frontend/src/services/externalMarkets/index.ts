@@ -1,6 +1,6 @@
 /**
  * External Markets Service - Main Aggregator
- * Unifies Polymarket and Kalshi market data
+ * Unifies Polymarket, Kalshi, and Opinion market data
  *
  * Robustness Features:
  * - Monitoring integration
@@ -11,6 +11,7 @@
 import { prisma } from '@/lib/prisma';
 import { polymarketService } from './polymarketService';
 import { kalshiService } from './kalshiService';
+import { opinionService } from './opinionService';
 import {
   UnifiedMarket,
   MarketSource,
@@ -147,14 +148,16 @@ class ExternalMarketsService {
     totalMarkets: number;
     polymarketCount: number;
     kalshiCount: number;
+    opinionCount: number;
     activeCount: number;
     totalVolume: string;
     lastSync: number;
   }> {
-    const [total, polymarket, kalshi, active, lastSync] = await Promise.all([
+    const [total, polymarket, kalshi, opinion, active, lastSync] = await Promise.all([
       prisma.externalMarket.count(),
       prisma.externalMarket.count({ where: { source: 'polymarket' } }),
       prisma.externalMarket.count({ where: { source: 'kalshi' } }),
+      prisma.externalMarket.count({ where: { source: 'opinion' } }),
       prisma.externalMarket.count({ where: { status: 'active' } }),
       prisma.syncLog.findFirst({
         orderBy: { createdAt: 'desc' },
@@ -173,6 +176,7 @@ class ExternalMarketsService {
       totalMarkets: total,
       polymarketCount: polymarket,
       kalshiCount: kalshi,
+      opinionCount: opinion,
       activeCount: active,
       totalVolume,
       lastSync: lastSync?.createdAt.getTime() || 0,
@@ -184,7 +188,7 @@ class ExternalMarketsService {
   // ============================================
 
   /**
-   * Sync all markets from both sources
+   * Sync all markets from all sources
    */
   async syncAllMarkets(): Promise<SyncResult[]> {
     const results: SyncResult[] = [];
@@ -223,6 +227,27 @@ class ExternalMarketsService {
     } catch (error) {
       results.push({
         source: MarketSource.KALSHI,
+        success: false,
+        marketsAdded: 0,
+        marketsUpdated: 0,
+        duration: 0,
+        error: (error as Error).message,
+      });
+    }
+
+    // Sync Opinion
+    try {
+      const opinionResult = await this.syncOpinionMarkets();
+      results.push({
+        source: MarketSource.OPINION,
+        success: true,
+        marketsAdded: opinionResult.added,
+        marketsUpdated: opinionResult.updated,
+        duration: opinionResult.duration,
+      });
+    } catch (error) {
+      results.push({
+        source: MarketSource.OPINION,
         success: false,
         marketsAdded: 0,
         marketsUpdated: 0,
@@ -357,6 +382,61 @@ class ExternalMarketsService {
   }
 
   /**
+   * Sync Opinion markets
+   */
+  async syncOpinionMarkets(): Promise<{
+    added: number;
+    updated: number;
+    duration: number;
+  }> {
+    const startTime = Date.now();
+    let added = 0;
+    let updated = 0;
+
+    try {
+      const markets = await opinionService.getAllActiveMarkets(200);
+
+      for (const market of markets) {
+        // Use sync normalization (without fetching individual prices)
+        const unified = opinionService.normalizeMarketSync(market);
+        const result = await this.upsertMarket(unified);
+
+        if (result === 'created') added++;
+        else if (result === 'updated') updated++;
+      }
+
+      const duration = Date.now() - startTime;
+
+      await prisma.syncLog.create({
+        data: {
+          source: 'opinion',
+          action: 'full_sync',
+          status: 'success',
+          count: added + updated,
+          duration,
+        },
+      });
+
+      return { added, updated, duration };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      await prisma.syncLog.create({
+        data: {
+          source: 'opinion',
+          action: 'full_sync',
+          status: 'failed',
+          count: added + updated,
+          duration,
+          error: (error as Error).message,
+        },
+      });
+
+      throw error;
+    }
+  }
+
+  /**
    * Start periodic sync
    */
   startPeriodicSync(intervalMs: number = 5 * 60 * 1000): void {
@@ -388,15 +468,15 @@ class ExternalMarketsService {
   // ============================================
 
   /**
-   * Find arbitrage opportunities between Polymarket and Kalshi
+   * Find arbitrage opportunities between Polymarket, Kalshi, and Opinion
    */
   async findArbitrageOpportunities(
     minSpread: number = ARBITRAGE_MIN_SPREAD
   ): Promise<ArbitrageOpportunity[]> {
     const opportunities: ArbitrageOpportunity[] = [];
 
-    // Get active markets from both sources
-    const [polyMarkets, kalshiMarkets] = await Promise.all([
+    // Get active markets from all sources
+    const [polyMarkets, kalshiMarkets, opinionMarkets] = await Promise.all([
       this.getAllMarkets({
         source: MarketSource.POLYMARKET,
         status: ExternalMarketStatus.ACTIVE,
@@ -405,26 +485,39 @@ class ExternalMarketsService {
         source: MarketSource.KALSHI,
         status: ExternalMarketStatus.ACTIVE,
       }),
+      this.getAllMarkets({
+        source: MarketSource.OPINION,
+        status: ExternalMarketStatus.ACTIVE,
+      }),
     ]);
+
+    // Combine all markets for cross-source comparison
+    const allMarketPairs: [UnifiedMarket[], UnifiedMarket[]][] = [
+      [polyMarkets, kalshiMarkets],
+      [polyMarkets, opinionMarkets],
+      [kalshiMarkets, opinionMarkets],
+    ];
 
     // Simple matching by question similarity
     // In production, use AI/embeddings for better matching
-    for (const polyMarket of polyMarkets) {
-      for (const kalshiMarket of kalshiMarkets) {
-        const similarity = this.calculateSimilarity(
-          polyMarket.question,
-          kalshiMarket.question
-        );
+    for (const [markets1, markets2] of allMarketPairs) {
+      for (const market1 of markets1) {
+        for (const market2 of markets2) {
+          const similarity = this.calculateSimilarity(
+            market1.question,
+            market2.question
+          );
 
-        if (similarity > 0.7) {
-          const spread = Math.abs(polyMarket.yesPrice - kalshiMarket.yesPrice);
+          if (similarity > 0.7) {
+            const spread = Math.abs(market1.yesPrice - market2.yesPrice);
 
-          if (spread >= minSpread) {
-            // Check for arbitrage opportunity
-            const opportunity = this.calculateArbitrage(polyMarket, kalshiMarket);
+            if (spread >= minSpread) {
+              // Check for arbitrage opportunity
+              const opportunity = this.calculateArbitrage(market1, market2);
 
-            if (opportunity && opportunity.potentialProfit > 0) {
-              opportunities.push(opportunity);
+              if (opportunity && opportunity.potentialProfit > 0) {
+                opportunities.push(opportunity);
+              }
             }
           }
         }
@@ -684,3 +777,4 @@ export default externalMarketsService;
 // Re-export individual services
 export { polymarketService } from './polymarketService';
 export { kalshiService } from './kalshiService';
+export { opinionService } from './opinionService';
