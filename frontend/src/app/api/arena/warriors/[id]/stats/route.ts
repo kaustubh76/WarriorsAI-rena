@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 const prisma = new PrismaClient();
 
@@ -12,14 +13,17 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'arena-warrior-stats',
+      ...RateLimitPresets.readOperations,
+    });
+
     const { id } = await params;
     const warriorId = parseInt(id);
 
     if (isNaN(warriorId)) {
-      return NextResponse.json(
-        { error: 'Invalid warrior ID' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid warrior ID');
     }
 
     const stats = await prisma.warriorArenaStats.findUnique({
@@ -27,10 +31,7 @@ export async function GET(
     });
 
     if (!stats) {
-      return NextResponse.json(
-        { error: 'No arena stats found for this warrior' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('No arena stats found for this warrior');
     }
 
     // Calculate additional stats
@@ -89,10 +90,6 @@ export async function GET(
       })),
     });
   } catch (error) {
-    console.error('Error fetching warrior stats:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch warrior stats' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Arena:WarriorStats:GET');
   }
 }

@@ -6,9 +6,16 @@
 import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agents-list',
+      ...RateLimitPresets.readOperations,
+    });
+
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get('refresh') === 'true';
 
@@ -61,14 +68,6 @@ export async function GET(request: NextRequest) {
       totalSupply: totalSupply.toString(),
     });
   } catch (error) {
-    console.error('[Agents API] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        agents: [],
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:GET');
   }
 }

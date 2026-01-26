@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 // Minimum spread percentage to consider an opportunity
 const DEFAULT_MIN_SPREAD = 5;
@@ -146,6 +147,13 @@ function findArbitrageOpportunities(
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'external-arbitrage-get',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const minSpread = parseFloat(searchParams.get('minSpread') || String(DEFAULT_MIN_SPREAD));
     const includeExpired = searchParams.get('includeExpired') === 'true';
@@ -274,20 +282,19 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Arbitrage detection error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to detect arbitrage opportunities',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:External:Arbitrage:GET');
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'external-arbitrage-post',
+      maxRequests: 5,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const minSpread = body.minSpread || DEFAULT_MIN_SPREAD;
 
@@ -368,14 +375,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Arbitrage scan error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to scan for arbitrage',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:External:Arbitrage:POST');
   }
 }

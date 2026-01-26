@@ -3,13 +3,15 @@
  * GET /api/health
  *
  * Returns system health status for monitoring
+ * Supports ?quick=true for lightweight checks (load balancer probes)
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, http, defineChain } from 'viem';
 import { flowTestnet } from 'viem/chains';
 import { agentINFTService } from '@/services/agentINFTService';
 import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { handleAPIError, createAPILogger } from '@/lib/api';
 
 // RPC timeout configuration
 const RPC_TIMEOUT = 60000;
@@ -151,8 +153,33 @@ async function checkContractDeployment(): Promise<ServiceStatus> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const logger = createAPILogger(request);
+  logger.start();
+
   try {
+    const { searchParams } = new URL(request.url);
+    const isQuickCheck = searchParams.get('quick') === 'true';
+
+    // For quick health checks (load balancer probes), skip external dependencies
+    if (isQuickCheck) {
+      const response = NextResponse.json({
+        success: true,
+        status: 'healthy',
+        services: {
+          api: { status: 'up' as const, latency: 0 },
+        },
+        timestamp: Date.now(),
+        uptime: Date.now() - serverStartTime,
+      });
+
+      // Add cache headers for quick checks
+      response.headers.set('Cache-Control', 'no-store, max-age=0');
+      response.headers.set('X-Request-ID', logger.requestId);
+      logger.complete(200, 'Quick health check');
+      return response;
+    }
+
     // Run all health checks in parallel
     const [zeroGResult, flowResult, contractResult] = await Promise.allSettled([
       checkZeroGChain(),
@@ -181,26 +208,32 @@ export async function GET() {
     const status: 'healthy' | 'degraded' | 'unhealthy' =
       downCount === 0 ? 'healthy' : downCount < 3 ? 'degraded' : 'unhealthy';
 
-    return NextResponse.json({
+    // Calculate memory usage
+    const memoryUsage = process.memoryUsage ? {
+      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    } : undefined;
+
+    const response = NextResponse.json({
       success: status !== 'unhealthy',
       status,
       services,
       timestamp: Date.now(),
       uptime: Date.now() - serverStartTime,
+      version: process.env.npm_package_version || 'unknown',
+      environment: process.env.NODE_ENV || 'unknown',
+      memory: memoryUsage,
     });
+
+    // Add appropriate headers
+    response.headers.set('Cache-Control', 'no-store, max-age=0');
+    response.headers.set('X-Request-ID', logger.requestId);
+
+    logger.complete(status === 'unhealthy' ? 503 : 200);
+    return response;
   } catch (error) {
-    console.error('Health check error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        status: 'unhealthy',
-        services: {
-          api: { status: 'down', error: String(error) },
-        },
-        timestamp: Date.now(),
-        uptime: Date.now() - serverStartTime,
-      },
-      { status: 503 }
-    );
+    logger.error('Health check failed', error);
+    return handleAPIError(error, 'API:Health:GET');
   }
 }

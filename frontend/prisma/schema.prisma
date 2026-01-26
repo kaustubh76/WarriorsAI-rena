@@ -296,6 +296,7 @@ model AIDebate {
 
   @@index([marketId])
   @@index([status])
+  @@index([createdAt])
 }
 
 model AIDebateRound {
@@ -363,6 +364,7 @@ model PredictionOutcome {
 
   @@index([agentId])
   @@index([wasCorrect])
+  @@index([resolvedAt])
 }
 
 // ============================================
@@ -381,6 +383,7 @@ model MarketComment {
 
   @@index([marketId, marketSource])
   @@index([userAddress])
+  @@index([createdAt])
 }
 
 model MarketShare {
@@ -392,6 +395,7 @@ model MarketShare {
   createdAt   DateTime @default(now())
 
   @@index([marketId])
+  @@index([createdAt])
 }
 
 // ============================================
@@ -615,6 +619,7 @@ model VerifiedPrediction {
   @@index([agentId])
   @@index([isVerified])
   @@index([wasCorrect])
+  @@index([timestamp])
 }
 
 // ============================================
@@ -749,4 +754,84 @@ model WarriorArenaStats {
   updatedAt       DateTime @updatedAt
 
   @@index([arenaRating])
+}
+
+// ============================================
+// BATTLE BETTING (Spectators bet on warriors)
+// ============================================
+
+model BattleBet {
+  id              String   @id @default(cuid())
+  battleId        String
+  bettorAddress   String
+  betOnWarrior1   Boolean  // true = bet on warrior1 (YES side), false = warrior2 (NO side)
+  amount          String   // Wei amount
+
+  // Claim status
+  claimed         Boolean  @default(false)
+  payout          String?  // Wei amount after resolution
+
+  // Transaction refs
+  placeTxHash     String?
+  claimTxHash     String?
+
+  placedAt        DateTime @default(now())
+  claimedAt       DateTime?
+
+  @@unique([battleId, bettorAddress])
+  @@index([battleId])
+  @@index([bettorAddress])
+  @@index([placedAt])
+}
+
+model BattleBettingPool {
+  id                  String   @id @default(cuid())
+  battleId            String   @unique
+  totalWarrior1Bets   String   @default("0") // Wei total
+  totalWarrior2Bets   String   @default("0")
+  totalBettors        Int      @default(0)
+  bettingOpen         Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([bettingOpen])
+}
+
+// ============================================
+// MATCHED MARKETS (Cross-platform topic matching)
+// ============================================
+
+model MatchedMarketPair {
+  id                  String   @id @default(cuid())
+
+  // Polymarket side
+  polymarketId        String
+  polymarketQuestion  String
+  polymarketYesPrice  Int
+  polymarketNoPrice   Int
+  polymarketVolume    String
+
+  // Kalshi side
+  kalshiId            String
+  kalshiQuestion      String
+  kalshiYesPrice      Int
+  kalshiNoPrice       Int
+  kalshiVolume        String
+
+  // Matching analysis
+  similarity          Float    // 0-1
+  priceDifference     Float    // Percentage
+
+  // Arbitrage
+  hasArbitrage        Boolean  @default(false)
+  arbitrageStrategy   String?  // JSON: { buyYesOn, buyNoOn, potentialProfit }
+
+  // Status
+  isActive            Boolean  @default(true)
+  lastUpdated         DateTime @default(now())
+
+  @@unique([polymarketId, kalshiId])
+  @@index([hasArbitrage])
+  @@index([similarity])
 }

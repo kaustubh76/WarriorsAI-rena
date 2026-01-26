@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 interface WarriorStats {
   strength: number;
@@ -42,15 +43,19 @@ interface PredictionResponse {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (30 predictions per minute)
+    applyRateLimit(request, {
+      prefix: 'predict-battle-post',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const body: PredictionRequest = await request.json();
     const { warrior1Id, warrior2Id, warrior1Stats, warrior2Stats } = body;
 
     // Validate input
     if (!warrior1Id || !warrior2Id || !warrior1Stats || !warrior2Stats) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields');
     }
 
     // Calculate power scores
@@ -86,14 +91,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Battle prediction error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:PredictBattle:POST');
   }
 }
 
@@ -206,20 +204,28 @@ function generateAnalysis(
 
 // GET endpoint for fetching stored predictions
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const battleId = searchParams.get('battleId');
+  try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'predict-battle-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
 
-  if (!battleId) {
-    return NextResponse.json(
-      { error: 'battleId is required' },
-      { status: 400 }
-    );
+    const { searchParams } = new URL(request.url);
+    const battleId = searchParams.get('battleId');
+
+    if (!battleId) {
+      throw ErrorResponses.badRequest('battleId is required');
+    }
+
+    // In production, fetch from database or cache
+    return NextResponse.json({
+      battleId,
+      status: 'no_prediction',
+      message: 'Submit a POST request with warrior stats to get a prediction'
+    });
+  } catch (error) {
+    return handleAPIError(error, 'API:PredictBattle:GET');
   }
-
-  // In production, fetch from database or cache
-  return NextResponse.json({
-    battleId,
-    status: 'no_prediction',
-    message: 'Submit a POST request with warrior stats to get a prediction'
-  });
 }

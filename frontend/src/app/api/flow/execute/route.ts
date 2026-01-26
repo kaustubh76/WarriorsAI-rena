@@ -20,6 +20,7 @@ import {
   executeWithFlowFallback,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // ============================================================================
 // Types
@@ -274,23 +275,24 @@ async function signOracleMessage(
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'flow-execute',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const body: ExecuteRequest = await request.json();
 
     // Get private key
     const privateKey = process.env.PRIVATE_KEY as `0x${string}`;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server private key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Server private key not configured');
     }
 
     // Check contract deployment
     if (EXTERNAL_MARKET_MIRROR === '0x0000000000000000000000000000000000000000') {
-      return NextResponse.json(
-        { success: false, error: 'ExternalMarketMirror contract not deployed' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('ExternalMarketMirror contract not deployed');
     }
 
     const publicClient = getPublicClient();
@@ -307,10 +309,7 @@ export async function POST(request: NextRequest) {
 
         // Validate inputs
         if (!externalId || !source || !question || !yesPrice || !endTime || !initialLiquidity) {
-          return NextResponse.json(
-            { success: false, error: 'Missing required fields for createMirror' },
-            { status: 400 }
-          );
+          throw ErrorResponses.badRequest('Missing required fields for createMirror');
         }
 
         const liquidityWei = parseEther(initialLiquidity);
@@ -374,10 +373,7 @@ export async function POST(request: NextRequest) {
         const { mirrorKey, isYes, amount, minSharesOut = '0' } = body;
 
         if (!mirrorKey || isYes === undefined || !amount) {
-          return NextResponse.json(
-            { success: false, error: 'Missing required fields for trade' },
-            { status: 400 }
-          );
+          throw ErrorResponses.badRequest('Missing required fields for trade');
         }
 
         const amountWei = parseEther(amount);
@@ -435,10 +431,7 @@ export async function POST(request: NextRequest) {
         const { mirrorKey, newPrice } = body;
 
         if (!mirrorKey || newPrice === undefined) {
-          return NextResponse.json(
-            { success: false, error: 'Missing required fields for syncPrice' },
-            { status: 400 }
-          );
+          throw ErrorResponses.badRequest('Missing required fields for syncPrice');
         }
 
         // Generate oracle signature
@@ -480,10 +473,7 @@ export async function POST(request: NextRequest) {
         const { mirrorKey, yesWon } = body;
 
         if (!mirrorKey || yesWon === undefined) {
-          return NextResponse.json(
-            { success: false, error: 'Missing required fields for resolve' },
-            { status: 400 }
-          );
+          throw ErrorResponses.badRequest('Missing required fields for resolve');
         }
 
         // Generate oracle signature
@@ -525,10 +515,7 @@ export async function POST(request: NextRequest) {
         const { mirrorKey } = body;
 
         if (!mirrorKey) {
-          return NextResponse.json(
-            { success: false, error: 'Missing mirrorKey for query' },
-            { status: 400 }
-          );
+          throw ErrorResponses.badRequest('Missing mirrorKey for query');
         }
 
         const mirrorMarket = await executeWithFlowFallback((client) =>
@@ -559,29 +546,26 @@ export async function POST(request: NextRequest) {
       }
 
       default:
-        return NextResponse.json(
-          { success: false, error: 'Invalid action. Use: createMirror, trade, syncPrice, resolve, query' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Invalid action. Use: createMirror, trade, syncPrice, resolve, query');
     }
 
   } catch (error) {
-    console.error('Flow execute error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Execution failed',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Flow:Execute:POST');
   }
 }
 
 /**
  * GET: Query system stats
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'flow-execute-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     if (EXTERNAL_MARKET_MIRROR === '0x0000000000000000000000000000000000000000') {
       return NextResponse.json({
         success: true,
@@ -629,13 +613,6 @@ export async function GET() {
     });
 
   } catch (error) {
-    console.error('Flow execute GET error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Flow:Execute:GET');
   }
 }

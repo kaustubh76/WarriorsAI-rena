@@ -1,13 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
+import { useState, useEffect, useRef } from 'react';
+import { useAccount, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
-
-interface Warrior {
-  id: number;
-  name: string;
-}
+import { useUserNFTs } from '@/hooks/useUserNFTs';
+import { fetchWithTimeout, isTimeoutError, TimeoutDefaults } from '@/lib/fetchWithTimeout';
+import { useNotifications } from '@/contexts/NotificationContext';
 
 interface Battle {
   id: string;
@@ -34,54 +32,34 @@ export function AcceptChallengeModal({
   onSuccess,
 }: AcceptChallengeModalProps) {
   const { address } = useAccount();
-  const [warriors, setWarriors] = useState<Warrior[]>([]);
+  const chainId = useChainId();
   const [loading, setLoading] = useState(false);
-  const [loadingWarriors, setLoadingWarriors] = useState(true);
   const [selectedWarrior, setSelectedWarrior] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+  const { success: showSuccess, error: showError } = useNotifications();
+
+  // Fetch user's warriors from blockchain
+  const { userNFTs: warriors, isLoadingNFTs: loadingWarriors } = useUserNFTs(isOpen, chainId);
 
   // Determine which side the acceptor will take
-  const acceptorSide = battle?.warrior1Id === 0 ? 'yes' : 'no';
-  const challengerSide = battle?.warrior1Id === 0 ? 'no' : 'yes';
-  const challengerWarriorId = battle?.warrior1Id === 0 ? battle.warrior2Id : battle?.warrior1Id;
+  // If warrior1 slot is empty (no owner), acceptor takes YES side
+  // Otherwise, challenger took YES side, so acceptor takes NO side
+  const isWarrior1SlotEmpty = !battle?.warrior1Owner || battle.warrior1Owner === '';
+  const acceptorSide = isWarrior1SlotEmpty ? 'yes' : 'no';
+  const challengerSide = isWarrior1SlotEmpty ? 'no' : 'yes';
+  const challengerWarriorId = isWarrior1SlotEmpty ? battle?.warrior2Id : battle?.warrior1Id;
 
-  // Fetch user's warriors
+  // Reset form when modal opens and track mounted state
   useEffect(() => {
-    async function fetchWarriors() {
-      if (!address) {
-        setWarriors([]);
-        setLoadingWarriors(false);
-        return;
-      }
-
-      try {
-        setLoadingWarriors(true);
-        // In production, fetch from contract or API
-        // For demo, create placeholder warriors
-        const mockWarriors: Warrior[] = [
-          { id: 1, name: 'Warrior #1' },
-          { id: 2, name: 'Warrior #2' },
-          { id: 3, name: 'Warrior #3' },
-        ];
-        setWarriors(mockWarriors);
-      } catch (err) {
-        console.error('Failed to fetch warriors:', err);
-      } finally {
-        setLoadingWarriors(false);
-      }
-    }
-
-    if (isOpen) {
-      fetchWarriors();
-    }
-  }, [address, isOpen]);
-
-  // Reset form when modal opens
-  useEffect(() => {
+    isMountedRef.current = true;
     if (isOpen) {
       setSelectedWarrior(null);
       setError(null);
     }
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [isOpen]);
 
   async function handleAccept() {
@@ -102,47 +80,68 @@ export function AcceptChallengeModal({
     setError(null);
 
     try {
-      const response = await fetch('/api/arena/battles', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'accept',
-          battleId: battle.id,
-          warrior2Id: selectedWarrior,
-          warrior2Owner: address,
-        }),
-      });
+      const response = await fetchWithTimeout(
+        '/api/arena/battles',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'accept',
+            battleId: battle.id,
+            warrior2Id: selectedWarrior,
+            warrior2Owner: address,
+          }),
+        },
+        TimeoutDefaults.standard // 15 second timeout
+      );
 
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to accept challenge');
       }
 
+      // Show success notification
+      showSuccess('Battle Started!', 'Get ready to argue your position.');
       onSuccess();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to accept challenge');
+      if (isMountedRef.current) {
+        const errorMessage = isTimeoutError(err)
+          ? 'Request timed out. Please try again.'
+          : (err instanceof Error ? err.message : 'Failed to accept challenge');
+        setError(errorMessage);
+        showError('Accept Failed', errorMessage);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }
 
   if (!isOpen || !battle) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="accept-challenge-title"
+      aria-describedby="accept-challenge-description"
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Modal */}
       <div className="relative bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg mx-4 overflow-hidden">
         {/* Header */}
         <div className="p-6 border-b border-gray-700 bg-gradient-to-r from-green-900/30 to-emerald-900/30">
-          <h2 className="text-2xl font-bold text-white">Accept Challenge</h2>
-          <p className="text-gray-400 text-sm mt-1">
+          <h2 id="accept-challenge-title" className="text-2xl font-bold text-white">Accept Challenge</h2>
+          <p id="accept-challenge-description" className="text-gray-400 text-sm mt-1">
             Take the {acceptorSide.toUpperCase()} side in this debate
           </p>
         </div>
@@ -211,12 +210,12 @@ export function AcceptChallengeModal({
           </div>
 
           {/* Warrior Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+          <div role="group" aria-labelledby="warrior-selection-label">
+            <label id="warrior-selection-label" className="block text-sm font-medium text-gray-300 mb-2">
               Select Your Warrior
             </label>
             {loadingWarriors ? (
-              <div className="h-12 bg-gray-700 rounded-lg animate-pulse" />
+              <div className="h-12 bg-gray-700 rounded-lg animate-pulse" aria-busy="true" aria-label="Loading warriors" />
             ) : warriors.length === 0 ? (
               <p className="text-gray-500 text-sm">
                 No warriors found. Mint a warrior to participate!
@@ -225,16 +224,27 @@ export function AcceptChallengeModal({
               <div className="grid grid-cols-3 gap-2">
                 {warriors.map((warrior) => (
                   <button
-                    key={warrior.id}
-                    onClick={() => setSelectedWarrior(warrior.id)}
+                    key={warrior.tokenId}
+                    onClick={() => setSelectedWarrior(warrior.tokenId)}
                     className={`p-3 rounded-lg border transition-all ${
-                      selectedWarrior === warrior.id
+                      selectedWarrior === warrior.tokenId
                         ? 'bg-green-600/30 border-green-500 text-white'
                         : 'bg-gray-700/50 border-gray-600 text-gray-300 hover:border-gray-500'
                     }`}
                   >
-                    <span className="text-xl">⚔️</span>
-                    <p className="text-sm mt-1">#{warrior.id}</p>
+                    {warrior.image ? (
+                      <img
+                        src={warrior.image}
+                        alt={warrior.name}
+                        className="w-10 h-10 mx-auto rounded-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/lazered.png';
+                        }}
+                      />
+                    ) : (
+                      <span className="text-xl">⚔️</span>
+                    )}
+                    <p className="text-sm mt-1 truncate">{warrior.name || `#${warrior.tokenId}`}</p>
                   </button>
                 ))}
               </div>
@@ -254,7 +264,7 @@ export function AcceptChallengeModal({
 
           {/* Error */}
           {error && (
-            <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+            <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg" role="alert" aria-live="polite">
               <p className="text-red-400 text-sm">{error}</p>
             </div>
           )}

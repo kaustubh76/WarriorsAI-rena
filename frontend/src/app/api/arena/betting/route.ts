@@ -1,42 +1,14 @@
 /**
  * API Route: Arena Betting
  * Handles spectator betting on prediction battles
+ * Uses persistent database storage for bets and pools
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-// ============================================
-// DATABASE MODELS (extend Prisma schema)
-// ============================================
-
-// Note: These models should be added to prisma/schema.prisma
-// For now, we use in-memory storage as a fallback
-
-interface BattleBet {
-  id: string;
-  battleId: string;
-  bettorAddress: string;
-  betOnWarrior1: boolean;
-  amount: string;
-  placedAt: Date;
-  claimed: boolean;
-  payout?: string;
-}
-
-interface BattleBettingPool {
-  battleId: string;
-  totalWarrior1Bets: string;
-  totalWarrior2Bets: string;
-  totalBettors: number;
-  bettingOpen: boolean;
-}
-
-// In-memory storage fallback
-const betsMap = new Map<string, BattleBet[]>();
-const poolsMap = new Map<string, BattleBettingPool>();
+import { prisma } from '@/lib/prisma';
+import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
+import { validateAddress, validateBigIntString, validateBoolean } from '@/lib/api/validation';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 /**
  * GET /api/arena/betting?battleId=xxx
@@ -48,11 +20,13 @@ export async function GET(request: NextRequest) {
     const battleId = searchParams.get('battleId');
     const userAddress = searchParams.get('userAddress');
 
-    if (!battleId) {
-      return NextResponse.json(
-        { error: 'battleId is required' },
-        { status: 400 }
-      );
+    if (!battleId || typeof battleId !== 'string') {
+      throw ErrorResponses.badRequest('battleId is required');
+    }
+
+    // Validate userAddress if provided
+    if (userAddress) {
+      validateAddress(userAddress, 'userAddress');
     }
 
     // Get battle info
@@ -61,23 +35,25 @@ export async function GET(request: NextRequest) {
     });
 
     if (!battle) {
-      return NextResponse.json(
-        { error: 'Battle not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Battle');
     }
 
-    // Get or create pool
-    let pool = poolsMap.get(battleId);
+    // Get or create pool from database
+    let pool = await prisma.battleBettingPool.findUnique({
+      where: { battleId },
+    });
+
     if (!pool) {
-      pool = {
-        battleId,
-        totalWarrior1Bets: '0',
-        totalWarrior2Bets: '0',
-        totalBettors: 0,
-        bettingOpen: battle.status === 'active' && battle.currentRound <= 2,
-      };
-      poolsMap.set(battleId, pool);
+      // Create pool for this battle
+      pool = await prisma.battleBettingPool.create({
+        data: {
+          battleId,
+          totalWarrior1Bets: '0',
+          totalWarrior2Bets: '0',
+          totalBettors: 0,
+          bettingOpen: battle.status === 'active' && battle.currentRound <= 2,
+        },
+      });
     }
 
     // Calculate odds
@@ -95,32 +71,42 @@ export async function GET(request: NextRequest) {
     // Get user's bet if address provided
     let userBet = null;
     if (userAddress) {
-      const bets = betsMap.get(battleId) || [];
-      userBet = bets.find(b => b.bettorAddress.toLowerCase() === userAddress.toLowerCase());
+      const bet = await prisma.battleBet.findUnique({
+        where: {
+          battleId_bettorAddress: {
+            battleId,
+            bettorAddress: userAddress.toLowerCase(),
+          },
+        },
+      });
+
+      if (bet) {
+        userBet = {
+          betOnWarrior1: bet.betOnWarrior1,
+          amount: bet.amount,
+          placedAt: bet.placedAt,
+          claimed: bet.claimed,
+          payout: bet.payout,
+        };
+      }
     }
 
     return NextResponse.json({
       pool: {
-        ...pool,
+        battleId: pool.battleId,
+        totalWarrior1Bets: pool.totalWarrior1Bets,
+        totalWarrior2Bets: pool.totalWarrior2Bets,
+        totalBettors: pool.totalBettors,
         warrior1Odds,
         warrior2Odds,
         totalPool: totalPool.toString(),
+        bettingOpen: pool.bettingOpen,
       },
-      userBet: userBet ? {
-        betOnWarrior1: userBet.betOnWarrior1,
-        amount: userBet.amount,
-        placedAt: userBet.placedAt,
-        claimed: userBet.claimed,
-        payout: userBet.payout,
-      } : null,
+      userBet,
       bettingOpen: pool.bettingOpen,
     });
   } catch (error) {
-    console.error('Error fetching betting info:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch betting info' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Betting:GET');
   }
 }
 
@@ -130,15 +116,22 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'betting',
+      ...RateLimitPresets.betting,
+    });
+
     const body = await request.json();
     const { battleId, bettorAddress, betOnWarrior1, amount, txHash } = body;
 
-    if (!battleId || !bettorAddress || betOnWarrior1 === undefined || !amount) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    // Validate required fields
+    if (!battleId || typeof battleId !== 'string') {
+      throw ErrorResponses.badRequest('battleId is required');
     }
+    validateAddress(bettorAddress, 'bettorAddress');
+    validateBoolean(betOnWarrior1, 'betOnWarrior1');
+    validateBigIntString(amount, 'amount');
 
     // Get battle
     const battle = await prisma.predictionBattle.findUnique({
@@ -146,97 +139,107 @@ export async function POST(request: NextRequest) {
     });
 
     if (!battle) {
-      return NextResponse.json(
-        { error: 'Battle not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Battle');
     }
 
     // Check if betting is open
-    if (battle.status !== 'active') {
-      return NextResponse.json(
-        { error: 'Battle is not active' },
-        { status: 400 }
-      );
+    if (battle.status !== 'active' && battle.status !== 'pending') {
+      throw ErrorResponses.badRequest('Battle is not active');
     }
 
     if (battle.currentRound > 2) {
-      return NextResponse.json(
-        { error: 'Betting closed after round 2' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Betting closed after round 2');
     }
 
-    // Get or create bets array
-    let bets = betsMap.get(battleId) || [];
+    const normalizedAddress = bettorAddress.toLowerCase();
 
-    // Check for existing bet
-    const existingBetIndex = bets.findIndex(
-      b => b.bettorAddress.toLowerCase() === bettorAddress.toLowerCase()
-    );
-
-    if (existingBetIndex >= 0) {
-      // Update existing bet (add to it)
-      const existingBet = bets[existingBetIndex];
-      if (existingBet.betOnWarrior1 !== betOnWarrior1) {
-        return NextResponse.json(
-          { error: 'Cannot bet on both sides' },
-          { status: 400 }
-        );
-      }
-      existingBet.amount = (BigInt(existingBet.amount) + BigInt(amount)).toString();
-    } else {
-      // Create new bet
-      bets.push({
-        id: `bet_${Date.now()}_${bettorAddress.slice(0, 8)}`,
-        battleId,
-        bettorAddress,
-        betOnWarrior1,
-        amount,
-        placedAt: new Date(),
-        claimed: false,
+    // Use transaction for atomic update
+    const result = await prisma.$transaction(async (tx) => {
+      // Check for existing bet
+      const existingBet = await tx.battleBet.findUnique({
+        where: {
+          battleId_bettorAddress: {
+            battleId,
+            bettorAddress: normalizedAddress,
+          },
+        },
       });
-    }
 
-    betsMap.set(battleId, bets);
+      if (existingBet) {
+        // Can only add to existing bet on same side
+        if (existingBet.betOnWarrior1 !== betOnWarrior1) {
+          throw ErrorResponses.badRequest('Cannot bet on both sides');
+        }
 
-    // Update pool
-    let pool = poolsMap.get(battleId) || {
-      battleId,
-      totalWarrior1Bets: '0',
-      totalWarrior2Bets: '0',
-      totalBettors: 0,
-      bettingOpen: true,
-    };
+        // Update existing bet amount
+        const newAmount = (BigInt(existingBet.amount) + BigInt(amount)).toString();
+        await tx.battleBet.update({
+          where: { id: existingBet.id },
+          data: { amount: newAmount },
+        });
+      } else {
+        // Create new bet
+        await tx.battleBet.create({
+          data: {
+            battleId,
+            bettorAddress: normalizedAddress,
+            betOnWarrior1,
+            amount,
+            placeTxHash: txHash,
+          },
+        });
+      }
 
-    if (betOnWarrior1) {
-      pool.totalWarrior1Bets = (BigInt(pool.totalWarrior1Bets) + BigInt(amount)).toString();
-    } else {
-      pool.totalWarrior2Bets = (BigInt(pool.totalWarrior2Bets) + BigInt(amount)).toString();
-    }
+      // Get or create pool
+      let pool = await tx.battleBettingPool.findUnique({
+        where: { battleId },
+      });
 
-    if (existingBetIndex < 0) {
-      pool.totalBettors++;
-    }
+      if (!pool) {
+        pool = await tx.battleBettingPool.create({
+          data: {
+            battleId,
+            totalWarrior1Bets: '0',
+            totalWarrior2Bets: '0',
+            totalBettors: 0,
+            bettingOpen: true,
+          },
+        });
+      }
 
-    poolsMap.set(battleId, pool);
+      // Update pool
+      const newTotalW1 = betOnWarrior1
+        ? (BigInt(pool.totalWarrior1Bets) + BigInt(amount)).toString()
+        : pool.totalWarrior1Bets;
+      const newTotalW2 = !betOnWarrior1
+        ? (BigInt(pool.totalWarrior2Bets) + BigInt(amount)).toString()
+        : pool.totalWarrior2Bets;
+      const newBettorCount = existingBet ? pool.totalBettors : pool.totalBettors + 1;
+
+      const updatedPool = await tx.battleBettingPool.update({
+        where: { battleId },
+        data: {
+          totalWarrior1Bets: newTotalW1,
+          totalWarrior2Bets: newTotalW2,
+          totalBettors: newBettorCount,
+        },
+      });
+
+      return { pool: updatedPool, isNewBet: !existingBet };
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Bet placed on ${betOnWarrior1 ? 'YES (Warrior 1)' : 'NO (Warrior 2)'}`,
+      message: `Bet placed on ${betOnWarrior1 ? 'Warrior 1 (YES)' : 'Warrior 2 (NO)'}`,
       bet: {
         battleId,
         betOnWarrior1,
         amount,
-        totalInPool: (BigInt(pool.totalWarrior1Bets) + BigInt(pool.totalWarrior2Bets)).toString(),
+        totalInPool: (BigInt(result.pool.totalWarrior1Bets) + BigInt(result.pool.totalWarrior2Bets)).toString(),
       },
     });
   } catch (error) {
-    console.error('Error placing bet:', error);
-    return NextResponse.json(
-      { error: 'Failed to place bet' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Betting:POST');
   }
 }
 
@@ -249,12 +252,13 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const { battleId, bettorAddress } = body;
 
-    if (!battleId || !bettorAddress) {
-      return NextResponse.json(
-        { error: 'battleId and bettorAddress are required' },
-        { status: 400 }
-      );
+    // Validate inputs
+    if (!battleId || typeof battleId !== 'string') {
+      throw ErrorResponses.badRequest('battleId is required');
     }
+    validateAddress(bettorAddress, 'bettorAddress');
+
+    const normalizedAddress = bettorAddress.toLowerCase();
 
     // Get battle
     const battle = await prisma.predictionBattle.findUnique({
@@ -262,39 +266,29 @@ export async function PATCH(request: NextRequest) {
     });
 
     if (!battle) {
-      return NextResponse.json(
-        { error: 'Battle not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Battle');
     }
 
     if (battle.status !== 'completed') {
-      return NextResponse.json(
-        { error: 'Battle not completed' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Battle not completed');
     }
 
     // Get user's bet
-    const bets = betsMap.get(battleId) || [];
-    const betIndex = bets.findIndex(
-      b => b.bettorAddress.toLowerCase() === bettorAddress.toLowerCase()
-    );
+    const bet = await prisma.battleBet.findUnique({
+      where: {
+        battleId_bettorAddress: {
+          battleId,
+          bettorAddress: normalizedAddress,
+        },
+      },
+    });
 
-    if (betIndex < 0) {
-      return NextResponse.json(
-        { error: 'No bet found' },
-        { status: 404 }
-      );
+    if (!bet) {
+      throw ErrorResponses.notFound('No bet found for this address');
     }
 
-    const bet = bets[betIndex];
-
     if (bet.claimed) {
-      return NextResponse.json(
-        { error: 'Already claimed' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Already claimed');
     }
 
     // Determine winner
@@ -303,7 +297,14 @@ export async function PATCH(request: NextRequest) {
     const isDraw = battle.warrior1Score === battle.warrior2Score;
 
     // Get pool
-    const pool = poolsMap.get(battleId)!;
+    const pool = await prisma.battleBettingPool.findUnique({
+      where: { battleId },
+    });
+
+    if (!pool) {
+      throw ErrorResponses.internal('Pool not found');
+    }
+
     const totalW1 = BigInt(pool.totalWarrior1Bets);
     const totalW2 = BigInt(pool.totalWarrior2Bets);
     const betAmount = BigInt(bet.amount);
@@ -324,7 +325,7 @@ export async function PATCH(request: NextRequest) {
       if (winningPool > 0n) {
         const share = (betAmount * 10n ** 18n) / winningPool;
         const winnings = (losingPool * share) / 10n ** 18n;
-        const fee = (winnings * 500n) / 10000n;
+        const fee = (winnings * 500n) / 10000n; // 5% fee on winnings
         payout = betAmount + winnings - fee;
       } else {
         payout = betAmount; // Fallback
@@ -332,10 +333,15 @@ export async function PATCH(request: NextRequest) {
     }
     // Losers get 0
 
-    bet.claimed = true;
-    bet.payout = payout.toString();
-    bets[betIndex] = bet;
-    betsMap.set(battleId, bets);
+    // Update bet as claimed
+    await prisma.battleBet.update({
+      where: { id: bet.id },
+      data: {
+        claimed: true,
+        payout: payout.toString(),
+        claimedAt: new Date(),
+      },
+    });
 
     return NextResponse.json({
       success: true,
@@ -344,14 +350,37 @@ export async function PATCH(request: NextRequest) {
       message: won
         ? `Congratulations! You won ${payout.toString()} wei`
         : isDraw
-        ? `Draw - refunded ${payout.toString()} wei`
+        ? `Draw - refunded ${payout.toString()} wei (minus fee)`
         : 'Sorry, you lost this bet',
     });
   } catch (error) {
-    console.error('Error claiming bet:', error);
-    return NextResponse.json(
-      { error: 'Failed to claim bet' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Betting:PATCH');
+  }
+}
+
+/**
+ * DELETE /api/arena/betting
+ * Close betting for a battle (admin action)
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const battleId = searchParams.get('battleId');
+
+    if (!battleId || typeof battleId !== 'string') {
+      throw ErrorResponses.badRequest('battleId is required');
+    }
+
+    await prisma.battleBettingPool.update({
+      where: { battleId },
+      data: { bettingOpen: false },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Betting closed for battle',
+    });
+  } catch (error) {
+    return handleAPIError(error, 'API:Betting:DELETE');
   }
 }

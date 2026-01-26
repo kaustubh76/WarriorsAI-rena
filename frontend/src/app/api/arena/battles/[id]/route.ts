@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 const prisma = new PrismaClient();
 
@@ -12,6 +13,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'arena-battles-id',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { id } = await params;
 
     const battle = await prisma.predictionBattle.findUnique({
@@ -24,18 +32,11 @@ export async function GET(
     });
 
     if (!battle) {
-      return NextResponse.json(
-        { error: 'Battle not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Battle not found');
     }
 
     return NextResponse.json({ battle });
   } catch (error) {
-    console.error('Error fetching battle:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch battle' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Arena:Battles:ID:GET');
   }
 }

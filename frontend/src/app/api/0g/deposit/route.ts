@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import { handleAPIError, ErrorResponses, applyRateLimit } from '@/lib/api';
 
 const ZERO_G_CONFIG = {
   computeRpc: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
@@ -12,23 +13,24 @@ const ZERO_G_CONFIG = {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (5 deposits per minute)
+    applyRateLimit(request, {
+      prefix: '0g-deposit',
+      maxRequests: 5,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { amount = 0.5 } = body;
 
     // Validate amount
-    if (amount <= 0 || amount > 10) {
-      return NextResponse.json(
-        { success: false, error: 'Amount must be between 0 and 10 OG' },
-        { status: 400 }
-      );
+    if (typeof amount !== 'number' || amount <= 0 || amount > 10) {
+      throw ErrorResponses.badRequest('Amount must be between 0 and 10 OG');
     }
 
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: '0G private key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.internal('0G private key not configured');
     }
 
     const { createZGComputeNetworkBroker } = await import('@0glabs/0g-serving-broker');
@@ -72,13 +74,7 @@ export async function POST(request: NextRequest) {
       walletAddress: wallet.address,
     });
   } catch (error) {
-    console.error('[0G Deposit] Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Deposit:POST');
   }
 }
 
@@ -86,10 +82,7 @@ export async function GET() {
   try {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: '0G private key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.internal('0G private key not configured');
     }
 
     const { createZGComputeNetworkBroker } = await import('@0glabs/0g-serving-broker');
@@ -123,10 +116,6 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error('[0G Deposit] GET Error:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Deposit:GET');
   }
 }

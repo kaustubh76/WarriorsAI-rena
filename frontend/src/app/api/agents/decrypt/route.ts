@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // 0G Storage configuration
 const STORAGE_API_URL =
@@ -94,46 +95,38 @@ async function fetchFromStorage(rootHash: string): Promise<Uint8Array | null> {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agents-decrypt',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { tokenId, userAddress } = body;
 
     // Validation
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId is required');
     }
 
     if (!userAddress) {
-      return NextResponse.json(
-        { success: false, error: 'userAddress is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('userAddress is required');
     }
 
     if (!isAddress(userAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid userAddress format' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid userAddress format');
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Verify iNFT exists
     const inft = await agentINFTService.getINFT(BigInt(tokenId));
     if (!inft) {
-      return NextResponse.json(
-        { success: false, error: 'iNFT not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('iNFT not found');
     }
 
     // Check authorization
@@ -144,21 +137,12 @@ export async function POST(request: NextRequest) {
     );
 
     if (!authCheck.authorized) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: authCheck.reason || 'Not authorized to decrypt metadata',
-        },
-        { status: 403 }
-      );
+      throw ErrorResponses.forbidden(authCheck.reason || 'Not authorized to decrypt metadata');
     }
 
     // Check if encrypted metadata reference exists
     if (!inft.encryptedMetadataRef || inft.encryptedMetadataRef.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'No encrypted metadata found for this iNFT' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('No encrypted metadata found for this iNFT');
     }
 
     // Try to fetch from 0G Storage
@@ -199,14 +183,7 @@ export async function POST(request: NextRequest) {
       });
     }
   } catch (error) {
-    console.error('Decrypt API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Decrypt:POST');
   }
 }
 
@@ -219,46 +196,38 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agents-decrypt-check',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const tokenId = searchParams.get('tokenId');
     const userAddress = searchParams.get('userAddress');
 
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId query parameter is required');
     }
 
     if (!userAddress) {
-      return NextResponse.json(
-        { success: false, error: 'userAddress query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('userAddress query parameter is required');
     }
 
     if (!isAddress(userAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid userAddress format' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid userAddress format');
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Verify iNFT exists
     const inft = await agentINFTService.getINFT(BigInt(tokenId));
     if (!inft) {
-      return NextResponse.json(
-        { success: false, error: 'iNFT not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('iNFT not found');
     }
 
     // Check authorization
@@ -281,13 +250,6 @@ export async function GET(request: NextRequest) {
       reason: authCheck.reason,
     });
   } catch (error) {
-    console.error('Decrypt Check API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Decrypt:GET');
   }
 }

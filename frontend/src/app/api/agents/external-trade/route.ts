@@ -22,6 +22,8 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { prisma } from '@/lib/prisma';
 
 // RPC timeout configuration
 const RPC_TIMEOUT = 60000;
@@ -186,14 +188,18 @@ async function executeFlowWithFallback<T>(
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-external-trade',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const body: ExternalTradeRequest = await request.json();
 
     // Validate request
     if (!body.agentId || !body.mirrorKey || !body.prediction || !body.amount) {
-      return NextResponse.json(
-        { error: 'Missing required fields: agentId, mirrorKey, prediction, amount' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: agentId, mirrorKey, prediction, amount');
     }
 
     const agentId = BigInt(body.agentId);
@@ -208,17 +214,11 @@ export async function POST(request: NextRequest) {
     const externalMarketMirrorAddress = flowContracts?.externalMarketMirror as `0x${string}`;
 
     if (!aiAgentINFTAddress || aiAgentINFTAddress === '0x0000000000000000000000000000000000000000') {
-      return NextResponse.json(
-        { error: 'AI Agent iNFT contract not deployed' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('AI Agent iNFT contract not deployed');
     }
 
     if (!externalMarketMirrorAddress || externalMarketMirrorAddress === '0x0000000000000000000000000000000000000000') {
-      return NextResponse.json(
-        { error: 'External Market Mirror contract not deployed' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('External Market Mirror contract not deployed');
     }
 
     // Step 1: Verify agent permissions on 0G chain
@@ -238,10 +238,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (!isActive) {
-      return NextResponse.json(
-        { error: 'Agent is not active' },
-        { status: 403 }
-      );
+      throw ErrorResponses.forbidden('Agent is not active');
     }
 
     // Get mirror market info to determine source
@@ -253,27 +250,18 @@ export async function POST(request: NextRequest) {
     });
 
     if (!mirrorMarket.externalLink.isActive) {
-      return NextResponse.json(
-        { error: 'Mirror market is not active' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Mirror market is not active');
     }
 
     const isPolymarket = mirrorMarket.externalLink.source === 0; // POLYMARKET = 0
     const [polymarketEnabled, kalshiEnabled] = externalStats as [boolean, boolean, bigint, bigint];
 
     if (isPolymarket && !polymarketEnabled) {
-      return NextResponse.json(
-        { error: 'Agent does not have Polymarket trading enabled' },
-        { status: 403 }
-      );
+      throw ErrorResponses.forbidden('Agent does not have Polymarket trading enabled');
     }
 
     if (!isPolymarket && !kalshiEnabled) {
-      return NextResponse.json(
-        { error: 'Agent does not have Kalshi trading enabled' },
-        { status: 403 }
-      );
+      throw ErrorResponses.forbidden('Agent does not have Kalshi trading enabled');
     }
 
     // Step 2: Generate oracle signature for agent trade
@@ -349,14 +337,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Agent external trade error:', error);
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Trade execution failed',
-        success: false,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:ExternalTrade:POST');
   }
 }
 
@@ -364,30 +345,65 @@ export async function POST(request: NextRequest) {
  * GET: Get agent external trade history
  */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const agentId = searchParams.get('agentId');
-
-  if (!agentId) {
-    return NextResponse.json(
-      { error: 'Missing agentId parameter' },
-      { status: 400 }
-    );
-  }
-
   try {
-    // In production, this would query the database
-    // For now, return empty array
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-external-trade-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
+    const { searchParams } = new URL(request.url);
+    const agentId = searchParams.get('agentId');
+
+    if (!agentId) {
+      throw ErrorResponses.badRequest('Missing agentId parameter');
+    }
+
+    // Parse optional query parameters
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
+    const offset = parseInt(searchParams.get('offset') || '0');
+
+    // Query the database for agent trades
+    const [trades, total] = await Promise.all([
+      prisma.agentTrade.findMany({
+        where: {
+          agentId: agentId,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.agentTrade.count({
+        where: {
+          agentId: agentId,
+        },
+      }),
+    ]);
+
     return NextResponse.json({
       success: true,
       agentId,
-      trades: [],
-      total: 0,
+      trades: trades.map(trade => ({
+        id: trade.id,
+        marketId: trade.marketId,
+        isYes: trade.isYes,
+        amount: trade.amount,
+        txHash: trade.txHash,
+        isCopyTrade: trade.isCopyTrade,
+        copiedFrom: trade.copiedFrom,
+        outcome: trade.outcome,
+        pnl: trade.pnl,
+        recordedOn0G: trade.recordedOn0G,
+        createdAt: trade.createdAt.toISOString(),
+      })),
+      total,
+      limit,
+      offset,
     });
   } catch (error) {
-    console.error('Error fetching trade history:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch trade history' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:ExternalTrade:GET');
   }
 }

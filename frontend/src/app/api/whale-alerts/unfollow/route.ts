@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 interface UnfollowRequest {
   userAddress: string;
@@ -14,22 +15,23 @@ interface UnfollowRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-unfollow',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body: UnfollowRequest = await request.json();
     const { userAddress, whaleAddress } = body;
 
     // Validate addresses
     if (!userAddress || !isAddress(userAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid user address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid user address');
     }
 
     if (!whaleAddress || !isAddress(whaleAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid whale address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid whale address');
     }
 
     // Soft delete by setting isActive = false
@@ -45,10 +47,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.count === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Follow relationship not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Follow relationship not found');
     }
 
     // Decrement follower count on TrackedTrader if exists
@@ -69,14 +68,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Whale unfollow error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to unfollow whale',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleUnfollow:POST');
   }
 }

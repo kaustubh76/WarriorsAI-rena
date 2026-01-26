@@ -3,11 +3,19 @@
  * GET: Fetch aggregated whale trading statistics
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-stats',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
@@ -80,8 +88,6 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error('[API] Whale stats error:', error);
-
     // Return default values if database tables don't exist yet
     const errorMessage = (error as Error).message;
     if (errorMessage.includes('does not exist') || errorMessage.includes('no such table')) {
@@ -99,13 +105,6 @@ export async function GET() {
       });
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch whale stats',
-        message: errorMessage,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleStats:GET');
   }
 }

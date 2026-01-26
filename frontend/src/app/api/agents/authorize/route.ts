@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Constants
 const MIN_DURATION_DAYS = 1;
@@ -28,63 +29,46 @@ const SECONDS_PER_DAY = 24 * 60 * 60;
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting for authorization operations
+    applyRateLimit(request, {
+      prefix: 'agents-authorize',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { tokenId, executorAddress, durationDays } = body;
 
     // Validation
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId is required');
     }
 
     if (!executorAddress) {
-      return NextResponse.json(
-        { success: false, error: 'executorAddress is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('executorAddress is required');
     }
 
     if (!isAddress(executorAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid executorAddress format' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid executorAddress format');
     }
 
     if (!durationDays || typeof durationDays !== 'number') {
-      return NextResponse.json(
-        { success: false, error: 'durationDays is required and must be a number' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('durationDays is required and must be a number');
     }
 
     if (durationDays < MIN_DURATION_DAYS || durationDays > MAX_DURATION_DAYS) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `durationDays must be between ${MIN_DURATION_DAYS} and ${MAX_DURATION_DAYS}`,
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`durationDays must be between ${MIN_DURATION_DAYS} and ${MAX_DURATION_DAYS}`);
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Verify iNFT exists
     const inft = await agentINFTService.getINFT(BigInt(tokenId));
     if (!inft) {
-      return NextResponse.json(
-        { success: false, error: 'iNFT not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('iNFT not found');
     }
 
     // Calculate duration in seconds
@@ -120,14 +104,7 @@ export async function POST(request: NextRequest) {
       chainId: agentINFTService.getChainId(),
     });
   } catch (error) {
-    console.error('Authorize API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Authorize:POST');
   }
 }
 
@@ -140,37 +117,32 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting for authorization status checks
+    applyRateLimit(request, {
+      prefix: 'agents-authorize-status',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const tokenId = searchParams.get('tokenId');
     const executor = searchParams.get('executor');
 
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId query parameter is required');
     }
 
     if (!executor) {
-      return NextResponse.json(
-        { success: false, error: 'executor query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('executor query parameter is required');
     }
 
     if (!isAddress(executor)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid executor address format' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid executor address format');
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Get authorization data
@@ -203,14 +175,7 @@ export async function GET(request: NextRequest) {
         : null,
     });
   } catch (error) {
-    console.error('Authorization Status API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Authorize:GET');
   }
 }
 
@@ -225,46 +190,38 @@ export async function GET(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    // Apply rate limiting for revoke operations
+    applyRateLimit(request, {
+      prefix: 'agents-authorize-revoke',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { tokenId, executorAddress } = body;
 
     // Validation
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId is required');
     }
 
     if (!executorAddress) {
-      return NextResponse.json(
-        { success: false, error: 'executorAddress is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('executorAddress is required');
     }
 
     if (!isAddress(executorAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid executorAddress format' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid executorAddress format');
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Verify iNFT exists
     const inft = await agentINFTService.getINFT(BigInt(tokenId));
     if (!inft) {
-      return NextResponse.json(
-        { success: false, error: 'iNFT not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('iNFT not found');
     }
 
     // Prepare the revoke transaction
@@ -290,13 +247,6 @@ export async function DELETE(request: NextRequest) {
       chainId: agentINFTService.getChainId(),
     });
   } catch (error) {
-    console.error('Revoke API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Authorize:DELETE');
   }
 }

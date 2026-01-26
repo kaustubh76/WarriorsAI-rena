@@ -5,9 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { isAddress, createPublicClient, http, formatEther } from 'viem';
+import { isAddress, createPublicClient, http } from 'viem';
 import { chainsToContracts, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
 import { MarketSource } from '@/types/externalMarket';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 const RPC_TIMEOUT = 60000;
 
@@ -72,15 +73,19 @@ async function executeWithFallback<T>(
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'portfolio-native',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const address = searchParams.get('address');
 
     // Validate address
     if (!address || !isAddress(address)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid or missing address parameter' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid or missing address parameter');
     }
 
     // Get native trades from database (trades without mirrorKey or with NATIVE source)
@@ -187,14 +192,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Native portfolio error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch native portfolio',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Portfolio:Native:GET');
   }
 }

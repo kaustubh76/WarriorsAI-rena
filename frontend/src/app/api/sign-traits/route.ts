@@ -7,6 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { encodePacked, keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+
+// Maximum signature validity period (5 minutes)
+const SIGNATURE_EXPIRY_MS = 5 * 60 * 1000;
 
 interface SignTraitsRequest {
   tokenId: number;
@@ -20,6 +24,7 @@ interface SignTraitsRequest {
   dodge: string;
   special: string;
   recover: string;
+  timestamp?: number; // Optional: client-provided timestamp for additional security
 }
 
 /**
@@ -28,6 +33,13 @@ interface SignTraitsRequest {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (20 signings per minute)
+    applyRateLimit(request, {
+      prefix: 'sign-traits-post',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body: SignTraitsRequest = await request.json();
     const {
       tokenId,
@@ -40,25 +52,35 @@ export async function POST(request: NextRequest) {
       taunt,
       dodge,
       special,
-      recover
+      recover,
+      timestamp: clientTimestamp
     } = body;
 
     // Validate required fields
     if (tokenId === undefined || tokenId < 0) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid tokenId' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid tokenId');
     }
+
+    // Validate client timestamp if provided (must be recent)
+    const now = Date.now();
+    if (clientTimestamp !== undefined) {
+      if (typeof clientTimestamp !== 'number' || isNaN(clientTimestamp)) {
+        throw ErrorResponses.badRequest('Invalid timestamp format');
+      }
+      // Timestamp must be within 5 minutes of server time
+      if (Math.abs(now - clientTimestamp) > SIGNATURE_EXPIRY_MS) {
+        throw ErrorResponses.badRequest('Timestamp expired or too far in future. Please retry.');
+      }
+    }
+
+    // Generate server timestamp for signature
+    const signatureTimestamp = Math.floor(now / 1000); // Unix timestamp in seconds
 
     // Validate trait values (0-10000 range)
     const traitValues = { strength, wit, charisma, defence, luck };
     for (const [name, value] of Object.entries(traitValues)) {
       if (typeof value !== 'number' || value < 0 || value > 10000) {
-        return NextResponse.json(
-          { success: false, error: `Invalid ${name} value: must be 0-10000` },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest(`Invalid ${name} value: must be 0-10000`);
       }
     }
 
@@ -66,20 +88,14 @@ export async function POST(request: NextRequest) {
     const moves = { strike, taunt, dodge, special, recover };
     for (const [name, value] of Object.entries(moves)) {
       if (!value || typeof value !== 'string') {
-        return NextResponse.json(
-          { success: false, error: `Invalid ${name}: must be a non-empty string` },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest(`Invalid ${name}: must be a non-empty string`);
       }
     }
 
     // Get Game Master private key
     const privateKey = process.env.GAME_MASTER_PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Game Master key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Game Master key not configured');
     }
 
     // Create account from private key
@@ -89,9 +105,10 @@ export async function POST(request: NextRequest) {
 
     const account = privateKeyToAccount(formattedKey);
 
-    // Encode the data in the same order as the contract expects (uint16 for tokenId and traits)
+    // Encode the data including timestamp for replay attack prevention
+    // The contract should verify the timestamp is recent when consuming the signature
     const encodedData = encodePacked(
-      ['uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'string', 'string', 'string', 'string', 'string'],
+      ['uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'string', 'string', 'string', 'string', 'string', 'uint64'],
       [
         tokenId,
         strength,
@@ -103,7 +120,8 @@ export async function POST(request: NextRequest) {
         taunt,
         dodge,
         special,
-        recover
+        recover,
+        BigInt(signatureTimestamp) // Include timestamp in signed data
       ]
     );
 
@@ -115,14 +133,18 @@ export async function POST(request: NextRequest) {
       message: { raw: messageHash }
     });
 
-    console.log('Game Master signed traits for token:', tokenId);
-    console.log('Signature:', signature);
+    // Calculate expiration time
+    const expiresAt = signatureTimestamp + Math.floor(SIGNATURE_EXPIRY_MS / 1000);
+
+    console.log('Game Master signed traits for token:', tokenId, 'expires at:', new Date(expiresAt * 1000).toISOString());
 
     return NextResponse.json({
       success: true,
       signature,
       gameMasterAddress: account.address,
       tokenId,
+      timestamp: signatureTimestamp,
+      expiresAt,
       traits: {
         strength,
         wit,
@@ -140,11 +162,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Sign traits error:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:SignTraits:POST');
   }
 }
 
@@ -152,14 +170,18 @@ export async function POST(request: NextRequest) {
  * GET /api/sign-traits
  * Returns the Game Master address for verification
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'sign-traits-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const privateKey = process.env.GAME_MASTER_PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Game Master key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Game Master key not configured');
     }
 
     const formattedKey = privateKey.startsWith('0x')
@@ -174,9 +196,6 @@ export async function GET() {
     });
 
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:SignTraits:GET');
   }
 }

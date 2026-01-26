@@ -13,11 +13,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import type { Address } from 'viem';
+import { handleAPIError, ErrorResponses } from '@/lib/api';
 
 // ============================================================================
-// Rate Limiting
+// Type Definitions
 // ============================================================================
 
+// 0G Service Provider interface
+interface ZeroGProvider {
+  provider: string;
+  serviceType: string;
+  model?: string;
+  url?: string;
+  inputPrice?: bigint;
+  outputPrice?: bigint;
+  verifiability?: string;
+}
+
+// Rate limiting
 interface RateLimitEntry {
   count: number;
   resetTime: number;
@@ -128,7 +141,7 @@ function updateProviderHealth(
   providerHealthStore.set(address, existing);
 }
 
-function selectBestProvider(providers: any[]): any {
+function selectBestProvider(providers: ZeroGProvider[]): ZeroGProvider | null {
   if (providers.length === 0) return null;
   if (providers.length === 1) return providers[0];
 
@@ -221,9 +234,9 @@ const ZERO_G_CONFIG = {
   computeRpc: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
   chainId: parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '16602'),
   // Known fallback providers for direct connection
-  fallbackProviders: [
-    '0xa48f01287233509FD694a22Bf840225062E67836',
-  ],
+  // These are verified 0G testnet inference providers that can be used when service discovery fails
+  // Configure via OG_FALLBACK_PROVIDERS env var (comma-separated addresses) for production
+  fallbackProviders: (process.env.OG_FALLBACK_PROVIDERS || '0xa48f01287233509FD694a22Bf840225062E67836').split(','),
   // Retry configuration
   maxRetries: 3,
   baseDelayMs: 1000,
@@ -341,35 +354,23 @@ export async function POST(request: NextRequest) {
 
     // Validate input
     if (!prompt) {
-      return NextResponse.json(
-        { success: false, error: 'Prompt is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Prompt is required');
     }
 
     // Validate prompt length (prevent abuse)
     if (prompt.length > 10000) {
-      return NextResponse.json(
-        { success: false, error: 'Prompt too long. Maximum 10000 characters.' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Prompt too long. Maximum 10000 characters.');
     }
 
     // Validate maxTokens
     if (maxTokens > 4000) {
-      return NextResponse.json(
-        { success: false, error: 'maxTokens too high. Maximum 4000.' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('maxTokens too high. Maximum 4000.');
     }
 
     // Get private key from environment
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: '0G private key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('0G private key not configured');
     }
 
     // Dynamic imports for server-side only modules
@@ -444,10 +445,11 @@ export async function POST(request: NextRequest) {
         return result;
       });
 
-      chatbotServices = services.filter((s: any) => s.serviceType === 'chatbot');
+      chatbotServices = services.filter((s: ZeroGProvider) => s.serviceType === 'chatbot');
       console.log(`[0G] Found ${chatbotServices.length} chatbot services`);
-    } catch (listError: any) {
-      console.error('[0G] listService failed after retries:', listError.message);
+    } catch (listError) {
+      const errorMessage = listError instanceof Error ? listError.message : 'Unknown error';
+      console.error('[0G] listService failed after retries:', errorMessage);
 
       // Try fallback to known provider
       console.log('[0G] Attempting fallback to known provider...');
@@ -586,18 +588,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('0G Inference error:', error);
-
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: errorMessage,
-        isVerified: false
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Inference:POST');
   }
 }
 
@@ -608,10 +599,7 @@ export async function GET() {
   try {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: '0G private key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('0G private key not configured');
     }
 
     const { createZGComputeNetworkBroker } = await import('@0glabs/0g-serving-broker');
@@ -648,7 +636,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      providers: services.map((s: any) => ({
+      providers: services.map((s: ZeroGProvider) => ({
         address: s.provider,
         model: s.model || 'Unknown',
         endpoint: s.url || '',
@@ -659,14 +647,7 @@ export async function GET() {
       }))
     });
   } catch (error) {
-    console.error('Error listing providers:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Inference:GET');
   }
 }
 

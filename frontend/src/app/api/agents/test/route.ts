@@ -2,11 +2,18 @@
  * Test API Route for debugging iNFT agent fetching
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agents-test',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
     console.log('=== Testing iNFT Service ===');
 
     // Check service configuration
@@ -59,13 +66,6 @@ export async function GET() {
       totalActiveINFTs: allINFTs.length,
     });
   } catch (error) {
-    console.error('Test API error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Test:GET');
   }
 }

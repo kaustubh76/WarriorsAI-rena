@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { executeDebateRound, executeFullBattle } from '../../../../../../services/arena/debateService';
 import { WarriorTraits, MarketSource, PredictionRound } from '../../../../../../types/predictionArena';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 const prisma = new PrismaClient();
 
@@ -94,6 +95,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'arena-battles-execute',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const { id: battleId } = await params;
     const body = await request.json();
     const { mode = 'round', warrior1Traits, warrior2Traits } = body;
@@ -109,17 +117,11 @@ export async function POST(
     });
 
     if (!battle) {
-      return NextResponse.json(
-        { error: 'Battle not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Battle not found');
     }
 
     if (battle.status !== 'active') {
-      return NextResponse.json(
-        { error: `Battle is not active (status: ${battle.status})` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Battle is not active (status: ${battle.status})`);
     }
 
     // Parse traits from request or use defaults
@@ -224,7 +226,13 @@ export async function POST(
           w2Traits
         );
       } catch (storageError) {
-        console.warn('Failed to store battle to 0G:', storageError);
+        // Log with context for debugging - storage failures are non-critical but should be investigated
+        console.warn(`[Battle ${battle.id}] Failed to store battle to 0G Storage:`, {
+          battleId: battle.id,
+          warrior1Id: battle.warrior1Id,
+          warrior2Id: battle.warrior2Id,
+          error: storageError instanceof Error ? storageError.message : 'Unknown error',
+        });
       }
 
       return NextResponse.json({
@@ -239,10 +247,7 @@ export async function POST(
     const roundNumber = battle.currentRound;
 
     if (roundNumber > 5) {
-      return NextResponse.json(
-        { error: 'Battle already completed' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Battle already completed');
     }
 
     // Convert existing rounds to format expected by debate service
@@ -342,11 +347,7 @@ export async function POST(
       storage: storageResult,
     });
   } catch (error) {
-    console.error('Error executing battle:', error);
-    return NextResponse.json(
-      { error: 'Failed to execute battle' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Arena:Battles:Execute:POST');
   }
 }
 

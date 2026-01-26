@@ -6,18 +6,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-following',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const address = searchParams.get('address');
 
     // Validate address
     if (!address || !isAddress(address)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid or missing address parameter' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid or missing address parameter');
     }
 
     // Get all active follows for this user
@@ -100,14 +105,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Whale following error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch followed whales',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleFollowing:GET');
   }
 }

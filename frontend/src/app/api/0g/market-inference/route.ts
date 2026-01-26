@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import type { Address } from 'viem';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // ============================================================================
 // Types
@@ -229,24 +230,19 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-market-inference',
+      maxRequests: 15,
+      windowMs: 60000,
+    });
+
     const body: MarketAnalysisRequest = await request.json();
     const { marketId, source, marketData, agentId, includeContext = true } = body;
 
     // Validate input
     if (!marketId || !source || !marketData?.question) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: marketId, source, marketData.question' },
-        { status: 400 }
-      );
-    }
-
-    // Rate limit check
-    const rateLimitKey = agentId || `market_${marketId}`;
-    if (!checkRateLimit(rateLimitKey)) {
-      return NextResponse.json(
-        { success: false, error: 'Rate limit exceeded. Please try again later.', isVerified: false },
-        { status: 429 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: marketId, source, marketData.question');
     }
 
     // Fetch historical context if requested
@@ -447,15 +443,7 @@ export async function POST(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('Market inference error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        isVerified: false,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:MarketInference:POST');
   }
 }
 

@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // ============================================================================
 // Configuration
@@ -45,16 +46,16 @@ interface OracleResponse {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-reencrypt',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     // Validate configuration
     if (!ZERO_G_ORACLE_URL) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'TEE Oracle not configured. ZERO_G_ORACLE_URL environment variable is required.',
-          code: 'ORACLE_NOT_CONFIGURED'
-        },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('TEE Oracle not configured. ZERO_G_ORACLE_URL environment variable is required.');
     }
 
     // Parse request body
@@ -62,38 +63,17 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!body.tokenId || !body.currentOwner || !body.newOwner || !body.encryptedMetadataRef) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Missing required fields: tokenId, currentOwner, newOwner, encryptedMetadataRef',
-          code: 'INVALID_REQUEST'
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: tokenId, currentOwner, newOwner, encryptedMetadataRef');
     }
 
     // Validate addresses
     if (!ethers.isAddress(body.currentOwner) || !ethers.isAddress(body.newOwner)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid address format',
-          code: 'INVALID_ADDRESS'
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid address format');
     }
 
     // Validate metadata reference format
     if (!body.encryptedMetadataRef.startsWith('0g://')) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid metadata reference. Must be a 0G Storage reference (0g://...)',
-          code: 'INVALID_METADATA_REF'
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid metadata reference. Must be a 0G Storage reference (0g://...)');
     }
 
     // Request re-encryption from TEE Oracle
@@ -161,15 +141,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Re-encryption API error:', error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Reencrypt:POST');
   }
 }

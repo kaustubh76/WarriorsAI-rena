@@ -5,9 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (30 fee recordings per minute)
+    applyRateLimit(request, {
+      prefix: 'creator-record-fee-post',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const {
       marketId,
@@ -20,21 +28,12 @@ export async function POST(request: NextRequest) {
 
     // Validation
     if (!marketId || !creatorAddress || !tradeVolume) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Missing required fields: marketId, creatorAddress, tradeVolume',
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: marketId, creatorAddress, tradeVolume');
     }
 
     const volume = parseFloat(tradeVolume);
     if (isNaN(volume) || volume <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid trade volume' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid trade volume');
     }
 
     // Calculate fee (2% of trade volume by default)
@@ -136,15 +135,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Record creator fee error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to record fee',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Creator:RecordFee:POST');
   }
 }
 
@@ -161,15 +152,19 @@ function calculateTier(totalVolume: number): string {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'creator-record-fee-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const creatorAddress = searchParams.get('creator');
     const limit = parseInt(searchParams.get('limit') || '50');
 
     if (!creatorAddress) {
-      return NextResponse.json(
-        { success: false, error: 'Missing creator address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing creator address');
     }
 
     const feeEntries = await prisma.creatorFeeEntry.findMany({
@@ -205,14 +200,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Get creator fee history error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch fee history',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Creator:RecordFee:GET');
   }
 }

@@ -8,6 +8,7 @@ import {
   executeWithFlowFallback,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Import the contract ABI and helpers
 import { ArenaAbi, getApiBaseUrl } from '../../../constants';
@@ -470,14 +471,18 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'game-master',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { action, arenaAddresses } = body;
 
     if (!action || !arenaAddresses || !Array.isArray(arenaAddresses)) {
-      return NextResponse.json(
-        { error: 'Missing action or arenaAddresses array' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing action or arenaAddresses array');
     }
 
     const results: { [key: string]: any } = {};
@@ -554,10 +559,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, results });
 
   } catch (error) {
-    console.error('Game Master API Error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:GameMaster:POST');
   }
 }

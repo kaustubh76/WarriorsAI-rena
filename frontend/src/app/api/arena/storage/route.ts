@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 const prisma = new PrismaClient();
 
@@ -68,29 +69,27 @@ interface BattleStorageRecord {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting for storage operations
+    applyRateLimit(request, {
+      prefix: 'arena-storage',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { battle } = body as { battle: BattleStorageRecord };
 
     if (!battle || !battle.battleId) {
-      return NextResponse.json(
-        { success: false, error: 'Battle data with battleId is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Battle data with battleId is required');
     }
 
     // Validate battle structure
     if (!battle.warriors || battle.warriors.length !== 2) {
-      return NextResponse.json(
-        { success: false, error: 'Battle must have exactly 2 warriors' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Battle must have exactly 2 warriors');
     }
 
     if (!battle.rounds || battle.rounds.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Battle must have at least 1 round' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Battle must have at least 1 round');
     }
 
     // Prepare data for 0G storage in expected format
@@ -166,14 +165,7 @@ export async function POST(request: NextRequest) {
       message: `Battle ${battle.battleId} stored on 0G`,
     });
   } catch (error) {
-    console.error('Arena storage error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Arena:Storage:POST');
   }
 }
 
@@ -183,14 +175,18 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting for retrieval operations
+    applyRateLimit(request, {
+      prefix: 'arena-storage-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
-      return NextResponse.json(
-        { success: false, error: 'rootHash is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('rootHash is required');
     }
 
     // Retrieve via existing 0G store endpoint
@@ -213,13 +209,6 @@ export async function GET(request: NextRequest) {
       data,
     });
   } catch (error) {
-    console.error('Arena storage retrieval error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Arena:Storage:GET');
   }
 }

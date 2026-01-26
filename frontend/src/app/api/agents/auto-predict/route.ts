@@ -28,6 +28,7 @@ import {
   getServerPrivateKey,
   TRADING_LIMITS,
 } from '@/lib/apiConfig';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Strategy type mapping
 const STRATEGY_NAMES: Record<number, string> = {
@@ -105,14 +106,18 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-auto-predict',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { agentId, marketId, autoExecute = false, minConfidenceOverride } = body;
 
     if (!agentId || marketId === undefined) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: agentId, marketId' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: agentId, marketId');
     }
 
     console.log(`🤖 [Auto-Predict] Starting prediction for Agent #${agentId} on Market #${marketId}`);
@@ -120,10 +125,7 @@ export async function POST(request: NextRequest) {
     // Get private key for 0G operations
     const privateKey = getServerPrivateKey();
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server not configured for agent operations' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Server not configured for agent operations');
     }
 
     // Setup providers
@@ -141,17 +143,11 @@ export async function POST(request: NextRequest) {
       encryptedMetadataRef = await inftContract.getEncryptedMetadataRef(agentId);
     } catch (err) {
       console.error('Error fetching agent data:', err);
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} not found on 0G chain` },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound(`Agent #${agentId} not found on 0G chain`);
     }
 
     if (!agentData.isActive) {
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} is not active` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Agent #${agentId} is not active`);
     }
 
     console.log(`📦 [Auto-Predict] Agent metadata ref: ${encryptedMetadataRef}`);
@@ -166,27 +162,18 @@ export async function POST(request: NextRequest) {
       prices = await marketContract.getPrice(marketId);
     } catch (err) {
       console.error('Error fetching market data:', err);
-      return NextResponse.json(
-        { success: false, error: `Market #${marketId} not found` },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound(`Market #${marketId} not found`);
     }
 
     // Check if market is active
     if (market.status !== BigInt(0)) {
-      return NextResponse.json(
-        { success: false, error: `Market #${marketId} is not active (status: ${market.status})` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Market #${marketId} is not active (status: ${market.status})`);
     }
 
     // Check if market hasn't expired
     const currentTime = Math.floor(Date.now() / 1000);
     if (Number(market.endTime) <= currentTime) {
-      return NextResponse.json(
-        { success: false, error: `Market #${marketId} has expired` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Market #${marketId} has expired`);
     }
 
     // Fetch agent metadata from 0G Storage
@@ -378,12 +365,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: unknown) {
-    console.error('Auto-predict error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:AutoPredict:POST');
   }
 }
 
@@ -393,14 +375,18 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-auto-predict-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const agentId = searchParams.get('agentId');
 
     if (!agentId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing agentId parameter' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing agentId parameter');
     }
 
     const zeroGProvider = new ethers.JsonRpcProvider(ZEROG_RPC);
@@ -412,10 +398,7 @@ export async function GET(request: NextRequest) {
       agentData = await inftContract.getAgentData(agentId);
       encryptedMetadataRef = await inftContract.getEncryptedMetadataRef(agentId);
     } catch {
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} not found` },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound(`Agent #${agentId} not found`);
     }
 
     return NextResponse.json({
@@ -440,12 +423,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: unknown) {
-    console.error('Get agent capabilities error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:AutoPredict:GET');
   }
 }
 

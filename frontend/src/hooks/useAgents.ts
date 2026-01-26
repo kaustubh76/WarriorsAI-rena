@@ -2,8 +2,8 @@
  * Custom hooks for AI Agent functionality
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useAccount, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, type Address } from 'viem';
 import { formatTokenAmount } from '@/utils/format';
 import aiAgentService, {
@@ -21,9 +21,29 @@ import aiAgentService, {
 } from '@/services/aiAgentService';
 import { agentINFTService } from '@/services/agentINFTService';
 
+// Interface for raw agent data from API
+interface RawAgentData {
+  tokenId: number;
+  owner: string;
+  onChainData: {
+    stakedAmount: string;
+    tier: number;
+    isActive: boolean;
+    copyTradingEnabled: boolean;
+    createdAt: number;
+    lastUpdatedAt: number;
+  };
+  performance: {
+    totalTrades: string;
+    winningTrades: string;
+    totalPnL: string;
+  };
+}
+
 /**
  * Hook to fetch all active agents (both registry agents and iNFTs)
  * Uses stable serialization to prevent infinite re-renders
+ * Includes AbortController to prevent race conditions
  */
 export function useAgents(options?: {
   filters?: AgentFilters;
@@ -32,18 +52,27 @@ export function useAgents(options?: {
   const [agents, setAgents] = useState<AIAgentDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Serialize options to create stable dependency
   const filtersKey = useMemo(() => JSON.stringify(options?.filters ?? {}), [options?.filters]);
   const sortKey = useMemo(() => JSON.stringify(options?.sort ?? { field: 'winRate', direction: 'desc' }), [options?.sort]);
 
   const fetchAgents = useCallback(async (skipCache = false) => {
+    // Cancel any pending request to prevent race conditions
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
     try {
       setLoading(true);
       const sort = JSON.parse(sortKey) as AgentSortOptions;
 
       // Only fetch iNFT agents from 0G chain (legacy registry agents deprecated)
-      const inftAgents = await fetchINFTAgents(skipCache);
+      const inftAgents = await fetchINFTAgents(skipCache, signal);
+
+      // Check if request was aborted before updating state
+      if (signal.aborted) return;
 
       console.log(`[useAgents] Fetched ${inftAgents.length} iNFT agents (skipCache: ${skipCache})`);
 
@@ -53,18 +82,27 @@ export function useAgents(options?: {
       setAgents(sortedAgents);
       setError(null);
     } catch (err) {
+      // Ignore abort errors - they're expected when cancelling requests
+      if (err instanceof Error && err.name === 'AbortError') return;
       setError('Failed to fetch agents');
       console.error(err);
     } finally {
-      setLoading(false);
+      // Only update loading state if not aborted
+      if (!abortControllerRef.current?.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [sortKey]);
 
   useEffect(() => {
     fetchAgents();
     // Refresh every 30 seconds
-    const interval = setInterval(fetchAgents, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => fetchAgents(), 30000);
+    return () => {
+      clearInterval(interval);
+      // Cancel any pending request on cleanup
+      abortControllerRef.current?.abort();
+    };
   }, [fetchAgents]);
 
   // Create stable refetch functions
@@ -84,13 +122,21 @@ export function useAgents(options?: {
  * Fetch iNFT agents from 0G chain via API route
  * Uses server-side fetching to avoid browser CORS issues with 0G RPC
  * @param skipCache - If true, forces a refresh from blockchain (useful after minting)
+ * @param signal - AbortSignal for cancelling the request
  */
-async function fetchINFTAgents(skipCache = false): Promise<AIAgentDisplay[]> {
+async function fetchINFTAgents(skipCache = false, signal?: AbortSignal): Promise<AIAgentDisplay[]> {
   try {
     const url = skipCache ? '/api/agents?refresh=true' : '/api/agents';
     console.log(`[fetchINFTAgents] Fetching agents via API route... (skipCache: ${skipCache})`);
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
+
+    // Check response status before parsing JSON
+    if (!response.ok) {
+      console.error('[fetchINFTAgents] HTTP error:', response.status, response.statusText);
+      return [];
+    }
+
     const data = await response.json();
 
     if (!data.success) {
@@ -101,8 +147,7 @@ async function fetchINFTAgents(skipCache = false): Promise<AIAgentDisplay[]> {
     console.log(`[fetchINFTAgents] Got ${data.agents.length} active iNFTs from API`);
 
     // Convert API response to AIAgentDisplay format
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const displayAgents: AIAgentDisplay[] = data.agents.map((agent: any) => {
+    const displayAgents: AIAgentDisplay[] = data.agents.map((agent: RawAgentData) => {
       const traits = { patience: 50, conviction: 50, contrarian: 50, momentum: 50 };
       const stakedAmount = BigInt(agent.onChainData.stakedAmount);
       const totalTrades = BigInt(agent.performance.totalTrades);
@@ -183,7 +228,10 @@ function sortAgents(agents: AIAgentDisplay[], sort: AgentSortOptions): AIAgentDi
         comparison = pnlA - pnlB;
         break;
       case 'stakedAmount':
-        comparison = Number(a.stakedAmount - b.stakedAmount);
+        // Safe BigInt comparison without Number conversion overflow
+        if (a.stakedAmount > b.stakedAmount) comparison = 1;
+        else if (a.stakedAmount < b.stakedAmount) comparison = -1;
+        else comparison = 0;
         break;
       case 'createdAt':
         comparison = Number(a.createdAt - b.createdAt);
@@ -198,11 +246,13 @@ function sortAgents(agents: AIAgentDisplay[], sort: AgentSortOptions): AIAgentDi
 
 /**
  * Hook to fetch a single agent
+ * Includes AbortController to prevent race conditions
  */
 export function useAgent(agentId: bigint | null) {
   const [agent, setAgent] = useState<AIAgentDisplay | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
 
   const fetchAgent = useCallback(async () => {
     if (agentId === null) return;
@@ -210,21 +260,32 @@ export function useAgent(agentId: bigint | null) {
     try {
       setLoading(true);
       const agentData = await aiAgentService.getAgentWithDisplay(agentId);
-      setAgent(agentData);
-      setError(null);
+      // Only update state if still mounted
+      if (isMountedRef.current) {
+        setAgent(agentData);
+        setError(null);
+      }
     } catch (err) {
-      setError('Failed to fetch agent');
-      console.error(err);
+      if (isMountedRef.current) {
+        setError('Failed to fetch agent');
+        console.error(err);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [agentId]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchAgent();
     // Refresh every 10 seconds
     const interval = setInterval(fetchAgent, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [fetchAgent]);
 
   return { agent, loading, error, refetch: fetchAgent };
@@ -232,10 +293,12 @@ export function useAgent(agentId: bigint | null) {
 
 /**
  * Hook to fetch agent performance
+ * Includes mounted ref to prevent state updates after unmount
  */
 export function useAgentPerformance(agentId: bigint | null) {
   const [performance, setPerformance] = useState<AgentPerformanceDisplay | null>(null);
   const [loading, setLoading] = useState(true);
+  const isMountedRef = useRef(true);
 
   const fetchPerformance = useCallback(async () => {
     if (agentId === null) return;
@@ -243,19 +306,27 @@ export function useAgentPerformance(agentId: bigint | null) {
     try {
       setLoading(true);
       const perfData = await aiAgentService.getAgentPerformanceDisplay(agentId);
-      setPerformance(perfData);
+      if (isMountedRef.current) {
+        setPerformance(perfData);
+      }
     } catch (err) {
       console.error('Error fetching performance:', err);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [agentId]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchPerformance();
     // Refresh every 15 seconds
     const interval = setInterval(fetchPerformance, 15000);
-    return () => clearInterval(interval);
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [fetchPerformance]);
 
   return {
@@ -337,11 +408,9 @@ export function useFollowingAgents() {
         const allAgentsData = await allAgentsResponse.json();
 
         if (allAgentsData.success) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const followedAgents = allAgentsData.agents.filter((agent: any) =>
+          const followedAgents = allAgentsData.agents.filter((agent: RawAgentData) =>
             followingIds.some((id: bigint) => id === BigInt(agent.tokenId))
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ).map((agent: any) => ({
+          ).map((agent: RawAgentData) => ({
             id: BigInt(agent.tokenId),
             operator: agent.owner,
             name: `iNFT Agent #${agent.tokenId}`,
@@ -444,6 +513,7 @@ export function useAgentFollowers(agentId: bigint | null) {
 
 /**
  * Hook for agent registry statistics
+ * Includes mounted ref to prevent state updates after unmount
  */
 export function useAgentStats() {
   const [stats, setStats] = useState({
@@ -452,6 +522,7 @@ export function useAgentStats() {
     nextAgentId: BigInt(1)
   });
   const [loading, setLoading] = useState(true);
+  const isMountedRef = useRef(true);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -461,19 +532,27 @@ export function useAgentStats() {
         aiAgentService.getTotalStaked(),
         aiAgentService.getNextAgentId()
       ]);
-      setStats({ totalAgents, totalStaked, nextAgentId });
+      if (isMountedRef.current) {
+        setStats({ totalAgents, totalStaked, nextAgentId });
+      }
     } catch (err) {
       console.error('Error fetching agent stats:', err);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchStats();
     // Refresh every minute
     const interval = setInterval(fetchStats, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [fetchStats]);
 
   return {

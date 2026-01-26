@@ -14,6 +14,7 @@ import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // ============================================================================
 // Types
@@ -335,6 +336,13 @@ async function indexMarketData(
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-market-store-post',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body: StoreRequest = await request.json();
     const { type, data, snapshot } = body;
 
@@ -343,10 +351,7 @@ export async function POST(request: NextRequest) {
     const dataType = type || 'market_snapshot';
 
     if (!storeData) {
-      return NextResponse.json(
-        { success: false, error: 'No data provided' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('No data provided');
     }
 
     // Prepare storage payload
@@ -381,14 +386,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('0G Market Store error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:MarketStore:POST');
   }
 }
 
@@ -397,14 +395,18 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-market-store-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
-      return NextResponse.json(
-        { success: false, error: 'rootHash query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('rootHash query parameter is required');
     }
 
     const { indexer: idx } = await initializeSDK();
@@ -434,14 +436,7 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('0G Market Store download error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:MarketStore:GET');
   }
 }
 
@@ -450,6 +445,13 @@ export async function GET(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-market-store-put',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { query, type, source, category, limit = 10 } = body;
 
@@ -513,13 +515,6 @@ export async function PUT(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('0G Market Store query error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:MarketStore:PUT');
   }
 }

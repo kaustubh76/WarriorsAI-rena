@@ -26,6 +26,7 @@ import {
   getApiBaseUrl,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Parse trade limits from config
 const MAX_TRADE_AMOUNT = ethers.parseEther(TRADING_LIMITS.maxTradeAmount);
@@ -115,66 +116,52 @@ function checkRateLimit(agentId: string): boolean {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-execute-trade',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     // Parse request body
     const body: ExecuteTradeRequest = await request.json();
     const { agentId, marketId, isYes, amount, prediction, minConfidenceOverride } = body;
 
     // Validate required fields
     if (!agentId || !marketId || amount === undefined || !prediction) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: agentId, marketId, amount, prediction' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: agentId, marketId, amount, prediction');
     }
 
-    // Check rate limit
+    // Check rate limit (per agent)
     if (!checkRateLimit(agentId)) {
-      return NextResponse.json(
-        { success: false, error: 'Rate limit exceeded. Max 10 trades per minute per agent.' },
-        { status: 429 }
-      );
+      throw ErrorResponses.tooManyRequests('Rate limit exceeded. Max 10 trades per minute per agent.');
     }
 
     // Validate prediction verification - only 0G verified predictions allowed
     if (!prediction.isVerified) {
-      return NextResponse.json(
-        { success: false, error: 'Cannot execute unverified prediction. Only 0G verified predictions are allowed.' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Cannot execute unverified prediction. Only 0G verified predictions are allowed.');
     }
 
     // Check confidence threshold (allow override for testing)
     const effectiveMinConfidence = minConfidenceOverride ?? MIN_CONFIDENCE;
     if (prediction.confidence < effectiveMinConfidence) {
-      return NextResponse.json(
-        { success: false, error: `Confidence ${prediction.confidence}% is below minimum ${effectiveMinConfidence}%` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Confidence ${prediction.confidence}% is below minimum ${effectiveMinConfidence}%`);
     }
 
     // Parse amount and validate
     const tradeAmount = BigInt(amount);
     if (tradeAmount <= BigInt(0)) {
-      return NextResponse.json(
-        { success: false, error: 'Trade amount must be greater than 0' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Trade amount must be greater than 0');
     }
 
     if (tradeAmount > MAX_TRADE_AMOUNT) {
-      return NextResponse.json(
-        { success: false, error: `Trade amount exceeds maximum of ${ethers.formatEther(MAX_TRADE_AMOUNT)} CRwN` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Trade amount exceeds maximum of ${ethers.formatEther(MAX_TRADE_AMOUNT)} CRwN`);
     }
 
     // Get server wallet from environment
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server wallet not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Server wallet not configured');
     }
 
     // Create provider and wallet
@@ -194,15 +181,7 @@ export async function POST(request: NextRequest) {
     console.log(`   Balance: ${ethers.formatEther(balance)} CRwN`);
 
     if (balance < tradeAmount) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Insufficient CRwN balance. Has ${ethers.formatEther(balance)}, needs ${ethers.formatEther(tradeAmount)}`,
-          walletAddress: wallet.address,
-          balanceBefore: ethers.formatEther(balance)
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Insufficient CRwN balance. Has ${ethers.formatEther(balance)}, needs ${ethers.formatEther(tradeAmount)}`);
     }
 
     // Check and set approval if needed
@@ -218,16 +197,13 @@ export async function POST(request: NextRequest) {
     try {
       const market = await marketContract.getMarket(BigInt(marketId));
       if (market.status !== BigInt(0)) { // 0 = Active
-        return NextResponse.json(
-          { success: false, error: 'Market is not active' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Market is not active');
       }
     } catch (marketError) {
-      return NextResponse.json(
-        { success: false, error: `Market #${marketId} not found or error fetching: ${marketError}` },
-        { status: 400 }
-      );
+      if (marketError instanceof Error && marketError.message.includes('400')) {
+        throw marketError;
+      }
+      throw ErrorResponses.badRequest(`Market #${marketId} not found or error fetching: ${marketError}`);
     }
 
     // Execute the trade
@@ -337,24 +313,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Agent trade execution error:', error);
-
-    // Extract useful error message
-    let errorMessage = 'Unknown error';
-    if (error instanceof Error) {
-      errorMessage = error.message;
-      // Check for common contract errors
-      if (errorMessage.includes('insufficient funds')) {
-        errorMessage = 'Insufficient native tokens for gas';
-      } else if (errorMessage.includes('execution reverted')) {
-        errorMessage = 'Transaction reverted by contract';
-      }
-    }
-
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:ExecuteTrade:POST');
   }
 }
 
@@ -363,16 +322,20 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-execute-trade-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const agentId = searchParams.get('agentId');
 
     // Get server wallet from environment
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json({
-        success: false,
-        error: 'Server wallet not configured'
-      });
+      throw ErrorResponses.serviceUnavailable('Server wallet not configured');
     }
 
     // Create provider and wallet
@@ -421,10 +384,6 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('Agent status check error:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:ExecuteTrade:GET');
   }
 }

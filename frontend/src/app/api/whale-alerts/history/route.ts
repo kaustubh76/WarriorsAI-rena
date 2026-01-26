@@ -6,9 +6,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerService';
 import { MarketSource } from '@/types/externalMarket';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-history',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
 
     const limit = parseInt(searchParams.get('limit') || '50');
@@ -27,14 +35,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Whale history error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch whale trade history',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleHistory:GET');
   }
 }

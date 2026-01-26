@@ -7,12 +7,20 @@ import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MarketSource } from '@/types/externalMarket';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-external-trades',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { id } = await params;
     const agentId = id;
 
@@ -131,14 +139,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('[External Trades API] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        trades: [],
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:ExternalTrades:GET');
   }
 }

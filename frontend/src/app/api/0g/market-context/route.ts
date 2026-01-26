@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Rate limiting
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
@@ -32,31 +33,23 @@ function checkRateLimit(key: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-market-context',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { question, source, maxResults = 5 } = body;
 
     // Validate input
     if (!question || typeof question !== 'string') {
-      return NextResponse.json(
-        { error: 'Question is required', context: '' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Question is required');
     }
 
     if (!source || !['polymarket', 'kalshi'].includes(source)) {
-      return NextResponse.json(
-        { error: 'Valid source (polymarket or kalshi) is required', context: '' },
-        { status: 400 }
-      );
-    }
-
-    // Rate limit check
-    const clientKey = `market_context_${source}`;
-    if (!checkRateLimit(clientKey)) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded', context: '' },
-        { status: 429 }
-      );
+      throw ErrorResponses.badRequest('Valid source (polymarket or kalshi) is required');
     }
 
     // Try to get context from 0G storage
@@ -93,11 +86,7 @@ export async function POST(request: NextRequest) {
       timestamp: Date.now(),
     });
   } catch (error) {
-    console.error('[MarketContext] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to retrieve market context', context: '' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:MarketContext:POST');
   }
 }
 

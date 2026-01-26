@@ -6,11 +6,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MarketSource } from '@/types/externalMarket';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-top-whales',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '5');
+    // Parse and validate limit with max constraints
+    const rawLimit = parseInt(searchParams.get('limit') || '5');
+    const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -102,8 +112,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Top whales error:', error);
-
     // Return empty array if database tables don't exist yet
     const errorMessage = (error as Error).message;
     if (errorMessage.includes('does not exist') || errorMessage.includes('no such table')) {
@@ -116,13 +124,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch top whales',
-        message: errorMessage,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleTopWhales:GET');
   }
 }

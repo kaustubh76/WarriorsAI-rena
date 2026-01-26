@@ -3,14 +3,29 @@
  * GET: Fetch leaderboard data with rankings
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, createAPILogger, createResponse, ResponsePresets } from '@/lib/api';
 
 // Time range options
 type TimeRange = 'daily' | 'weekly' | 'monthly' | 'all';
 
 // Sort categories
 type SortCategory = 'profit' | 'winRate' | 'volume' | 'streak' | 'accuracy';
+
+// Interface for user score data (replacing 'any' type)
+interface UserScoreData {
+  agentAddress: string;
+  agentId: string;
+  accuracy: number | null;
+  roi: number | null;
+  totalPredictions: number;
+  correctPredictions: number;
+  totalStaked: string;
+  totalReturns: string;
+  currentStreak: number;
+  longestStreak: number;
+}
 
 interface LeaderboardEntry {
   rank: number;
@@ -56,23 +71,63 @@ function getTierFromAccuracy(accuracy: number): string {
 }
 
 export async function GET(request: NextRequest) {
+  const logger = createAPILogger(request);
+  logger.start();
+
   try {
+    // Apply rate limiting (60 requests per minute)
+    applyRateLimit(request, {
+      prefix: 'leaderboard-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const timeRange = (searchParams.get('timeRange') || 'all') as TimeRange;
     const sortBy = (searchParams.get('sortBy') || 'profit') as SortCategory;
-    const limit = parseInt(searchParams.get('limit') || '50');
+    // Parse and validate pagination with max limits
+    const rawLimit = parseInt(searchParams.get('limit') || '50');
+    const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
     const userAddress = searchParams.get('user');
 
     const timeFilter = getTimeRangeFilter(timeRange);
+    const whereClause = timeFilter ? { updatedAt: { gte: timeFilter } } : {};
 
-    // Fetch AI prediction scores from database
-    const scores = await prisma.aIPredictionScore.findMany({
-      where: timeFilter
-        ? { updatedAt: { gte: timeFilter } }
-        : {},
-      orderBy: getSortOrder(sortBy),
-      take: limit,
-    });
+    // Optimize query execution by batching when user address is provided
+    let scores, userScore, higherRankedCount;
+
+    if (userAddress) {
+      // Execute queries in parallel to reduce latency
+      [scores, userScore, higherRankedCount] = await Promise.all([
+        // Main leaderboard query
+        prisma.aIPredictionScore.findMany({
+          where: whereClause,
+          orderBy: getSortOrder(sortBy),
+          take: limit,
+        }),
+        // User's score
+        prisma.aIPredictionScore.findFirst({
+          where: { agentAddress: userAddress },
+        }),
+        // If we need count, we'll do it conditionally below
+        Promise.resolve(null),
+      ]);
+
+      // Only count if user exists
+      if (userScore) {
+        const rankCondition = getRankingCondition(sortBy, userScore);
+        higherRankedCount = await prisma.aIPredictionScore.count({
+          where: rankCondition,
+        });
+      }
+    } else {
+      // No user lookup needed - just fetch leaderboard
+      scores = await prisma.aIPredictionScore.findMany({
+        where: whereClause,
+        orderBy: getSortOrder(sortBy),
+        take: limit,
+      });
+    }
 
     // Transform to leaderboard entries
     const leaderboard: LeaderboardEntry[] = scores.map((score, index) => ({
@@ -94,63 +149,70 @@ export async function GET(request: NextRequest) {
       agentId: score.agentId,
     }));
 
-    // Get user's rank if requested
+    // Build user rank if requested
     let userRank: LeaderboardEntry | null = null;
-    if (userAddress) {
-      const userScore = await prisma.aIPredictionScore.findFirst({
-        where: { agentAddress: userAddress },
-      });
+    if (userScore && higherRankedCount !== null && higherRankedCount !== undefined) {
+      userRank = {
+        rank: higherRankedCount + 1,
+        address: userScore.agentAddress,
+        name: `Agent #${userScore.agentId}`,
+        tier: getTierFromAccuracy(userScore.accuracy ?? 0),
+        trades: userScore.totalPredictions,
+        volume: userScore.totalStaked,
+        wins: userScore.correctPredictions,
+        losses: userScore.totalPredictions - userScore.correctPredictions,
+        winRate: userScore.accuracy ?? 0,
+        profit: userScore.totalReturns,
+        profitPercent: userScore.roi ?? 0,
+        currentStreak: userScore.currentStreak,
+        bestStreak: userScore.longestStreak,
+        accuracy: userScore.accuracy ?? 0,
+        isAgent: true,
+        agentId: userScore.agentId,
+      };
+    }
 
-      if (userScore) {
-        // Count how many are ranked higher
-        const higherRanked = await prisma.aIPredictionScore.count({
-          where: getRankingCondition(sortBy, userScore),
-        });
+    // Get summary stats using a single optimized query
+    // Use raw query for volume sum since totalStaked is stored as string
+    const [statsResult, volumeResult] = await Promise.allSettled([
+      prisma.aIPredictionScore.aggregate({
+        _count: true,
+        _sum: {
+          totalPredictions: true,
+          correctPredictions: true,
+        },
+        _avg: {
+          accuracy: true,
+          roi: true,
+        },
+      }),
+      // Use raw SQL to efficiently sum volume without fetching all records
+      // This is much more efficient than findMany + reduce for large datasets
+      prisma.$queryRaw<[{ total: bigint | null }]>`
+        SELECT COALESCE(SUM(CAST("totalStaked" AS DECIMAL)), 0) as total
+        FROM "AIPredictionScore"
+      `.catch(() => [{ total: BigInt(0) }]),
+    ]);
 
-        userRank = {
-          rank: higherRanked + 1,
-          address: userScore.agentAddress,
-          name: `Agent #${userScore.agentId}`,
-          tier: getTierFromAccuracy(userScore.accuracy ?? 0),
-          trades: userScore.totalPredictions,
-          volume: userScore.totalStaked,
-          wins: userScore.correctPredictions,
-          losses: userScore.totalPredictions - userScore.correctPredictions,
-          winRate: userScore.accuracy ?? 0,
-          profit: userScore.totalReturns,
-          profitPercent: userScore.roi ?? 0,
-          currentStreak: userScore.currentStreak,
-          bestStreak: userScore.longestStreak,
-          accuracy: userScore.accuracy ?? 0,
-          isAgent: true,
-          agentId: userScore.agentId,
-        };
+    // Extract results with fallbacks
+    const stats = statsResult.status === 'fulfilled' ? statsResult.value : {
+      _count: 0,
+      _sum: { totalPredictions: 0, correctPredictions: 0 },
+      _avg: { accuracy: 0, roi: 0 },
+    };
+
+    // Handle raw query result
+    let totalVolume = 0;
+    if (volumeResult.status === 'fulfilled') {
+      const volumeData = volumeResult.value;
+      if (Array.isArray(volumeData) && volumeData.length > 0 && volumeData[0].total !== null) {
+        totalVolume = Number(volumeData[0].total);
       }
     }
 
-    // Get summary stats
-    const stats = await prisma.aIPredictionScore.aggregate({
-      _count: true,
-      _sum: {
-        totalPredictions: true,
-        correctPredictions: true,
-      },
-      _avg: {
-        accuracy: true,
-        roi: true,
-      },
-    });
+    logger.complete(200);
 
-    // Calculate total volume from all scores (since totalStaked is a string)
-    const allScores = await prisma.aIPredictionScore.findMany({
-      select: { totalStaked: true },
-    });
-    const totalVolume = allScores.reduce(
-      (sum, s) => sum + parseFloat(s.totalStaked || '0'),
-      0
-    );
-
-    return NextResponse.json({
+    return createResponse({
       success: true,
       data: {
         leaderboard,
@@ -168,17 +230,13 @@ export async function GET(request: NextRequest) {
           limit,
         },
       },
+    }, {
+      ...ResponsePresets.standard, // Cache for 60s, stale-while-revalidate 30s
+      requestId: logger.requestId,
     });
   } catch (error) {
-    console.error('[API] Leaderboard error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch leaderboard',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    logger.error('Leaderboard fetch failed', error);
+    return handleAPIError(error, 'API:Leaderboard:GET');
   }
 }
 
@@ -198,13 +256,16 @@ function getSortOrder(sortBy: SortCategory) {
   }
 }
 
-function getRankingCondition(sortBy: SortCategory, userScore: any) {
+function getRankingCondition(sortBy: SortCategory, userScore: UserScoreData): Record<string, unknown> {
   switch (sortBy) {
     case 'profit':
       return { totalReturns: { gt: userScore.totalReturns } };
     case 'winRate':
     case 'accuracy':
-      return { accuracy: { gt: userScore.accuracy } };
+      // Handle nullable accuracy field
+      return userScore.accuracy !== null
+        ? { accuracy: { gt: userScore.accuracy } }
+        : {};
     case 'volume':
       return { totalStaked: { gt: userScore.totalStaked } };
     case 'streak':

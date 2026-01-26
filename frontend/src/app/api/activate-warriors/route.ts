@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (10 activations per minute)
+    applyRateLimit(request, {
+      prefix: 'activate-warriors',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { auth, warriorsData } = body;
 
     // Check if we have both auth and warriorsData
     if (!auth && !warriorsData) {
-      return NextResponse.json(
-        { error: 'Missing auth and warriorsData' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing auth and warriorsData');
     }
 
     let authForNearAI;
@@ -21,10 +26,7 @@ export async function POST(request: NextRequest) {
       
       // Validate auth structure
       if (!auth.signature || !auth.accountId || !auth.publicKey) {
-        return NextResponse.json(
-          { error: 'Invalid auth structure - missing signature, accountId, or publicKey' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Invalid auth structure - missing signature, accountId, or publicKey');
       }
 
       // Format for NEAR AI (convert to snake_case like the working route)
@@ -42,11 +44,8 @@ export async function POST(request: NextRequest) {
     } else {
       // Fallback to backend signing (existing logic)
       console.log('No auth provided, using backend signing...');
-      
-      return NextResponse.json(
-        { error: 'Backend signing not yet working - please provide signed auth from frontend' },
-        { status: 500 }
-      );
+
+      throw ErrorResponses.serviceUnavailable('Backend signing not yet working - please provide signed auth from frontend');
     }
     
     // Create the JSON payload for the traits generator AI (not a text prompt)
@@ -173,10 +172,6 @@ export async function POST(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error("Server: Error in activate-warriors:", error);
-    return NextResponse.json(
-      { error: `Failed to activate Warriors: ${error instanceof Error ? error.message : 'Unknown error'}` },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:ActivateWarriors:POST');
   }
 }

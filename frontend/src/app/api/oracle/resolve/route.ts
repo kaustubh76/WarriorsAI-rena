@@ -8,6 +8,7 @@ import { createPublicClient, createWalletClient, http, type Address } from 'viem
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowTestnet } from 'viem/chains';
 import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // RPC timeout configuration
 const RPC_TIMEOUT = 60000;
@@ -51,15 +52,19 @@ const ZeroGOracleABI = [
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'oracle-resolve',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const body: ResolutionRequest = await request.json();
     const { battleId, marketId, warrior1Damage, warrior2Damage } = body;
 
     // Validate input
     if (!battleId || !marketId || !warrior1Damage || !warrior2Damage) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields');
     }
 
     // Determine outcome based on damage
@@ -128,14 +133,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Oracle resolution error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Oracle:Resolve:POST');
   }
 }
 
@@ -268,20 +266,28 @@ async function submitToContract(
 
 // GET endpoint for checking resolution status
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const marketId = searchParams.get('marketId');
+  try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'oracle-resolve-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
 
-  if (!marketId) {
-    return NextResponse.json(
-      { error: 'marketId is required' },
-      { status: 400 }
-    );
+    const { searchParams } = new URL(request.url);
+    const marketId = searchParams.get('marketId');
+
+    if (!marketId) {
+      throw ErrorResponses.badRequest('marketId is required');
+    }
+
+    // In production, fetch status from contract
+    return NextResponse.json({
+      marketId,
+      status: 'pending',
+      message: 'Resolution status check - implement contract read'
+    });
+  } catch (error) {
+    return handleAPIError(error, 'API:Oracle:Resolve:GET');
   }
-
-  // In production, fetch status from contract
-  return NextResponse.json({
-    marketId,
-    status: 'pending',
-    message: 'Resolution status check - implement contract read'
-  });
 }

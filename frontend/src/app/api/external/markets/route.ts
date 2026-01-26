@@ -10,9 +10,17 @@ import {
   ExternalMarketStatus,
   MarketFilters,
 } from '@/types/externalMarket';
+import { handleAPIError } from '@/lib/api/errorHandler';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'external-markets',
+      ...RateLimitPresets.apiQueries,
+    });
+
     const { searchParams } = new URL(request.url);
 
     // Parse filters from query params
@@ -97,14 +105,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] External markets error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch external markets',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:ExternalMarkets:GET');
   }
 }

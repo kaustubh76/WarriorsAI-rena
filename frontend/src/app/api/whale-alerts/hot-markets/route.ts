@@ -6,9 +6,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MarketSource } from '@/types/externalMarket';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-hot-markets',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '5');
 
@@ -83,8 +91,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Hot markets error:', error);
-
     // Return empty array if database tables don't exist yet
     const errorMessage = (error as Error).message;
     if (errorMessage.includes('does not exist') || errorMessage.includes('no such table')) {
@@ -97,13 +103,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch hot markets',
-        message: errorMessage,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleHotMarkets:GET');
   }
 }

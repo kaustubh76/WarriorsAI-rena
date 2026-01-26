@@ -12,6 +12,13 @@ import { NotificationProvider } from "@/contexts/NotificationContext";
 import { GamificationProvider } from "@/contexts/GamificationContext";
 import { ToastContainer } from "@/components/gamification/ToastContainer";
 import { GamificationOverlay } from "@/components/gamification/GamificationOverlay";
+import { validateEnvironmentOrThrow } from "@/lib/validateEnv";
+
+// Validate environment variables on server startup (runtime only, not during build)
+// Skip validation during Next.js build phase to allow CI builds without full env
+if (typeof window === 'undefined' && process.env.NEXT_PHASE !== 'phase-production-build') {
+  validateEnvironmentOrThrow({ checkSensitive: false });
+}
 
 export const metadata: Metadata = {
   title: "WarriorsAI-rena",

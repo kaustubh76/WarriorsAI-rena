@@ -20,6 +20,7 @@ import {
   executeWithFlowFallback,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // ============================================================================
 // Types
@@ -211,6 +212,13 @@ async function waitForReceiptWithFallback(
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'flow-vrf-trade',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body: VRFTradeRequest = await request.json();
     const {
       mirrorKey,
@@ -224,49 +232,30 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!mirrorKey || amount === undefined || isYes === undefined) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: mirrorKey, isYes, amount' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: mirrorKey, isYes, amount');
     }
 
     // Validate amount
     const amountWei = parseEther(amount);
     if (amountWei <= 0n) {
-      return NextResponse.json(
-        { success: false, error: 'Amount must be greater than 0' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Amount must be greater than 0');
     }
 
     // Check prediction verification (if production mode)
     const allowTestMode = process.env.ALLOW_TEST_MODE === 'true';
     if (!allowTestMode && prediction && !prediction.isVerified) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Only 0G verified predictions allowed for trading',
-          warning: 'Set ALLOW_TEST_MODE=true to bypass verification',
-        },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Only 0G verified predictions allowed for trading');
     }
 
     // Get server private key
     const privateKey = process.env.PRIVATE_KEY as `0x${string}`;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server private key not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Server private key not configured');
     }
 
     // Check if mirror contract is configured
     if (EXTERNAL_MARKET_MIRROR === '0x0000000000000000000000000000000000000000') {
-      return NextResponse.json(
-        { success: false, error: 'ExternalMarketMirror contract not deployed. Set EXTERNAL_MARKET_MIRROR_ADDRESS env var.' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('ExternalMarketMirror contract not deployed. Set EXTERNAL_MARKET_MIRROR_ADDRESS env var.');
     }
 
     const publicClient = getPublicClient();
@@ -286,10 +275,7 @@ export async function POST(request: NextRequest) {
       );
 
       if (!mirrorMarket.externalLink.isActive) {
-        return NextResponse.json(
-          { success: false, error: 'Mirror market is not active' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Mirror market is not active');
       }
     } catch (error) {
       // Contract may not be deployed yet
@@ -394,14 +380,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Flow VRF trade error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Trade execution failed',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Flow:VRFTrade:POST');
   }
 }
 
@@ -410,15 +389,19 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'flow-vrf-trade-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const mirrorKey = searchParams.get('mirrorKey');
     const txHash = searchParams.get('txHash');
 
     if (!mirrorKey && !txHash) {
-      return NextResponse.json(
-        { success: false, error: 'Provide mirrorKey or txHash query parameter' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Provide mirrorKey or txHash query parameter');
     }
 
     const publicClient = getPublicClient();
@@ -461,27 +444,14 @@ export async function GET(request: NextRequest) {
             creator: mirrorMarket.creator,
           },
         });
-      } catch (error) {
-        return NextResponse.json({
-          success: false,
-          error: 'Mirror market not found or contract not deployed',
-        }, { status: 404 });
+      } catch {
+        throw ErrorResponses.notFound('Mirror market not found or contract not deployed');
       }
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Invalid request' },
-      { status: 400 }
-    );
+    throw ErrorResponses.badRequest('Invalid request');
 
   } catch (error) {
-    console.error('Flow VRF trade GET error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Flow:VRFTrade:GET');
   }
 }

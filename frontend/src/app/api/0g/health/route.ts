@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { ZEROG_RPC, ZEROG_CHAIN_ID, ZEROG_COMPUTE } from '@/lib/apiConfig';
+import { handleAPIError } from '@/lib/api';
 
 interface HealthStatus {
   timestamp: string;
@@ -210,13 +211,6 @@ export async function GET() {
   });
 
   } catch (error) {
-    // Catch any unexpected errors
-    console.error('[0G Health] Unexpected error:', error);
-    return NextResponse.json({
-      timestamp: new Date().toISOString(),
-      overall: 'unhealthy',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined,
-    }, { status: 500 });
+    return handleAPIError(error, 'API:0G:Health:GET');
   }
 }

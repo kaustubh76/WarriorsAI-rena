@@ -11,6 +11,7 @@ import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Dynamic import for 0G SDK (works better with Next.js)
 let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
@@ -172,21 +173,38 @@ async function uploadToZeroG(data: Buffer | Uint8Array, filename: string): Promi
   }
 }
 
+// Maximum file size (10MB)
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 /**
  * POST: Upload encrypted metadata to 0G storage
  * Accepts FormData with a 'file' field containing the encrypted metadata
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting for upload operations
+    applyRateLimit(request, {
+      prefix: '0g-upload',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 
     if (!file) {
-      return NextResponse.json(
-        { success: false, error: 'No file provided' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('No file provided');
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      throw ErrorResponses.badRequest(`File size exceeds maximum of ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+    }
+
+    // Validate file size is not empty
+    if (file.size === 0) {
+      throw ErrorResponses.badRequest('File is empty');
     }
 
     console.log(`[0G Upload API] Received file: ${file.name} (${file.size} bytes)`);
@@ -206,14 +224,7 @@ export async function POST(request: NextRequest) {
       filename: file.name
     });
   } catch (error) {
-    console.error('[0G Upload API] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Upload:POST');
   }
 }
 
@@ -223,14 +234,18 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting for download operations
+    applyRateLimit(request, {
+      prefix: '0g-upload-download',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
-      return NextResponse.json(
-        { success: false, error: 'rootHash query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('rootHash query parameter is required');
     }
 
     const { indexer: idx } = await initializeSDK();
@@ -262,13 +277,6 @@ export async function GET(request: NextRequest) {
       }
     }
   } catch (error) {
-    console.error('[0G Download API] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Upload:GET');
   }
 }

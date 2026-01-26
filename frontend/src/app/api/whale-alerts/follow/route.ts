@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 interface FollowRequest {
   userAddress: string;
@@ -20,66 +21,80 @@ interface FollowRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-follow',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body: FollowRequest = await request.json();
     const { userAddress, whaleAddress, config } = body;
 
     // Validate addresses
     if (!userAddress || !isAddress(userAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid user address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid user address');
     }
 
     if (!whaleAddress || !isAddress(whaleAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid whale address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid whale address');
     }
 
     // Validate config
     if (!config || typeof config.copyPercentage !== 'number') {
-      return NextResponse.json(
-        { success: false, error: 'Invalid configuration' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid configuration');
     }
 
     // Ensure copy percentage is between 1 and 100
     if (config.copyPercentage < 1 || config.copyPercentage > 100) {
-      return NextResponse.json(
-        { success: false, error: 'Copy percentage must be between 1 and 100' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Copy percentage must be between 1 and 100');
     }
 
-    // Upsert the follow record
-    const follow = await prisma.whaleFollow.upsert({
-      where: {
-        userAddress_whaleAddress: {
+    // Use a transaction to ensure atomicity and prevent double-increment
+    const follow = await prisma.$transaction(async (tx) => {
+      // Check if this is a new follow or reactivation
+      const existing = await tx.whaleFollow.findUnique({
+        where: {
+          userAddress_whaleAddress: {
+            userAddress: userAddress.toLowerCase(),
+            whaleAddress: whaleAddress.toLowerCase(),
+          },
+        },
+      });
+
+      const isNewFollow = !existing || !existing.isActive;
+
+      // Upsert the follow record
+      const followRecord = await tx.whaleFollow.upsert({
+        where: {
+          userAddress_whaleAddress: {
+            userAddress: userAddress.toLowerCase(),
+            whaleAddress: whaleAddress.toLowerCase(),
+          },
+        },
+        update: {
+          config: JSON.stringify(config),
+          isActive: true,
+          updatedAt: new Date(),
+        },
+        create: {
+          userId: userAddress.toLowerCase(),
           userAddress: userAddress.toLowerCase(),
           whaleAddress: whaleAddress.toLowerCase(),
+          config: JSON.stringify(config),
+          isActive: true,
         },
-      },
-      update: {
-        config: JSON.stringify(config),
-        isActive: true,
-        updatedAt: new Date(),
-      },
-      create: {
-        userId: userAddress.toLowerCase(),
-        userAddress: userAddress.toLowerCase(),
-        whaleAddress: whaleAddress.toLowerCase(),
-        config: JSON.stringify(config),
-        isActive: true,
-      },
-    });
+      });
 
-    // Increment follower count on TrackedTrader if exists
-    await prisma.trackedTrader.updateMany({
-      where: { address: whaleAddress.toLowerCase() },
-      data: { followers: { increment: 1 } },
+      // Only increment follower count if this is a new follow (not reactivation of same record)
+      if (isNewFollow) {
+        await tx.trackedTrader.updateMany({
+          where: { address: whaleAddress.toLowerCase() },
+          data: { followers: { increment: 1 } },
+        });
+      }
+
+      return followRecord;
     });
 
     return NextResponse.json({
@@ -94,14 +109,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Whale follow error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to follow whale',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleFollow:POST');
   }
 }

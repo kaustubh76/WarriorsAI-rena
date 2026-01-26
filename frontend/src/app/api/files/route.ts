@@ -1,23 +1,31 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getStorageApiUrl } from '@/constants';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // 0G Storage service URL - configured via environment variable
 const STORAGE_API_URL = getStorageApiUrl();
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (10 file uploads per minute)
+    applyRateLimit(request, {
+      prefix: 'files-upload',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const data = await request.formData();
     const file: File | null = data.get("file") as unknown as File;
-    
+
     // Get form data for JSON metadata
     const name = data.get("name") as string;
     const bio = data.get("bio") as string;
     const life_history = data.get("life_history") as string;
     const adjectives = data.get("adjectives") as string;
     const knowledge_areas = data.get("knowledge_areas") as string;
-    
+
     if (!file) {
-      return NextResponse.json({ error: "No file received" }, { status: 400 });
+      throw ErrorResponses.badRequest("No file received");
     }
 
     console.log("🚀 Uploading file to 0G Storage:", file.name, "(" + (file.size / 1024 / 1024).toFixed(2) + " MB)");
@@ -107,11 +115,7 @@ export async function POST(request: NextRequest) {
       metadataUrl: `0g://${metadataRootHash}`
     }, { status: 200 });
     
-  } catch (e) {
-    console.error("❌ Error uploading to 0G Storage:", e);
-    return NextResponse.json(
-      { error: "0G Storage upload failed: " + (e instanceof Error ? e.message : 'Unknown error') },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleAPIError(error, 'API:Files:POST');
   }
 }

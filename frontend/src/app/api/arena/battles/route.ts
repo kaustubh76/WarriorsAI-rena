@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { keccak256, toBytes } from 'viem';
+import { prisma } from '@/lib/prisma';
+import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
+import { validateInteger, validateAddress, validateBigIntString, validateEnum } from '@/lib/api/validation';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
-const prisma = new PrismaClient();
+// Helper to determine round winner
+function determineRoundWinner(w1Score: number, w2Score: number): 'warrior1' | 'warrior2' | 'draw' {
+  if (w1Score > w2Score) return 'warrior1';
+  if (w2Score > w1Score) return 'warrior2';
+  return 'draw';
+}
 
 export type BattleStatus = 'pending' | 'active' | 'completed' | 'cancelled';
 
@@ -33,8 +42,11 @@ export async function GET(request: NextRequest) {
     const warriorId = searchParams.get('warriorId');
     const marketId = searchParams.get('marketId');
     const source = searchParams.get('source');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    // Parse and validate pagination with max limits to prevent DoS
+    const rawLimit = parseInt(searchParams.get('limit') || '20');
+    const rawOffset = parseInt(searchParams.get('offset') || '0');
+    const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
+    const offset = Math.max(rawOffset, 0); // Ensure non-negative
 
     const where: Record<string, unknown> = {};
 
@@ -67,18 +79,18 @@ export async function GET(request: NextRequest) {
       prisma.predictionBattle.count({ where }),
     ]);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       battles,
       total,
       limit,
       offset,
     });
+
+    // Add cache headers for battles list (cache for 30 seconds - active battles change frequently)
+    response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=15');
+    return response;
   } catch (error) {
-    console.error('Error fetching battles:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch battles' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Battles:GET');
   }
 }
 
@@ -88,6 +100,12 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'battle-create',
+      ...RateLimitPresets.battleCreation,
+    });
+
     const body: CreateBattleRequest = await request.json();
 
     const {
@@ -101,12 +119,18 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // Validate required fields
-    if (!externalMarketId || !source || !question || !warrior1Id || !warrior1Owner || !stakes) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    if (!externalMarketId || typeof externalMarketId !== 'string') {
+      throw ErrorResponses.badRequest('externalMarketId is required');
     }
+    if (!question || typeof question !== 'string') {
+      throw ErrorResponses.badRequest('question is required');
+    }
+
+    // Validate input types
+    validateEnum(source, ['polymarket', 'kalshi'] as const, 'source');
+    validateInteger(warrior1Id, 'warrior1Id', { min: 0 });
+    validateAddress(warrior1Owner, 'warrior1Owner');
+    validateBigIntString(stakes, 'stakes');
 
     // Generate market key (same as contract)
     const marketKey = keccak256(toBytes(`${source}:${externalMarketId}`));
@@ -133,11 +157,7 @@ export async function POST(request: NextRequest) {
       message: 'Challenge created successfully',
     });
   } catch (error) {
-    console.error('Error creating battle:', error);
-    return NextResponse.json(
-      { error: 'Failed to create battle' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Battles:POST');
   }
 }
 
@@ -158,20 +178,24 @@ export async function PATCH(request: NextRequest) {
         action: string;
       };
 
+      // Validate inputs
+      if (!battleId || typeof battleId !== 'string') {
+        throw ErrorResponses.badRequest('battleId is required');
+      }
+      validateInteger(warrior2Id, 'warrior2Id', { min: 0 });
+      validateAddress(warrior2Owner, 'warrior2Owner');
+
       // Get existing battle
       const existing = await prisma.predictionBattle.findUnique({
         where: { id: battleId },
       });
 
       if (!existing) {
-        return NextResponse.json({ error: 'Battle not found' }, { status: 404 });
+        throw ErrorResponses.notFound('Battle');
       }
 
       if (existing.status !== 'pending') {
-        return NextResponse.json(
-          { error: 'Battle is not in pending state' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Battle is not in pending state');
       }
 
       // Determine which side needs to be filled
@@ -205,6 +229,10 @@ export async function PATCH(request: NextRequest) {
     if (action === 'cancel') {
       const { battleId } = body as { battleId: string; action: string };
 
+      if (!battleId || typeof battleId !== 'string') {
+        throw ErrorResponses.badRequest('battleId is required');
+      }
+
       const battle = await prisma.predictionBattle.update({
         where: { id: battleId },
         data: { status: 'cancelled' },
@@ -231,96 +259,132 @@ export async function PATCH(request: NextRequest) {
         judgeReasoning,
       } = body;
 
-      // Create or update round
-      const round = await prisma.predictionRound.upsert({
-        where: {
-          battleId_roundNumber: {
+      // Validate inputs
+      if (!battleId || typeof battleId !== 'string') {
+        throw ErrorResponses.badRequest('battleId is required');
+      }
+      validateInteger(roundNumber, 'roundNumber', { min: 1, max: 5 });
+      validateInteger(w1Score, 'w1Score', { min: 0, allowZero: true });
+      validateInteger(w2Score, 'w2Score', { min: 0, allowZero: true });
+
+      const roundWinner = determineRoundWinner(w1Score, w2Score);
+      const isCompleted = roundNumber >= 5;
+
+      // Use transaction to ensure atomic updates for round + battle + stats
+      const result = await prisma.$transaction(async (tx) => {
+        // Create or update round
+        const round = await tx.predictionRound.upsert({
+          where: {
+            battleId_roundNumber: {
+              battleId,
+              roundNumber,
+            },
+          },
+          update: {
+            w1Argument,
+            w1Evidence: JSON.stringify(w1Evidence),
+            w1Move,
+            w1Score,
+            w2Argument,
+            w2Evidence: JSON.stringify(w2Evidence),
+            w2Move,
+            w2Score,
+            roundWinner,
+            judgeReasoning,
+            endedAt: new Date(),
+          },
+          create: {
             battleId,
             roundNumber,
+            w1Argument,
+            w1Evidence: JSON.stringify(w1Evidence),
+            w1Move,
+            w1Score,
+            w2Argument,
+            w2Evidence: JSON.stringify(w2Evidence),
+            w2Move,
+            w2Score,
+            roundWinner,
+            judgeReasoning,
+            endedAt: new Date(),
           },
-        },
-        update: {
-          w1Argument,
-          w1Evidence: JSON.stringify(w1Evidence),
-          w1Move,
-          w1Score,
-          w2Argument,
-          w2Evidence: JSON.stringify(w2Evidence),
-          w2Move,
-          w2Score,
-          roundWinner:
-            w1Score > w2Score
-              ? 'warrior1'
-              : w2Score > w1Score
-              ? 'warrior2'
-              : 'draw',
-          judgeReasoning,
-          endedAt: new Date(),
-        },
-        create: {
-          battleId,
-          roundNumber,
-          w1Argument,
-          w1Evidence: JSON.stringify(w1Evidence),
-          w1Move,
-          w1Score,
-          w2Argument,
-          w2Evidence: JSON.stringify(w2Evidence),
-          w2Move,
-          w2Score,
-          roundWinner:
-            w1Score > w2Score
-              ? 'warrior1'
-              : w2Score > w1Score
-              ? 'warrior2'
-              : 'draw',
-          judgeReasoning,
-          endedAt: new Date(),
-        },
-      });
+        });
 
-      // Update battle scores and round
-      const battle = await prisma.predictionBattle.update({
-        where: { id: battleId },
-        data: {
-          warrior1Score: { increment: w1Score },
-          warrior2Score: { increment: w2Score },
-          currentRound: roundNumber + 1,
-          status: roundNumber >= 5 ? 'completed' : 'active',
-          completedAt: roundNumber >= 5 ? new Date() : undefined,
-        },
-        include: { rounds: true },
-      });
+        // Update battle scores and round
+        const battle = await tx.predictionBattle.update({
+          where: { id: battleId },
+          data: {
+            warrior1Score: { increment: w1Score },
+            warrior2Score: { increment: w2Score },
+            currentRound: roundNumber + 1,
+            status: isCompleted ? 'completed' : 'active',
+            completedAt: isCompleted ? new Date() : undefined,
+          },
+          include: { rounds: true },
+        });
 
-      // Update warrior stats if battle completed
-      if (roundNumber >= 5) {
-        await updateWarriorStats(battle);
-      }
+        // Update warrior stats if battle completed (within same transaction)
+        if (isCompleted) {
+          await updateWarriorStatsInTransaction(tx, battle);
+        }
+
+        return { round, battle };
+      });
 
       return NextResponse.json({
-        round,
-        battle,
+        round: result.round,
+        battle: result.battle,
         message: `Round ${roundNumber} submitted`,
       });
     }
 
-    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+    throw ErrorResponses.badRequest('Unknown action');
   } catch (error) {
-    console.error('Error updating battle:', error);
-    return NextResponse.json(
-      { error: 'Failed to update battle' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Battles:PATCH');
   }
 }
 
-async function updateWarriorStats(battle: {
+// Type for transaction client
+type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
+
+interface BattleStats {
   warrior1Id: number;
   warrior2Id: number;
   warrior1Score: number;
   warrior2Score: number;
   stakes: string;
-}) {
+}
+
+// Helper function to update a single warrior's stats
+async function upsertWarriorStats(
+  tx: TransactionClient,
+  warriorId: number,
+  isWinner: boolean,
+  isLoser: boolean,
+  isDraw: boolean
+) {
+  await tx.warriorArenaStats.upsert({
+    where: { warriorId },
+    update: {
+      totalBattles: { increment: 1 },
+      wins: isWinner ? { increment: 1 } : undefined,
+      losses: isLoser ? { increment: 1 } : undefined,
+      draws: isDraw ? { increment: 1 } : undefined,
+    },
+    create: {
+      warriorId,
+      totalBattles: 1,
+      wins: isWinner ? 1 : 0,
+      losses: isLoser ? 1 : 0,
+      draws: isDraw ? 1 : 0,
+      arenaRating: 1000,
+      peakRating: 1000,
+    },
+  });
+}
+
+// Transaction-aware version for use within $transaction
+async function updateWarriorStatsInTransaction(tx: TransactionClient, battle: BattleStats) {
   const winner =
     battle.warrior1Score > battle.warrior2Score
       ? battle.warrior1Id
@@ -328,43 +392,31 @@ async function updateWarriorStats(battle: {
       ? battle.warrior2Id
       : null;
 
-  // Update warrior 1 stats
-  await prisma.warriorArenaStats.upsert({
-    where: { warriorId: battle.warrior1Id },
-    update: {
-      totalBattles: { increment: 1 },
-      wins: winner === battle.warrior1Id ? { increment: 1 } : undefined,
-      losses: winner === battle.warrior2Id ? { increment: 1 } : undefined,
-      draws: winner === null ? { increment: 1 } : undefined,
-    },
-    create: {
-      warriorId: battle.warrior1Id,
-      totalBattles: 1,
-      wins: winner === battle.warrior1Id ? 1 : 0,
-      losses: winner === battle.warrior2Id ? 1 : 0,
-      draws: winner === null ? 1 : 0,
-      arenaRating: 1000,
-      peakRating: 1000,
-    },
-  });
+  const isDraw = winner === null;
 
-  // Update warrior 2 stats
-  await prisma.warriorArenaStats.upsert({
-    where: { warriorId: battle.warrior2Id },
-    update: {
-      totalBattles: { increment: 1 },
-      wins: winner === battle.warrior2Id ? { increment: 1 } : undefined,
-      losses: winner === battle.warrior1Id ? { increment: 1 } : undefined,
-      draws: winner === null ? { increment: 1 } : undefined,
-    },
-    create: {
-      warriorId: battle.warrior2Id,
-      totalBattles: 1,
-      wins: winner === battle.warrior2Id ? 1 : 0,
-      losses: winner === battle.warrior1Id ? 1 : 0,
-      draws: winner === null ? 1 : 0,
-      arenaRating: 1000,
-      peakRating: 1000,
-    },
+  // Update both warriors' stats atomically within the transaction
+  await Promise.all([
+    upsertWarriorStats(
+      tx,
+      battle.warrior1Id,
+      winner === battle.warrior1Id,
+      winner === battle.warrior2Id,
+      isDraw
+    ),
+    upsertWarriorStats(
+      tx,
+      battle.warrior2Id,
+      winner === battle.warrior2Id,
+      winner === battle.warrior1Id,
+      isDraw
+    ),
+  ]);
+}
+
+// Standalone version for backward compatibility (wraps in its own transaction)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function updateWarriorStats(battle: BattleStats) {
+  await prisma.$transaction(async (tx) => {
+    await updateWarriorStatsInTransaction(tx, battle);
   });
 }

@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 /**
  * POST - Prepare iNFT transfer transaction
@@ -21,61 +22,48 @@ import { agentINFTService } from '@/services/agentINFTService';
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting for transfer operations (5/min)
+    applyRateLimit(request, {
+      prefix: 'agents-transfer',
+      maxRequests: 5,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { tokenId, recipientAddress } = body;
 
     // Validation
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId is required');
     }
 
     if (!recipientAddress) {
-      return NextResponse.json(
-        { success: false, error: 'recipientAddress is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('recipientAddress is required');
     }
 
     if (!isAddress(recipientAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid recipientAddress format' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid recipientAddress format');
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Verify iNFT exists
     const inft = await agentINFTService.getINFT(BigInt(tokenId));
     if (!inft) {
-      return NextResponse.json(
-        { success: false, error: 'iNFT not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('iNFT not found');
     }
 
     // Check if there's already a pending transfer
     if (inft.pendingTransfer) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Transfer already pending',
-          pendingTransfer: {
-            to: inft.pendingTransfer.to,
-            initiatedAt: inft.pendingTransfer.initiatedAt.toString(),
-          },
+      throw ErrorResponses.conflict('Transfer already pending', {
+        pendingTransfer: {
+          to: inft.pendingTransfer.to,
+          initiatedAt: inft.pendingTransfer.initiatedAt.toString(),
         },
-        { status: 409 }
-      );
+      });
     }
 
     // Prepare the transfer transaction
@@ -102,14 +90,7 @@ export async function POST(request: NextRequest) {
       chainId: agentINFTService.getChainId(),
     });
   } catch (error) {
-    console.error('Transfer API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Transfer:POST');
   }
 }
 
@@ -121,31 +102,29 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting for status checks
+    applyRateLimit(request, {
+      prefix: 'agents-transfer-status',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const tokenId = searchParams.get('tokenId');
 
     if (!tokenId) {
-      return NextResponse.json(
-        { success: false, error: 'tokenId query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('tokenId query parameter is required');
     }
 
     // Check if contract is deployed
     if (!agentINFTService.isContractDeployed()) {
-      return NextResponse.json(
-        { success: false, error: 'AIAgentINFT contract not deployed' },
-        { status: 503 }
-      );
+      throw ErrorResponses.serviceUnavailable('AIAgentINFT contract not deployed');
     }
 
     // Get iNFT data
     const inft = await agentINFTService.getINFT(BigInt(tokenId));
     if (!inft) {
-      return NextResponse.json(
-        { success: false, error: 'iNFT not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('iNFT not found');
     }
 
     // Check for pending transfer
@@ -165,13 +144,6 @@ export async function GET(request: NextRequest) {
       isActive: inft.onChainData.isActive,
     });
   } catch (error) {
-    console.error('Transfer Status API Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Transfer:GET');
   }
 }

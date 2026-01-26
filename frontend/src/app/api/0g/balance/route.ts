@@ -7,6 +7,7 @@ import {
   ERC20_ABI,
   AI_AGENT_INFT_ABI,
 } from '@/lib/apiConfig';
+import { handleAPIError, validateAddress, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 /**
  * GET /api/0g/balance?address=0x...
@@ -19,23 +20,17 @@ import {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-balance',
+      ...RateLimitPresets.readOperations,
+    });
+
     const searchParams = request.nextUrl.searchParams;
-    const userAddress = searchParams.get('address');
+    const addressParam = searchParams.get('address');
 
-    if (!userAddress) {
-      return NextResponse.json(
-        { success: false, error: 'Missing address parameter' },
-        { status: 400 }
-      );
-    }
-
-    // Validate address format
-    if (!ethers.isAddress(userAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid address format' },
-        { status: 400 }
-      );
-    }
+    // Validate address using centralized validation
+    const userAddress = validateAddress(addressParam || '', 'address');
 
     const provider = new ethers.JsonRpcProvider(ZEROG_RPC);
 
@@ -83,12 +78,7 @@ export async function GET(request: NextRequest) {
       note: 'This is CRwN on 0G chain for iNFT staking. Flow CRwN (for trading) is separate.'
     });
 
-  } catch (error: unknown) {
-    console.error('0G balance fetch error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleAPIError(error, 'API:0G:Balance:GET');
   }
 }

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 interface UpdateConfigRequest {
   userAddress: string;
@@ -20,39 +21,34 @@ interface UpdateConfigRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'whale-update-config',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
+
     const body: UpdateConfigRequest = await request.json();
     const { userAddress, whaleAddress, config } = body;
 
     // Validate addresses
     if (!userAddress || !isAddress(userAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid user address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid user address');
     }
 
     if (!whaleAddress || !isAddress(whaleAddress)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid whale address' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid whale address');
     }
 
     // Validate config
     if (!config || typeof config !== 'object') {
-      return NextResponse.json(
-        { success: false, error: 'Invalid configuration' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid configuration');
     }
 
     // Validate copy percentage if provided
     if (config.copyPercentage !== undefined) {
       if (config.copyPercentage < 1 || config.copyPercentage > 100) {
-        return NextResponse.json(
-          { success: false, error: 'Copy percentage must be between 1 and 100' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Copy percentage must be between 1 and 100');
       }
     }
 
@@ -67,17 +63,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!existingFollow) {
-      return NextResponse.json(
-        { success: false, error: 'Follow relationship not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Follow relationship not found');
     }
 
     if (!existingFollow.isActive) {
-      return NextResponse.json(
-        { success: false, error: 'Follow relationship is inactive' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Follow relationship is inactive');
     }
 
     // Merge existing config with new config
@@ -112,14 +102,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Whale update config error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to update configuration',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:WhaleUpdateConfig:POST');
   }
 }

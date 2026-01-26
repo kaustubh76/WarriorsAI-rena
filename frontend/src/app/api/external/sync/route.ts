@@ -7,9 +7,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (sync is expensive)
+    applyRateLimit(request, {
+      prefix: 'external-sync-post',
+      maxRequests: 5,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const source = searchParams.get('source'); // 'polymarket', 'kalshi', or null for both
 
@@ -41,20 +49,19 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Sync error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to sync markets',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:External:Sync:POST');
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'external-sync-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '20');
 
@@ -84,14 +91,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Sync status error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to get sync status',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:External:Sync:GET');
   }
 }

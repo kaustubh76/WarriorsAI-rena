@@ -5,21 +5,26 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { aiDebateService } from '@/services/aiDebateService';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'ai-debate-id',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { id } = await params;
 
     const debate = await aiDebateService.getDebate(id);
 
     if (!debate) {
-      return NextResponse.json(
-        { success: false, error: 'Debate not found' },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Debate not found');
     }
 
     return NextResponse.json({
@@ -27,14 +32,6 @@ export async function GET(
       data: { debate },
     });
   } catch (error) {
-    console.error('[API] Get debate error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch debate',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:AI:Debate:ID:GET');
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Flow Testnet Configuration
 const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
@@ -164,13 +165,17 @@ async function updateAgentPerformance(marketId: number, outcome: Outcome, privat
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (5 settlements per minute)
+    applyRateLimit(request, {
+      prefix: 'markets-settle-post',
+      maxRequests: 5,
+      windowMs: 60000,
+    });
+
     // Get owner private key (AI_SIGNER_PRIVATE_KEY is the contract owner)
     const privateKey = process.env.AI_SIGNER_PRIVATE_KEY;
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server not configured for settlement' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Server not configured for settlement');
     }
 
     // Parse optional request body
@@ -199,10 +204,7 @@ export async function POST(request: NextRequest) {
     // Verify ownership
     const owner = await marketContract.owner();
     if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
-      return NextResponse.json(
-        { success: false, error: 'Wallet is not contract owner' },
-        { status: 403 }
-      );
+      throw ErrorResponses.forbidden('Wallet is not contract owner');
     }
 
     const currentTime = Math.floor(Date.now() / 1000);
@@ -321,13 +323,8 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString()
     });
 
-  } catch (error: unknown) {
-    console.error('Settlement error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleAPIError(error, 'API:Markets:Settle:POST');
   }
 }
 
@@ -335,8 +332,15 @@ export async function POST(request: NextRequest) {
  * GET /api/markets/settle
  * Returns status of markets that need settlement
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'markets-settle-get',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const provider = new ethers.JsonRpcProvider(FLOW_RPC);
     const marketContract = new ethers.Contract(
       PREDICTION_MARKET,
@@ -403,12 +407,7 @@ export async function GET() {
       settlementEndpoint: 'POST /api/markets/settle'
     });
 
-  } catch (error: unknown) {
-    console.error('Get settlement status error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleAPIError(error, 'API:Markets:Settle:GET');
   }
 }

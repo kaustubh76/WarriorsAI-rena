@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import { keccak256, toBytes } from 'viem';
 import {
   ZEROG_RPC,
   FLOW_RPC,
@@ -11,6 +12,30 @@ import {
   getServerPrivateKey,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+
+// In-memory idempotency cache (for production, use Redis)
+// Maps idempotency key -> { timestamp, result }
+const idempotencyCache = new Map<string, { timestamp: number; result: unknown }>();
+const IDEMPOTENCY_WINDOW_MS = 60000; // 1 minute window for duplicate detection
+
+// Clean up old entries periodically
+function cleanupIdempotencyCache() {
+  const now = Date.now();
+  for (const [key, value] of idempotencyCache.entries()) {
+    if (now - value.timestamp > IDEMPOTENCY_WINDOW_MS * 2) {
+      idempotencyCache.delete(key);
+    }
+  }
+  // Prevent unbounded growth
+  if (idempotencyCache.size > 10000) {
+    const entries = Array.from(idempotencyCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)
+      .slice(0, 5000);
+    idempotencyCache.clear();
+    entries.forEach(([k, v]) => idempotencyCache.set(k, v));
+  }
+}
 
 // Copy trade config from AIAgentINFT (0G chain)
 interface CopyTradeConfig {
@@ -53,23 +78,47 @@ interface ExecutionResult {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting for copy trade execution (5/min - critical operation)
+    applyRateLimit(request, {
+      prefix: 'copy-trade-execute',
+      maxRequests: 5,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { agentId, marketId, isYes, agentTradeAmount } = body;
 
-    if (!agentId || marketId === undefined || isYes === undefined || !agentTradeAmount) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: agentId, marketId, isYes, agentTradeAmount' },
-        { status: 400 }
-      );
+    // Validate required fields with proper type checking (marketId can be 0)
+    if (
+      !agentId ||
+      typeof marketId !== 'number' ||
+      typeof isYes !== 'boolean' ||
+      !agentTradeAmount
+    ) {
+      throw ErrorResponses.badRequest('Missing or invalid required fields: agentId, marketId, isYes, agentTradeAmount');
+    }
+
+    // Generate idempotency key from request body
+    const idempotencyKey = keccak256(
+      toBytes(JSON.stringify({ agentId, marketId, isYes, agentTradeAmount }))
+    );
+
+    // Check for duplicate request within window
+    cleanupIdempotencyCache();
+    const existingRequest = idempotencyCache.get(idempotencyKey);
+    if (existingRequest && Date.now() - existingRequest.timestamp < IDEMPOTENCY_WINDOW_MS) {
+      console.log(`[Copy Trade] Returning cached response for idempotency key: ${idempotencyKey.slice(0, 10)}...`);
+      return NextResponse.json({
+        ...(existingRequest.result as object),
+        cached: true,
+        message: 'Duplicate request detected, returning cached result',
+      });
     }
 
     // Get server private key for executing trades
     const privateKey = getServerPrivateKey();
     if (!privateKey) {
-      return NextResponse.json(
-        { success: false, error: 'Server not configured for copy trade execution' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('Server not configured for copy trade execution');
     }
 
     // Setup providers and wallet
@@ -107,24 +156,15 @@ export async function POST(request: NextRequest) {
       agentOwner = await inftContract.ownerOf(agentId);
     } catch (err) {
       console.error('Error getting agent data from 0G:', err);
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} not found on 0G chain` },
-        { status: 400 }
-      );
+      throw ErrorResponses.notFound(`Agent #${agentId} not found on 0G chain`);
     }
 
     if (!agentData.isActive) {
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} is not active` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Agent #${agentId} is not active`);
     }
 
     if (!agentData.copyTradingEnabled) {
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} does not have copy trading enabled` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Agent #${agentId} does not have copy trading enabled`);
     }
 
     // Get all followers of this agent from 0G
@@ -146,18 +186,12 @@ export async function POST(request: NextRequest) {
     console.log(`[Copy Trade] Market #${marketId} status:`, market.status, 'type:', typeof market.status);
     // Handle both BigInt and number comparison
     if (Number(market.status) !== 0) { // ACTIVE = 0
-      return NextResponse.json(
-        { success: false, error: `Market #${marketId} is not active (status: ${market.status})` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Market #${marketId} is not active (status: ${market.status})`);
     }
 
     const currentTime = Math.floor(Date.now() / 1000);
     if (Number(market.endTime) <= currentTime) {
-      return NextResponse.json(
-        { success: false, error: `Market #${marketId} has expired` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Market #${marketId} has expired`);
     }
 
     const results: ExecutionResult[] = [];
@@ -233,8 +267,12 @@ export async function POST(request: NextRequest) {
             if (parsed?.name === 'TokensPurchased') {
               tokensReceived = ethers.formatEther(parsed.args.tokensOut);
             }
-          } catch {
-            // Not our event
+          } catch (parseError) {
+            // Expected for events from other contracts (e.g., ERC20 Transfer events)
+            // Only log in development for debugging
+            if (process.env.NODE_ENV === 'development') {
+              console.debug('[Copy Trade] Could not parse log (likely from different contract):', parseError);
+            }
           }
         }
 
@@ -279,7 +317,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       summary: {
         agentId,
@@ -295,15 +333,18 @@ export async function POST(request: NextRequest) {
       },
       results,
       timestamp: new Date().toISOString()
+    };
+
+    // Cache the successful result for idempotency
+    idempotencyCache.set(idempotencyKey, {
+      timestamp: Date.now(),
+      result: responseData,
     });
 
-  } catch (error: unknown) {
-    console.error('Copy trade execution error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+    return NextResponse.json(responseData);
+
+  } catch (error) {
+    return handleAPIError(error, 'API:CopyTrade:Execute:POST');
   }
 }
 
@@ -313,14 +354,18 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting for status checks
+    applyRateLimit(request, {
+      prefix: 'copy-trade-status',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const searchParams = request.nextUrl.searchParams;
     const agentId = searchParams.get('agentId');
 
     if (!agentId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing agentId parameter' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing agentId parameter');
     }
 
     // 0G provider for reading agent data
@@ -342,10 +387,7 @@ export async function GET(request: NextRequest) {
       agentOwner = await inftContract.ownerOf(agentId);
     } catch (err) {
       console.error('Error getting agent data from 0G:', err);
-      return NextResponse.json(
-        { success: false, error: `Agent #${agentId} not found on 0G chain` },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound(`Agent #${agentId} not found on 0G chain`);
     }
 
     // Get followers from 0G
@@ -408,12 +450,7 @@ export async function GET(request: NextRequest) {
       executionEndpoint: 'POST /api/copy-trade/execute'
     });
 
-  } catch (error: unknown) {
-    console.error('Get copy trade status error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleAPIError(error, 'API:CopyTrade:Execute:GET');
   }
 }

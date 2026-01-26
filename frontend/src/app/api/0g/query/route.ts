@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 // Battle query parameters
 interface BattleQuery {
@@ -52,6 +53,54 @@ interface MatchupHistory {
   }[];
 }
 
+// Battle warrior data structure
+interface BattleWarrior {
+  id: string;
+  name?: string;
+  tokenId?: string;
+}
+
+// Battle round move structure
+interface BattleMove {
+  warriorId: string;
+  move: string;
+  damage?: number;
+}
+
+// Battle round structure
+interface BattleRound {
+  roundNumber: number;
+  moves: BattleMove[];
+}
+
+// Market data structure
+interface BattleMarketData {
+  totalVolume?: string;
+  yesPrice?: number;
+  noPrice?: number;
+}
+
+// Indexed battle data structure
+interface IndexedBattle {
+  battleId: string;
+  warriors: BattleWarrior[];
+  outcome: 'warrior1' | 'warrior2' | 'draw';
+  timestamp: number;
+  rounds: BattleRound[];
+  totalDamage: {
+    warrior1: number;
+    warrior2: number;
+  };
+  marketData?: BattleMarketData;
+  rootHash?: string;
+  indexedAt?: number;
+}
+
+// Battle context for RAG
+interface BattleContext extends IndexedBattle {
+  relevanceScore?: number;
+}
+
 // 0G Storage Configuration
 const STORAGE_CONFIG = {
   apiUrl: process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001',
@@ -61,13 +110,13 @@ const STORAGE_CONFIG = {
 
 // In-memory battle index (fallback when 0G indexer is unavailable)
 // Production should use 0G's indexing capabilities via NEXT_PUBLIC_0G_INDEXER_URL
-const battleIndex = new Map<string, any>();
+const battleIndex = new Map<string, IndexedBattle>();
 const warriorBattles = new Map<string, string[]>();
 
 /**
  * Query battles from 0G indexer if enabled, otherwise use local index
  */
-async function queryBattlesFromSource(query: BattleQuery): Promise<{ battles: any[]; total: number; fromIndexer: boolean }> {
+async function queryBattlesFromSource(query: BattleQuery): Promise<{ battles: IndexedBattle[]; total: number; fromIndexer: boolean }> {
   // Try 0G indexer first if enabled
   if (STORAGE_CONFIG.indexerEnabled && STORAGE_CONFIG.indexerUrl) {
     try {
@@ -104,6 +153,12 @@ async function queryBattlesFromSource(query: BattleQuery): Promise<{ battles: an
  */
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-query-post',
+      ...RateLimitPresets.apiQueries,
+    });
+
     const body: BattleQuery = await request.json();
     const { warriorIds, dateRange, outcome, minVolume, limit = 50, offset = 0 } = body;
 
@@ -114,7 +169,7 @@ export async function POST(request: NextRequest) {
     // Filter by warrior IDs
     if (warriorIds && warriorIds.length > 0) {
       results = results.filter(battle =>
-        battle.warriors.some((w: any) =>
+        battle.warriors.some((w: BattleWarrior) =>
           warriorIds.includes(w.id)
         )
       );
@@ -156,14 +211,7 @@ export async function POST(request: NextRequest) {
       battles: results
     });
   } catch (error) {
-    console.error('Battle query error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Query:POST');
   }
 }
 
@@ -172,6 +220,12 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: '0g-query-get',
+      ...RateLimitPresets.readOperations,
+    });
+
     const { searchParams } = new URL(request.url);
     const queryType = searchParams.get('type');
     const warrior1Id = searchParams.get('warrior1Id');
@@ -205,19 +259,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Invalid query type or missing parameters' },
-      { status: 400 }
-    );
+    throw ErrorResponses.badRequest('Invalid query type or missing parameters');
   } catch (error) {
-    console.error('Query error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Query:GET');
   }
 }
 
@@ -226,14 +270,18 @@ export async function GET(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   try {
+    // Apply rate limiting for write operations
+    applyRateLimit(request, {
+      prefix: '0g-query-index',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { rootHash, battle } = body;
 
     if (!rootHash || !battle) {
-      return NextResponse.json(
-        { success: false, error: 'rootHash and battle data required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('rootHash and battle data required');
     }
 
     // Store in index
@@ -260,14 +308,7 @@ export async function PUT(request: NextRequest) {
       totalIndexed: battleIndex.size
     });
   } catch (error) {
-    console.error('Index error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Query:PUT');
   }
 }
 
@@ -294,7 +335,7 @@ async function calculateWarriorAnalytics(warriorId: string): Promise<WarriorAnal
   const opponentStats = new Map<string, { wins: number; losses: number }>();
 
   for (const battle of battles) {
-    const warriorIndex = battle.warriors.findIndex((w: any) => w.id === warriorId);
+    const warriorIndex = battle.warriors.findIndex((w: BattleWarrior) => w.id === warriorId);
     if (warriorIndex === -1) continue;
 
     const opponentIndex = warriorIndex === 0 ? 1 : 0;
@@ -399,7 +440,7 @@ async function calculateMatchupHistory(
   const recentBattles: { battleId: string; outcome: string; timestamp: number }[] = [];
 
   for (const battle of battles) {
-    const w1Index = battle.warriors.findIndex((w: any) => w.id === warrior1Id);
+    const w1Index = battle.warriors.findIndex((w: BattleWarrior) => w.id === warrior1Id);
 
     if (battle.outcome === 'draw') {
       draws++;
@@ -437,8 +478,8 @@ async function getBattleContext(
   warrior1Id: string,
   warrior2Id: string,
   maxBattles: number
-): Promise<any[]> {
-  const context: any[] = [];
+): Promise<BattleContext[]> {
+  const context: BattleContext[] = [];
 
   // Get direct matchup history
   const matchup = await calculateMatchupHistory(warrior1Id, warrior2Id);

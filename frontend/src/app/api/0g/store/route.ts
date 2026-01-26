@@ -15,6 +15,7 @@ import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // Dynamic import for 0G SDK (works better with Next.js)
 let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
@@ -88,6 +89,15 @@ interface StoreResponse {
   indexed?: boolean;
   cached?: boolean;
   warning?: string;
+}
+
+// Extended battle data with optional prediction data
+interface BattleDataWithPrediction extends BattleDataIndex {
+  _predictionData?: {
+    prediction: string;
+    confidence: number;
+    reasoning?: string;
+  };
 }
 
 // 0G Storage Configuration (Galileo Testnet)
@@ -372,52 +382,44 @@ async function downloadFromZeroG(rootHash: string): Promise<string> {
  * POST: Store battle data on 0G testnet
  */
 export async function POST(request: NextRequest) {
-  // Parse request body
-  let body: StoreRequest;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { success: false, error: 'Invalid JSON in request body' },
-      { status: 400 }
-    );
-  }
+    // Apply rate limiting for storage operations
+    applyRateLimit(request, {
+      prefix: '0g-store',
+      maxRequests: 20,
+      windowMs: 60000,
+    });
 
-  const { battle } = body;
+    // Parse request body
+    let body: StoreRequest;
+    try {
+      body = await request.json();
+    } catch {
+      throw ErrorResponses.badRequest('Invalid JSON in request body');
+    }
 
-  // Validate input
-  if (!battle || !battle.battleId) {
-    return NextResponse.json(
-      { success: false, error: 'Battle data with battleId is required' },
-      { status: 400 }
-    );
-  }
+    const { battle } = body as { battle: BattleDataWithPrediction };
 
-  try {
+    // Validate input
+    if (!battle || !battle.battleId) {
+      throw ErrorResponses.badRequest('Battle data with battleId is required');
+    }
+
     // Check if this is a prediction storage request (has _predictionData)
-    const isPredictionData = !!(battle as any)._predictionData;
+    const isPredictionData = !!battle._predictionData;
 
     // Validate battle structure (skip for prediction data)
     if (!isPredictionData) {
       if (!battle.warriors || battle.warriors.length !== 2) {
-        return NextResponse.json(
-          { success: false, error: 'Battle must have exactly 2 warriors' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Battle must have exactly 2 warriors');
       }
 
       if (!battle.rounds || battle.rounds.length === 0) {
-        return NextResponse.json(
-          { success: false, error: 'Battle must have at least 1 round' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Battle must have at least 1 round');
       }
 
       if (!['warrior1', 'warrior2', 'draw'].includes(battle.outcome)) {
-        return NextResponse.json(
-          { success: false, error: 'Invalid battle outcome' },
-          { status: 400 }
-        );
+        throw ErrorResponses.badRequest('Invalid battle outcome');
       }
     }
 
@@ -449,14 +451,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(storeResponse);
   } catch (error) {
-    console.error('0G Storage error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Store:POST');
   }
 }
 
@@ -465,14 +460,18 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting for read operations
+    applyRateLimit(request, {
+      prefix: '0g-store-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
-      return NextResponse.json(
-        { success: false, error: 'rootHash query parameter is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('rootHash query parameter is required');
     }
 
     // Download from 0G storage
@@ -486,22 +485,22 @@ export async function GET(request: NextRequest) {
       cached: false
     });
   } catch (error) {
-    console.error('0G Storage download error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:0G:Store:GET');
   }
 }
 
 /**
  * PUT: Check 0G storage status
  */
-export async function PUT() {
+export async function PUT(request: NextRequest) {
   try {
+    // Apply rate limiting for status checks
+    applyRateLimit(request, {
+      prefix: '0g-store-status',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
+
     // Initialize SDK to verify configuration
     await initializeSDK();
 
@@ -518,14 +517,6 @@ export async function PUT() {
       network: health
     });
   } catch (error) {
-    return NextResponse.json({
-      success: false,
-      status: 'unhealthy',
-      mode: 'error',
-      timestamp: new Date().toISOString(),
-      rpc: STORAGE_CONFIG.rpcUrl,
-      indexer: STORAGE_CONFIG.indexerUrl,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    return handleAPIError(error, 'API:0G:Store:PUT');
   }
 }

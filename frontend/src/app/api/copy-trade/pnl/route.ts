@@ -6,6 +6,7 @@ import {
   AI_AGENT_INFT_ABI,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, ErrorResponses, validateAddress } from '@/lib/api';
 
 // Extended ABI for PnL calculations
 const EXTENDED_ABI = [
@@ -70,15 +71,18 @@ interface FollowedAgentSummary {
  */
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const userAddress = searchParams.get('address');
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'copy-trade-pnl',
+      maxRequests: 30,
+      windowMs: 60000,
+    });
 
-    if (!userAddress) {
-      return NextResponse.json(
-        { success: false, error: 'Missing address parameter' },
-        { status: 400 }
-      );
-    }
+    const searchParams = request.nextUrl.searchParams;
+    const addressParam = searchParams.get('address');
+
+    // Validate address
+    const userAddress = validateAddress(addressParam || '', 'address');
 
     // Setup 0G provider
     const zeroGProvider = new ethers.JsonRpcProvider(ZEROG_RPC);
@@ -272,12 +276,7 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString()
     });
 
-  } catch (error: unknown) {
-    console.error('Copy trade PnL calculation error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleAPIError(error, 'API:CopyTrade:PnL:GET');
   }
 }

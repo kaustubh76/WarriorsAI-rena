@@ -6,19 +6,15 @@
 import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
+import { handleAPIError, validateAddress } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const address = searchParams.get('address');
+    const addressParam = searchParams.get('address');
 
-    if (!address) {
-      return NextResponse.json({
-        success: false,
-        error: 'Address parameter is required',
-        following: [],
-      }, { status: 400 });
-    }
+    // Validate address parameter
+    const address = validateAddress(addressParam || '', 'address');
 
     const isDeployed = agentINFTService.isContractDeployed();
 
@@ -40,14 +36,6 @@ export async function GET(request: NextRequest) {
       following: followingStrings,
     });
   } catch (error) {
-    console.error('[Following API] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        following: [],
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Following:GET');
   }
 }

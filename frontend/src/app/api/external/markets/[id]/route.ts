@@ -5,24 +5,26 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'external-markets-id',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { id } = await params;
 
     const market = await externalMarketsService.getMarket(id);
 
     if (!market) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Market not found',
-        },
-        { status: 404 }
-      );
+      throw ErrorResponses.notFound('Market not found');
     }
 
     return NextResponse.json({
@@ -30,14 +32,6 @@ export async function GET(
       data: market,
     });
   } catch (error) {
-    console.error('[API] External market error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch market',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:External:Markets:ID:GET');
   }
 }

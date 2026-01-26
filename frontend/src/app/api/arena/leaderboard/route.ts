@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 /**
  * GET /api/arena/leaderboard
@@ -9,6 +8,13 @@ const prisma = new PrismaClient();
  */
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'arena-leaderboard',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const sortBy = searchParams.get('sortBy') || 'rating';
     const limit = parseInt(searchParams.get('limit') || '20');
@@ -45,10 +51,6 @@ export async function GET(request: NextRequest) {
       total: leaderboard.length,
     });
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch leaderboard' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Arena:Leaderboard:GET');
   }
 }

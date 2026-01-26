@@ -3,6 +3,7 @@ import { createPublicClient, http, defineChain } from 'viem';
 import { Chain } from 'viem';
 import { anvil, flowTestnet, flowMainnet } from 'viem/chains';
 import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 // RPC timeout configuration
 const RPC_TIMEOUT = 60000;
@@ -35,13 +36,17 @@ const SUPPORTED_CHAINS: Record<number, Chain> = {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'contract-read',
+      maxRequests: 120,
+      windowMs: 60000,
+    });
+
     const { contractAddress, abi, functionName, args, chainId } = await request.json();
 
     if (!contractAddress || !abi || !functionName) {
-      return NextResponse.json(
-        { error: 'Missing required parameters' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required parameters');
     }
 
     // Default to chain 545 (Flow testnet) if no chainId provided (for backward compatibility)
@@ -50,10 +55,7 @@ export async function POST(request: NextRequest) {
     // Get the chain configuration
     const chain = SUPPORTED_CHAINS[targetChainId];
     if (!chain) {
-      return NextResponse.json(
-        { error: `Unsupported chain ID: ${targetChainId}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(', ')}` },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest(`Unsupported chain ID: ${targetChainId}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(', ')}`);
     }
 
     // Get RPC URL based on chain (Flow chains have fallback support)
@@ -128,10 +130,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(serializedResult);
 
   } catch (error) {
-    console.error('Contract read error:', error);
-    return NextResponse.json(
-      { error: 'Failed to read from contract', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Contract:Read:POST');
   }
 }

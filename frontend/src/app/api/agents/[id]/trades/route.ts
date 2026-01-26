@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ethers } from 'ethers';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
 
 interface TradeWithPnL {
   id: string;
@@ -34,6 +35,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-trades',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { id } = await params;
     const agentId = id;
 
@@ -145,14 +153,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('[Agent Trades API] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        trades: [],
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:Trades:GET');
   }
 }

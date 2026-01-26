@@ -7,17 +7,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { aiDebateService } from '@/services/aiDebateService';
 import { MarketSource } from '@/types/externalMarket';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting (AI debates are resource-intensive)
+    applyRateLimit(request, {
+      prefix: 'ai-debate-post',
+      maxRequests: 10,
+      windowMs: 60000,
+    });
+
     const body = await request.json();
     const { marketId, question, source } = body;
 
     if (!marketId || !question) {
-      return NextResponse.json(
-        { success: false, error: 'marketId and question are required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('marketId and question are required');
     }
 
     const debate = await aiDebateService.conductDebate(
@@ -31,28 +36,24 @@ export async function POST(request: NextRequest) {
       data: { debate },
     });
   } catch (error) {
-    console.error('[API] AI debate error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to conduct AI debate',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:AI:Debate:POST');
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'ai-debate-get',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { searchParams } = new URL(request.url);
     const marketId = searchParams.get('marketId');
 
     if (!marketId) {
-      return NextResponse.json(
-        { success: false, error: 'marketId is required' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('marketId is required');
     }
 
     const debates = await aiDebateService.getDebateHistory(marketId);
@@ -62,14 +63,6 @@ export async function GET(request: NextRequest) {
       data: { debates },
     });
   } catch (error) {
-    console.error('[API] Get debate history error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch debate history',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:AI:Debate:GET');
   }
 }

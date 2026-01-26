@@ -8,6 +8,7 @@ import { createPublicClient, http } from 'viem';
 import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
 import { prisma } from '@/lib/prisma';
+import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
 const RPC_TIMEOUT = 60000;
 
@@ -32,6 +33,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Apply rate limiting
+    applyRateLimit(request, {
+      prefix: 'agent-external-breakdown',
+      maxRequests: 60,
+      windowMs: 60000,
+    });
+
     const { id } = await params;
     const agentId = BigInt(id);
 
@@ -40,10 +48,7 @@ export async function GET(
     const aiAgentINFTAddress = contracts?.aiAgentINFT as `0x${string}`;
 
     if (!aiAgentINFTAddress || aiAgentINFTAddress === '0x0000000000000000000000000000000000000000') {
-      return NextResponse.json(
-        { success: false, error: 'AI Agent iNFT contract not configured' },
-        { status: 500 }
-      );
+      throw ErrorResponses.serviceUnavailable('AI Agent iNFT contract not configured');
     }
 
     // Get on-chain external trading stats
@@ -132,14 +137,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('[API] Agent external breakdown error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch agent external breakdown',
-        message: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Agents:ExternalBreakdown:GET');
   }
 }
