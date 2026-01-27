@@ -30,7 +30,7 @@ export function MarketCard({ market }: MarketCardProps) {
 
   return (
     <Link href={`/markets/${market.id.toString()}`}>
-      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700 hover:border-purple-500 transition-all duration-200 cursor-pointer group">
+      <div className="bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 rounded-xl p-6 border border-gray-700 hover:border-purple-500 transition-all duration-200 cursor-pointer group">
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">

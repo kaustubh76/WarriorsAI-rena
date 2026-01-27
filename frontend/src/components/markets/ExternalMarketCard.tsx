@@ -18,6 +18,7 @@ interface ExternalMarketCardProps {
   compact?: boolean;
   showAgentTrading?: boolean;
   selectedAgentId?: bigint | null;
+  hasArbitrage?: boolean;
 }
 
 export function ExternalMarketCard({
@@ -26,6 +27,7 @@ export function ExternalMarketCard({
   compact = false,
   showAgentTrading = false,
   selectedAgentId = null,
+  hasArbitrage = false,
 }: ExternalMarketCardProps) {
   const endDate = new Date(market.endTime);
   const isEnded = endDate < new Date();
@@ -112,6 +114,12 @@ export function ExternalMarketCard({
               {market.category && (
                 <span className="px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded-full">
                   {market.category}
+                </span>
+              )}
+              {hasArbitrage && (
+                <span className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded-full font-medium flex items-center gap-1">
+                  <span>🎯</span>
+                  Arbitrage
                 </span>
               )}
             </div>

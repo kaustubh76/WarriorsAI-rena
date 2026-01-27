@@ -19,13 +19,31 @@ const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602
 const FLOW_TESTNET_ID = 545;
 
 // Navigation links configuration
-const NAV_LINKS = [
+type NavLink = {
+  href: string;
+  label: string;
+  hoverColor: string;
+  submenu?: { href: string; label: string; icon?: string }[];
+};
+
+const NAV_LINKS: NavLink[] = [
   { href: "/arena", label: "Arena", hoverColor: "hover:text-red-400" },
   { href: "/markets", label: "Markets", hoverColor: "hover:text-red-400" },
   { href: "/ai-agents", label: "AI Agents", hoverColor: "hover:text-purple-400" },
   { href: "/leaderboard", label: "Leaderboard", hoverColor: "hover:text-red-400" },
   { href: "/social/copy-trading", label: "Copy Trade", hoverColor: "hover:text-purple-400" },
   { href: "/portfolio", label: "Portfolio", hoverColor: "hover:text-blue-400" },
+  {
+    href: "/external",
+    label: "External",
+    hoverColor: "hover:text-yellow-400",
+    submenu: [
+      { href: "/external", label: "All Markets", icon: "🌐" },
+      { href: "/external/arbitrage", label: "Arbitrage", icon: "🎯" },
+      { href: "/external/mirror-portfolio", label: "Mirror Portfolio", icon: "🪞" },
+      { href: "/external/sync-history", label: "Sync History", icon: "📊" },
+    ]
+  },
   { href: "/creator-dashboard", label: "Creator", hoverColor: "hover:text-green-400" },
   { href: "/warriorsMinter", label: "Mint", hoverColor: "hover:text-red-400" },
 ];
@@ -56,6 +74,7 @@ const Header: React.FC = () => {
   const [isMounted, setIsMounted] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showWhaleDropdown, setShowWhaleDropdown] = useState(false);
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
   const pathname = usePathname();
 
   // Whale alerts
@@ -195,19 +214,74 @@ const Header: React.FC = () => {
 
             {/* Center: Desktop Navigation */}
             <nav className="hidden lg:flex items-center gap-1">
-              {NAV_LINKS.map((link) => (
-                <a
-                  key={link.href}
-                  href={link.href}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200
-                    ${isActiveLink(link.href)
-                      ? "text-white bg-slate-700/50"
-                      : `text-slate-300 ${link.hoverColor} hover:bg-slate-800/50`
-                    }`}
-                >
-                  {link.label}
-                </a>
-              ))}
+              {NAV_LINKS.map((link) => {
+                const hasSubmenu = link.submenu && link.submenu.length > 0;
+                const isOpen = openSubmenu === link.href;
+
+                if (!hasSubmenu) {
+                  return (
+                    <a
+                      key={link.href}
+                      href={link.href}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200
+                        ${isActiveLink(link.href)
+                          ? "text-white bg-slate-700/50"
+                          : `text-slate-300 ${link.hoverColor} hover:bg-slate-800/50`
+                        }`}
+                    >
+                      {link.label}
+                    </a>
+                  );
+                }
+
+                return (
+                  <div
+                    key={link.href}
+                    className="relative"
+                    onMouseEnter={() => setOpenSubmenu(link.href)}
+                    onMouseLeave={() => setOpenSubmenu(null)}
+                  >
+                    <a
+                      href={link.href}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1
+                        ${isActiveLink(link.href)
+                          ? "text-white bg-slate-700/50"
+                          : `text-slate-300 ${link.hoverColor} hover:bg-slate-800/50`
+                        }`}
+                    >
+                      {link.label}
+                      <svg
+                        className={`w-3 h-3 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </a>
+
+                    {/* Dropdown Menu */}
+                    {isOpen && (
+                      <div className="absolute top-full left-0 mt-1 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
+                        {link.submenu!.map((item) => (
+                          <a
+                            key={item.href}
+                            href={item.href}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs transition-colors
+                              ${isActiveLink(item.href)
+                                ? "text-white bg-slate-700/70"
+                                : "text-slate-300 hover:text-white hover:bg-slate-800/70"
+                              }`}
+                          >
+                            {item.icon && <span className="text-sm">{item.icon}</span>}
+                            {item.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </nav>
 
             {/* Right: Status + Wallet */}
@@ -411,22 +485,73 @@ const Header: React.FC = () => {
         </div>
 
         {/* Mobile Menu Navigation */}
-        <nav className="p-4 space-y-1">
-          {NAV_LINKS.map((link, index) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 animate-slide-up ${
-                isActiveLink(link.href)
-                  ? "text-white bg-slate-700/70 border-l-2 border-arcade-gold"
-                  : "text-slate-300 hover:text-white hover:bg-slate-800/50"
-              }`}
-              style={{ animationDelay: `${index * 50}ms` }}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              {link.label}
-            </a>
-          ))}
+        <nav className="p-4 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+          {NAV_LINKS.map((link, index) => {
+            const hasSubmenu = link.submenu && link.submenu.length > 0;
+            const isOpen = openSubmenu === link.href;
+
+            if (!hasSubmenu) {
+              return (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 animate-slide-up ${
+                    isActiveLink(link.href)
+                      ? "text-white bg-slate-700/70 border-l-2 border-arcade-gold"
+                      : "text-slate-300 hover:text-white hover:bg-slate-800/50"
+                  }`}
+                  style={{ animationDelay: `${index * 50}ms` }}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {link.label}
+                </a>
+              );
+            }
+
+            return (
+              <div key={link.href} className="animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
+                <button
+                  onClick={() => setOpenSubmenu(isOpen ? null : link.href)}
+                  className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isActiveLink(link.href)
+                      ? "text-white bg-slate-700/70 border-l-2 border-arcade-gold"
+                      : "text-slate-300 hover:text-white hover:bg-slate-800/50"
+                  }`}
+                >
+                  {link.label}
+                  <svg
+                    className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Submenu */}
+                {isOpen && (
+                  <div className="mt-1 ml-4 space-y-1">
+                    {link.submenu!.map((item) => (
+                      <a
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
+                          isActiveLink(item.href)
+                            ? "text-white bg-slate-700/50"
+                            : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+                        }`}
+                        onClick={() => setIsMobileMenuOpen(false)}
+                      >
+                        {item.icon && <span className="text-base">{item.icon}</span>}
+                        {item.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Mobile Menu Footer */}
