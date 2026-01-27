@@ -356,8 +356,8 @@ export function useArbitrageOpportunities(minSpread: number = 5) {
 
       setOpportunities(data.data.opportunities || []);
     } catch (err) {
-      // Arbitrage endpoint might not exist yet
-      console.warn('[useArbitrageOpportunities] Error:', err);
+      console.error('[useArbitrageOpportunities] Error fetching arbitrage opportunities:', err);
+      setError((err as Error).message);
       setOpportunities([]);
     } finally {
       setLoading(false);
