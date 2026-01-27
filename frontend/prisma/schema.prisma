@@ -48,9 +48,51 @@ model ExternalMarket {
 
   @@unique([source, externalId])
   @@index([source])
+}
+
+// ============================================
+// FLOW SCHEDULED TRANSACTIONS
+// ============================================
+
+model ScheduledTransaction {
+  id String @id @default(cuid())
+
+  // Battle details
+  battleId     Int      // On-chain battle ID
+  warrior1Id   Int
+  warrior2Id   Int
+  betAmount    Float
+  scheduledTime DateTime
+
+  // Execution tracking
+  status          String   @default("pending") // 'pending' | 'ready' | 'executing' | 'completed' | 'failed' | 'cancelled'
+  attempts        Int      @default(0)
+  lastAttemptAt   DateTime?
+  executedAt      DateTime?
+
+  // Transaction details
+  scheduleTransactionId String? // TX ID for scheduling
+  executeTransactionId  String? // TX ID for execution
+
+  // Error tracking
+  error            String?
+  lastError        String?
+
+  // Creator info
+  creator          String   // Flow address
+  executor         String?  // Flow address of executor
+
+  // Metadata
+  metadata         String?  // JSON for additional data
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([status])
-  @@index([category])
-  @@index([endTime])
+  @@index([scheduledTime])
+  @@index([battleId])
+  @@index([creator])
 }
 
 // ============================================
@@ -497,6 +539,22 @@ model AgentTrade {
 // MIRROR MARKETS (Flow Chain)
 // ============================================
 
+// Tracks markets that have been mirrored from external sources (Kalshi/Polymarket)
+model MirroredMarket {
+  id             String   @id @default(cuid())
+  externalId     String   @unique // Format: "kalshi:TICKER" or "polymarket:ID"
+  source         String   // 'kalshi' | 'polymarket'
+  title          String
+  mirrorMarketId Int      // On-chain mirror market ID
+  lastSyncedAt   DateTime @default(now())
+  isResolved     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([source])
+  @@index([isResolved])
+  @@index([lastSyncedAt])
+}
+
 model MirrorMarket {
   id              String   @id @default(cuid())
   mirrorKey       String   @unique // bytes32 key
@@ -518,6 +576,8 @@ model MirrorMarket {
 
   // Status
   isActive        Boolean  @default(true)
+  resolved        Boolean  @default(false) // Added for event tracking
+  yesWon          Boolean? // Added for event tracking
   resolvedOutcome String?  // 'yes' | 'no'
   resolvedAt      DateTime?
 
@@ -543,23 +603,29 @@ model MirrorTrade {
 
   // Trade details
   traderAddress   String
+  agentId         String?  // Agent ID if agent trade
   isYes           Boolean
   amount          String   // CRwN amount
   sharesReceived  String
   price           Int      // Execution price (0-10000 bps)
 
   // Transaction
-  txHash          String
-  blockNumber     String
+  txHash          String   @unique // Added unique constraint for event deduplication
+  blockNumber     Int      // Changed from String to Int for sorting
 
   // VRF details (if copy trade)
   usedVRF         Boolean  @default(false)
-  agentId         String?
+  isVRFTrade      Boolean  @default(false) // Added for VRF copy trades
+  completed       Boolean  @default(true)  // Added for VRF trade completion
+  completedAt     DateTime? // Added for VRF trade completion tracking
 
   // Prediction link (if verified)
   predictionId    String?
+  predictionHash  String?  // Added for prediction hash
 
   // Resolution status
+  resolved        Boolean  @default(false) // Added for event tracking
+  yesWon          Boolean? // Added for resolution outcome
   pnl             String?  // Profit/loss after resolution
   resolvedAt      DateTime?
 
@@ -575,6 +641,7 @@ model MirrorTrade {
   @@index([traderAddress])
   @@index([timestamp])
   @@index([agentId])
+  @@index([blockNumber]) // Added for sync queries
 }
 
 // ============================================
@@ -620,6 +687,37 @@ model VerifiedPrediction {
   @@index([isVerified])
   @@index([wasCorrect])
   @@index([timestamp])
+}
+
+// ============================================
+// EVENT TRACKING (Added for blockchain event sync)
+// ============================================
+
+// Tracks price sync events from external markets
+model PriceSyncHistory {
+  id          String   @id @default(cuid())
+  mirrorKey   String
+  oldPrice    Int
+  newPrice    Int
+  syncedAt    DateTime
+
+  @@index([mirrorKey])
+  @@index([syncedAt])
+}
+
+// Audit log for critical system events (oracle changes, admin actions)
+model SystemAudit {
+  id          String   @id @default(cuid())
+  eventType   String   // 'OracleUpdated' | 'AgentContractUpdated'
+  oldValue    String
+  newValue    String
+  txHash      String
+  blockNumber Int
+  timestamp   DateTime @default(now())
+
+  @@index([eventType])
+  @@index([timestamp])
+  @@index([txHash])
 }
 
 // ============================================
