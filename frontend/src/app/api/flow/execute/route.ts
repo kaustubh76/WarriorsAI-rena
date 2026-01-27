@@ -21,6 +21,12 @@ import {
   RPC_TIMEOUT
 } from '@/lib/flowClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { EXTERNAL_MARKET_MIRROR_ABI, CRWN_TOKEN_ABI } from '@/constants/abis';
+import { assertOracleAuthorized } from '@/lib/oracleVerification';
+import { getChainId } from '@/constants';
+import { globalErrorHandler } from '@/lib/errorRecovery';
+import { FlowMetrics, PerformanceTimer } from '@/lib/metrics';
+import { globalAlertManager, AlertSeverity } from '@/lib/alerting/alertManager';
 
 // ============================================================================
 // Types
@@ -66,135 +72,7 @@ type ExecuteRequest = CreateMirrorRequest | TradeRequest | SyncPriceRequest | Re
 // ============================================================================
 // Contract Configuration
 // ============================================================================
-
-const ExternalMarketMirrorABI = [
-  {
-    name: 'createMirrorMarket',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'externalId', type: 'string' },
-      { name: 'source', type: 'uint8' },
-      { name: 'question', type: 'string' },
-      { name: 'externalYesPrice', type: 'uint256' },
-      { name: 'endTime', type: 'uint256' },
-      { name: 'initialLiquidity', type: 'uint256' },
-    ],
-    outputs: [{ name: 'requestId', type: 'uint256' }],
-  },
-  {
-    name: 'tradeMirror',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'mirrorKey', type: 'bytes32' },
-      { name: 'isYes', type: 'bool' },
-      { name: 'amount', type: 'uint256' },
-      { name: 'minSharesOut', type: 'uint256' },
-    ],
-    outputs: [{ name: 'sharesOut', type: 'uint256' }],
-  },
-  {
-    name: 'syncPrice',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'mirrorKey', type: 'bytes32' },
-      { name: 'newExternalPrice', type: 'uint256' },
-      { name: 'oracleSignature', type: 'bytes' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'resolveMirror',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'mirrorKey', type: 'bytes32' },
-      { name: 'yesWon', type: 'bool' },
-      { name: 'oracleSignature', type: 'bytes' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'getMirrorMarket',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'mirrorKey', type: 'bytes32' }],
-    outputs: [
-      { name: '', type: 'tuple', components: [
-        { name: 'flowMarketId', type: 'uint256' },
-        { name: 'externalLink', type: 'tuple', components: [
-          { name: 'externalId', type: 'string' },
-          { name: 'source', type: 'uint8' },
-          { name: 'lastSyncPrice', type: 'uint256' },
-          { name: 'lastSyncTime', type: 'uint256' },
-          { name: 'isActive', type: 'bool' },
-        ]},
-        { name: 'totalMirrorVolume', type: 'uint256' },
-        { name: 'createdAt', type: 'uint256' },
-        { name: 'creator', type: 'address' },
-      ]},
-    ],
-  },
-  {
-    name: 'getMirrorKey',
-    type: 'function',
-    stateMutability: 'pure',
-    inputs: [
-      { name: 'source', type: 'uint8' },
-      { name: 'externalId', type: 'string' },
-    ],
-    outputs: [{ name: '', type: 'bytes32' }],
-  },
-  {
-    name: 'isMirrored',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'source', type: 'uint8' },
-      { name: 'externalId', type: 'string' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  {
-    name: 'totalMirrors',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'totalMirrorVolume',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
-
-const CRwNTokenABI = [
-  {
-    name: 'approve',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'spender', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  {
-    name: 'allowance',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' },
-    ],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const;
+// ABIs are now imported from unified source (@/constants/abis)
 
 // Contract addresses
 const EXTERNAL_MARKET_MIRROR = process.env.EXTERNAL_MARKET_MIRROR_ADDRESS || '0x0000000000000000000000000000000000000000';
@@ -305,244 +183,357 @@ export async function POST(request: NextRequest) {
       // Create Mirror Market
       // ========================================
       case 'createMirror': {
-        const { externalId, source, question, yesPrice, endTime, initialLiquidity } = body;
+        const timer = new PerformanceTimer('create_mirror');
 
-        // Validate inputs
-        if (!externalId || !source || !question || !yesPrice || !endTime || !initialLiquidity) {
-          throw ErrorResponses.badRequest('Missing required fields for createMirror');
-        }
+        try {
+          const { externalId, source, question, yesPrice, endTime, initialLiquidity } = body;
 
-        const liquidityWei = parseEther(initialLiquidity);
-        const sourceEnum = getSourceEnum(source);
+          // Validate inputs
+          if (!externalId || !source || !question || !yesPrice || !endTime || !initialLiquidity) {
+            throw ErrorResponses.badRequest('Missing required fields for createMirror');
+          }
 
-        // Approve CRwN if needed
-        const allowance = await executeWithFlowFallback((client) =>
-          client.readContract({
-            address: CRWN_TOKEN as `0x${string}`,
-            abi: CRwNTokenABI,
-            functionName: 'allowance',
-            args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
-          })
-        );
+          const liquidityWei = parseEther(initialLiquidity);
+          const sourceEnum = getSourceEnum(source);
 
-        if (allowance < liquidityWei) {
-          const approveHash = await walletClient.writeContract({
-            address: CRWN_TOKEN as `0x${string}`,
-            abi: CRwNTokenABI,
-            functionName: 'approve',
-            args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, liquidityWei * 2n],
-          });
-          await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
-        }
+          // Approve CRwN if needed (wrapped with circuit breaker)
+          const allowance = await globalErrorHandler.handleRPCCall(
+            async () => await executeWithFlowFallback((client) =>
+              client.readContract({
+                address: CRWN_TOKEN as `0x${string}`,
+                abi: CRWN_TOKEN_ABI,
+                functionName: 'allowance',
+                args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
+              })
+            ),
+            'check_crwn_allowance'
+          );
 
-        // Create mirror market
-        const txHash = await walletClient.writeContract({
-          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
-          functionName: 'createMirrorMarket',
-          args: [
+          if (allowance < liquidityWei) {
+            const approveHash = await globalErrorHandler.handleRPCCall(
+              async () => await walletClient.writeContract({
+                address: CRWN_TOKEN as `0x${string}`,
+                abi: CRWN_TOKEN_ABI,
+                functionName: 'approve',
+                args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, liquidityWei * 2n],
+              }),
+              'approve_crwn_token'
+            );
+            await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
+          }
+
+          // Create mirror market (wrapped with circuit breaker)
+          const txHash = await globalErrorHandler.handleRPCCall(
+            async () => await walletClient.writeContract({
+              address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+              abi: EXTERNAL_MARKET_MIRROR_ABI,
+              functionName: 'createMirrorMarket',
+              args: [
+                externalId,
+                sourceEnum,
+                question,
+                BigInt(yesPrice),
+                BigInt(endTime),
+                liquidityWei,
+              ],
+            }),
+            'create_mirror_market'
+          );
+
+          const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
+
+          // Compute mirror key
+          const mirrorKey = computeMirrorKey(source, externalId);
+
+          // Record success metrics
+          timer.end({ status: 'success' });
+          FlowMetrics.recordMarketCreated(source, externalId);
+
+          return NextResponse.json({
+            success: true,
+            action: 'createMirror',
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            mirrorKey,
             externalId,
-            sourceEnum,
-            question,
-            BigInt(yesPrice),
-            BigInt(endTime),
-            liquidityWei,
-          ],
-        });
-
-        const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
-
-        // Compute mirror key
-        const mirrorKey = computeMirrorKey(source, externalId);
-
-        return NextResponse.json({
-          success: true,
-          action: 'createMirror',
-          txHash,
-          blockNumber: receipt.blockNumber.toString(),
-          mirrorKey,
-          externalId,
-          source,
-        });
+            source,
+          });
+        } catch (error: any) {
+          timer.end({ status: 'error' });
+          FlowMetrics.recordOperationFailed('create_mirror');
+          throw error; // Re-throw to be caught by outer handler
+        }
       }
 
       // ========================================
       // Trade on Mirror
       // ========================================
       case 'trade': {
-        const { mirrorKey, isYes, amount, minSharesOut = '0' } = body;
+        const timer = new PerformanceTimer('execute_trade');
 
-        if (!mirrorKey || isYes === undefined || !amount) {
-          throw ErrorResponses.badRequest('Missing required fields for trade');
-        }
+        try {
+          const { mirrorKey, isYes, amount, minSharesOut = '0' } = body;
 
-        const amountWei = parseEther(amount);
-        const minOutWei = parseEther(minSharesOut);
+          if (!mirrorKey || isYes === undefined || !amount) {
+            throw ErrorResponses.badRequest('Missing required fields for trade');
+          }
 
-        // Approve if needed
-        const allowance = await executeWithFlowFallback((client) =>
-          client.readContract({
-            address: CRWN_TOKEN as `0x${string}`,
-            abi: CRwNTokenABI,
-            functionName: 'allowance',
-            args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
-          })
-        );
+          const amountWei = parseEther(amount);
+          const minOutWei = parseEther(minSharesOut);
 
-        if (allowance < amountWei) {
-          const approveHash = await walletClient.writeContract({
-            address: CRWN_TOKEN as `0x${string}`,
-            abi: CRwNTokenABI,
-            functionName: 'approve',
-            args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, amountWei * 2n],
-          });
-          await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
-        }
+          // Approve if needed (wrapped with circuit breaker)
+          const allowance = await globalErrorHandler.handleRPCCall(
+            async () => await executeWithFlowFallback((client) =>
+              client.readContract({
+                address: CRWN_TOKEN as `0x${string}`,
+                abi: CRWN_TOKEN_ABI,
+                functionName: 'allowance',
+                args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
+              })
+            ),
+            'check_crwn_allowance'
+          );
 
-        const txHash = await walletClient.writeContract({
-          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
-          functionName: 'tradeMirror',
-          args: [
-            mirrorKey as `0x${string}`,
+          if (allowance < amountWei) {
+            const approveHash = await globalErrorHandler.handleRPCCall(
+              async () => await walletClient.writeContract({
+                address: CRWN_TOKEN as `0x${string}`,
+                abi: CRWN_TOKEN_ABI,
+                functionName: 'approve',
+                args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, amountWei * 2n],
+              }),
+              'approve_crwn_token'
+            );
+            await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
+          }
+
+          // Execute trade (wrapped with circuit breaker)
+          const txHash = await globalErrorHandler.handleRPCCall(
+            async () => await walletClient.writeContract({
+              address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+              abi: EXTERNAL_MARKET_MIRROR_ABI,
+              functionName: 'tradeMirror',
+              args: [
+                mirrorKey as `0x${string}`,
+                isYes,
+                amountWei,
+                minOutWei,
+              ],
+            }),
+            'execute_mirror_trade'
+          );
+
+          const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
+
+          // Record success metrics
+          timer.end({ status: 'success' });
+          FlowMetrics.recordTradeExecuted(mirrorKey, isYes, amount);
+          FlowMetrics.recordTradeVolume(amount);
+
+          return NextResponse.json({
+            success: true,
+            action: 'trade',
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            mirrorKey,
             isYes,
-            amountWei,
-            minOutWei,
-          ],
-        });
-
-        const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
-
-        return NextResponse.json({
-          success: true,
-          action: 'trade',
-          txHash,
-          blockNumber: receipt.blockNumber.toString(),
-          mirrorKey,
-          isYes,
-          amount,
-        });
+            amount,
+          });
+        } catch (error: any) {
+          timer.end({ status: 'error' });
+          FlowMetrics.recordOperationFailed('trade');
+          throw error;
+        }
       }
 
       // ========================================
       // Sync Price
       // ========================================
       case 'syncPrice': {
-        const { mirrorKey, newPrice } = body;
+        const timer = new PerformanceTimer('sync_price');
 
-        if (!mirrorKey || newPrice === undefined) {
-          throw ErrorResponses.badRequest('Missing required fields for syncPrice');
+        try {
+          const { mirrorKey, newPrice } = body;
+
+          if (!mirrorKey || newPrice === undefined) {
+            throw ErrorResponses.badRequest('Missing required fields for syncPrice');
+          }
+
+          // Verify oracle authorization before signing
+          await assertOracleAuthorized(EXTERNAL_MARKET_MIRROR as `0x${string}`, privateKey);
+
+          // Generate oracle signature
+          const chainId = getChainId(); // Use environment config instead of hardcoded
+          const messageData = encodeAbiParameters(
+            [{ type: 'bytes32' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'string' }],
+            [mirrorKey as `0x${string}`, BigInt(newPrice), BigInt(chainId), 'SYNC']
+          );
+          const messageHash = keccak256(messageData);
+          const signature = await signOracleMessage(messageHash, privateKey);
+
+          // Execute syncPrice (wrapped with circuit breaker)
+          const txHash = await globalErrorHandler.handleRPCCall(
+            async () => await walletClient.writeContract({
+              address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+              abi: EXTERNAL_MARKET_MIRROR_ABI,
+              functionName: 'syncPrice',
+              args: [
+                mirrorKey as `0x${string}`,
+                BigInt(newPrice),
+                signature,
+              ],
+            }),
+            'sync_mirror_price'
+          );
+
+          const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
+
+          // Record success metrics
+          timer.end({ status: 'success' });
+          FlowMetrics.recordOracleOperation('syncPrice', true);
+
+          return NextResponse.json({
+            success: true,
+            action: 'syncPrice',
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            mirrorKey,
+            newPrice,
+          });
+        } catch (error: any) {
+          timer.end({ status: 'error' });
+          FlowMetrics.recordOracleOperation('syncPrice', false);
+
+          await globalAlertManager.sendAlert(
+            'Price Sync Failed',
+            `Failed to sync price for market ${body.mirrorKey}: ${error.message}`,
+            AlertSeverity.ERROR,
+            { source: 'flow_execute', metadata: { mirrorKey: body.mirrorKey, error: error.message } }
+          );
+          throw error;
         }
-
-        // Generate oracle signature
-        const chainId = flowTestnet.id;
-        const messageData = encodeAbiParameters(
-          [{ type: 'bytes32' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'string' }],
-          [mirrorKey as `0x${string}`, BigInt(newPrice), BigInt(chainId), 'SYNC']
-        );
-        const messageHash = keccak256(messageData);
-        const signature = await signOracleMessage(messageHash, privateKey);
-
-        const txHash = await walletClient.writeContract({
-          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
-          functionName: 'syncPrice',
-          args: [
-            mirrorKey as `0x${string}`,
-            BigInt(newPrice),
-            signature,
-          ],
-        });
-
-        const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
-
-        return NextResponse.json({
-          success: true,
-          action: 'syncPrice',
-          txHash,
-          blockNumber: receipt.blockNumber.toString(),
-          mirrorKey,
-          newPrice,
-        });
       }
 
       // ========================================
       // Resolve Mirror
       // ========================================
       case 'resolve': {
-        const { mirrorKey, yesWon } = body;
+        const timer = new PerformanceTimer('resolve_market');
 
-        if (!mirrorKey || yesWon === undefined) {
-          throw ErrorResponses.badRequest('Missing required fields for resolve');
-        }
+        try {
+          const { mirrorKey, yesWon } = body;
 
-        // Generate oracle signature
-        const chainId = flowTestnet.id;
-        const messageData = encodeAbiParameters(
-          [{ type: 'bytes32' }, { type: 'bool' }, { type: 'string' }, { type: 'uint256' }],
-          [mirrorKey as `0x${string}`, yesWon, 'RESOLVE', BigInt(chainId)]
-        );
-        const messageHash = keccak256(messageData);
-        const signature = await signOracleMessage(messageHash, privateKey);
+          if (!mirrorKey || yesWon === undefined) {
+            throw ErrorResponses.badRequest('Missing required fields for resolve');
+          }
 
-        const txHash = await walletClient.writeContract({
-          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
-          functionName: 'resolveMirror',
-          args: [
-            mirrorKey as `0x${string}`,
+          // Verify oracle authorization before signing
+          await assertOracleAuthorized(EXTERNAL_MARKET_MIRROR as `0x${string}`, privateKey);
+
+          // Generate oracle signature
+          const chainId = getChainId(); // Use environment config instead of hardcoded
+          const messageData = encodeAbiParameters(
+            [{ type: 'bytes32' }, { type: 'bool' }, { type: 'string' }, { type: 'uint256' }],
+            [mirrorKey as `0x${string}`, yesWon, 'RESOLVE', BigInt(chainId)]
+          );
+          const messageHash = keccak256(messageData);
+          const signature = await signOracleMessage(messageHash, privateKey);
+
+          // Execute resolve (wrapped with circuit breaker)
+          const txHash = await globalErrorHandler.handleRPCCall(
+            async () => await walletClient.writeContract({
+              address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+              abi: EXTERNAL_MARKET_MIRROR_ABI,
+              functionName: 'resolveMirror',
+              args: [
+                mirrorKey as `0x${string}`,
+                yesWon,
+                signature,
+              ],
+            }),
+            'resolve_mirror_market'
+          );
+
+          const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
+
+          // Record success metrics
+          timer.end({ status: 'success' });
+          // Extract source from body if available
+          const source = (body as any).source || 'unknown';
+          FlowMetrics.recordMarketResolved(source, yesWon ? 'yes' : 'no');
+          FlowMetrics.recordOracleOperation('resolve', true);
+
+          return NextResponse.json({
+            success: true,
+            action: 'resolve',
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            mirrorKey,
             yesWon,
-            signature,
-          ],
-        });
+          });
+        } catch (error: any) {
+          timer.end({ status: 'error' });
+          FlowMetrics.recordOracleOperation('resolve', false);
 
-        const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
-
-        return NextResponse.json({
-          success: true,
-          action: 'resolve',
-          txHash,
-          blockNumber: receipt.blockNumber.toString(),
-          mirrorKey,
-          yesWon,
-        });
+          await globalAlertManager.sendAlert(
+            'Market Resolution Failed',
+            `Failed to resolve market ${body.mirrorKey}: ${error.message}`,
+            AlertSeverity.ERROR,
+            { source: 'flow_execute', metadata: { mirrorKey: body.mirrorKey, error: error.message } }
+          );
+          throw error;
+        }
       }
 
       // ========================================
       // Query Mirror
       // ========================================
       case 'query': {
-        const { mirrorKey } = body;
+        const timer = new PerformanceTimer('query_market');
 
-        if (!mirrorKey) {
-          throw ErrorResponses.badRequest('Missing mirrorKey for query');
+        try {
+          const { mirrorKey } = body;
+
+          if (!mirrorKey) {
+            throw ErrorResponses.badRequest('Missing mirrorKey for query');
+          }
+
+          // Query market (wrapped with circuit breaker)
+          const mirrorMarket = await globalErrorHandler.handleRPCCall(
+            async () => await executeWithFlowFallback((client) =>
+              client.readContract({
+                address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+                abi: EXTERNAL_MARKET_MIRROR_ABI,
+                functionName: 'getMirrorMarket',
+                args: [mirrorKey as `0x${string}`],
+              })
+            ),
+            'read_mirror_market'
+          );
+
+          timer.end({ status: 'success' });
+
+          return NextResponse.json({
+            success: true,
+            action: 'query',
+            mirrorKey,
+            market: {
+              flowMarketId: mirrorMarket.flowMarketId.toString(),
+              externalId: mirrorMarket.externalLink.externalId,
+              source: mirrorMarket.externalLink.source === 0 ? 'polymarket' : 'kalshi',
+              lastSyncPrice: mirrorMarket.externalLink.lastSyncPrice.toString(),
+              lastSyncTime: new Date(Number(mirrorMarket.externalLink.lastSyncTime) * 1000).toISOString(),
+              isActive: mirrorMarket.externalLink.isActive,
+              totalVolume: formatEther(mirrorMarket.totalMirrorVolume),
+              createdAt: new Date(Number(mirrorMarket.createdAt) * 1000).toISOString(),
+              creator: mirrorMarket.creator,
+            },
+          });
+        } catch (error: any) {
+          timer.end({ status: 'error' });
+          FlowMetrics.recordOperationFailed('query');
+          throw error;
         }
-
-        const mirrorMarket = await executeWithFlowFallback((client) =>
-          client.readContract({
-            address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-            abi: ExternalMarketMirrorABI,
-            functionName: 'getMirrorMarket',
-            args: [mirrorKey as `0x${string}`],
-          })
-        );
-
-        return NextResponse.json({
-          success: true,
-          action: 'query',
-          mirrorKey,
-          market: {
-            flowMarketId: mirrorMarket.flowMarketId.toString(),
-            externalId: mirrorMarket.externalLink.externalId,
-            source: mirrorMarket.externalLink.source === 0 ? 'polymarket' : 'kalshi',
-            lastSyncPrice: mirrorMarket.externalLink.lastSyncPrice.toString(),
-            lastSyncTime: new Date(Number(mirrorMarket.externalLink.lastSyncTime) * 1000).toISOString(),
-            isActive: mirrorMarket.externalLink.isActive,
-            totalVolume: formatEther(mirrorMarket.totalMirrorVolume),
-            createdAt: new Date(Number(mirrorMarket.createdAt) * 1000).toISOString(),
-            creator: mirrorMarket.creator,
-          },
-        });
       }
 
       default:
@@ -584,14 +575,14 @@ export async function GET(request: NextRequest) {
       executeWithFlowFallback((client) =>
         client.readContract({
           address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
+          abi: EXTERNAL_MARKET_MIRROR_ABI,
           functionName: 'totalMirrors',
         })
       ),
       executeWithFlowFallback((client) =>
         client.readContract({
           address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
+          abi: EXTERNAL_MARKET_MIRROR_ABI,
           functionName: 'totalMirrorVolume',
         })
       ),

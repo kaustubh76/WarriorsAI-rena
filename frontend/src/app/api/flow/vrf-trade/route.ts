@@ -21,6 +21,9 @@ import {
   RPC_TIMEOUT
 } from '@/lib/flowClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { EXTERNAL_MARKET_MIRROR_ABI, CRWN_TOKEN_ABI } from '@/constants/abis';
+import { globalErrorHandler } from '@/lib/errorRecovery';
+import { FlowMetrics, PerformanceTimer } from '@/lib/metrics';
 
 // ============================================================================
 // Types
@@ -61,7 +64,9 @@ interface TradeResponse {
 // ============================================================================
 
 // ExternalMarketMirror ABI (relevant functions only)
-const ExternalMarketMirrorABI = [
+// ABIs are now imported from unified source (@/constants/abis)
+/*
+const EXTERNAL_MARKET_MIRROR_ABI = [
   {
     name: 'tradeMirror',
     type: 'function',
@@ -127,9 +132,11 @@ const ExternalMarketMirrorABI = [
     ],
   },
 ] as const;
+*/
 
 // CRwN Token ABI (for approvals)
-const CRwNTokenABI = [
+/*
+const CRWN_TOKEN_ABI = [
   {
     name: 'approve',
     type: 'function',
@@ -158,6 +165,7 @@ const CRwNTokenABI = [
     outputs: [{ name: '', type: 'uint256' }],
   },
 ] as const;
+*/
 
 // Contract addresses (should come from environment/constants)
 const EXTERNAL_MARKET_MIRROR = process.env.EXTERNAL_MARKET_MIRROR_ADDRESS || '0x0000000000000000000000000000000000000000';
@@ -211,6 +219,8 @@ async function waitForReceiptWithFallback(
 // ============================================================================
 
 export async function POST(request: NextRequest) {
+  const timer = new PerformanceTimer('vrf_trade');
+
   try {
     // Apply rate limiting
     applyRateLimit(request, {
@@ -263,15 +273,18 @@ export async function POST(request: NextRequest) {
     const walletClient = getWalletClient(privateKey);
     const account = walletClient.account;
 
-    // Verify mirror market exists and is active
+    // Verify mirror market exists and is active (wrapped with circuit breaker)
     try {
-      const mirrorMarket = await executeWithFlowFallback((client) =>
-        client.readContract({
-          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-          abi: ExternalMarketMirrorABI,
-          functionName: 'getMirrorMarket',
-          args: [mirrorKey as `0x${string}`],
-        })
+      const mirrorMarket = await globalErrorHandler.handleRPCCall(
+        async () => await executeWithFlowFallback((client) =>
+          client.readContract({
+            address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+            abi: EXTERNAL_MARKET_MIRROR_ABI,
+            functionName: 'getMirrorMarket',
+            args: [mirrorKey as `0x${string}`],
+          })
+        ),
+        'read_mirror_market'
       );
 
       if (!mirrorMarket.externalLink.isActive) {
@@ -282,25 +295,31 @@ export async function POST(request: NextRequest) {
       console.warn('Could not verify mirror market:', error);
     }
 
-    // Check and approve CRwN if needed
+    // Check and approve CRwN if needed (wrapped with circuit breaker)
     try {
-      const allowance = await executeWithFlowFallback((client) =>
-        client.readContract({
-          address: CRWN_TOKEN as `0x${string}`,
-          abi: CRwNTokenABI,
-          functionName: 'allowance',
-          args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
-        })
+      const allowance = await globalErrorHandler.handleRPCCall(
+        async () => await executeWithFlowFallback((client) =>
+          client.readContract({
+            address: CRWN_TOKEN as `0x${string}`,
+            abi: CRWN_TOKEN_ABI,
+            functionName: 'allowance',
+            args: [account.address, EXTERNAL_MARKET_MIRROR as `0x${string}`],
+          })
+        ),
+        'check_crwn_allowance'
       );
 
       if (allowance < amountWei) {
         // Approve max amount
-        const approveHash = await walletClient.writeContract({
-          address: CRWN_TOKEN as `0x${string}`,
-          abi: CRwNTokenABI,
-          functionName: 'approve',
-          args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, amountWei * 10n], // Approve extra
-        });
+        const approveHash = await globalErrorHandler.handleRPCCall(
+          async () => await walletClient.writeContract({
+            address: CRWN_TOKEN as `0x${string}`,
+            abi: CRWN_TOKEN_ABI,
+            functionName: 'approve',
+            args: [EXTERNAL_MARKET_MIRROR as `0x${string}`, amountWei * 10n], // Approve extra
+          }),
+          'approve_crwn_token'
+        );
 
         await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
       }
@@ -311,63 +330,86 @@ export async function POST(request: NextRequest) {
     let txHash: `0x${string}`;
 
     if (useVRF && agentId) {
-      // VRF-enhanced copy trade
-      txHash = await walletClient.writeContract({
-        address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-        abi: ExternalMarketMirrorABI,
-        functionName: 'vrfCopyTrade',
-        args: [
-          mirrorKey as `0x${string}`,
-          BigInt(agentId),
-          isYes,
-          amountWei,
-        ],
-      });
+      // VRF-enhanced copy trade (wrapped with circuit breaker)
+      txHash = await globalErrorHandler.handleRPCCall(
+        async () => await walletClient.writeContract({
+          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+          abi: EXTERNAL_MARKET_MIRROR_ABI,
+          functionName: 'vrfCopyTrade',
+          args: [
+            mirrorKey as `0x${string}`,
+            BigInt(agentId),
+            isYes,
+            amountWei,
+          ],
+        }),
+        'vrf_copy_trade'
+      );
     } else {
-      // Direct trade
+      // Direct trade (wrapped with circuit breaker)
       const minSharesOut = (amountWei * BigInt(10000 - slippageBps)) / 10000n;
 
-      txHash = await walletClient.writeContract({
-        address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-        abi: ExternalMarketMirrorABI,
-        functionName: 'tradeMirror',
-        args: [
-          mirrorKey as `0x${string}`,
-          isYes,
-          amountWei,
-          minSharesOut,
-        ],
-      });
+      txHash = await globalErrorHandler.handleRPCCall(
+        async () => await walletClient.writeContract({
+          address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
+          abi: EXTERNAL_MARKET_MIRROR_ABI,
+          functionName: 'tradeMirror',
+          args: [
+            mirrorKey as `0x${string}`,
+            isYes,
+            amountWei,
+            minSharesOut,
+          ],
+        }),
+        'direct_mirror_trade'
+      );
     }
 
     // Wait for confirmation
     const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
 
-    // Store trade in 0G for audit trail
+    // Record success metrics
+    timer.end({ status: 'success' });
+    if (useVRF && agentId) {
+      FlowMetrics.recordVRFTradeExecuted(mirrorKey, agentId, amount);
+    } else {
+      FlowMetrics.recordTradeExecuted(mirrorKey, isYes, amount);
+      FlowMetrics.recordTradeVolume(amount);
+    }
+
+    // Store trade in 0G for audit trail (wrapped in error handler)
     if (prediction?.proof) {
-      try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-        await fetch(`${baseUrl}/api/0g/market-store`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'trade_execution',
-            data: {
-              mirrorKey,
-              agentId,
-              isYes,
-              amount,
-              txHash,
-              prediction,
-              useVRF,
-              blockNumber: receipt.blockNumber.toString(),
-              timestamp: Date.now(),
-            },
-          }),
-        });
-      } catch (storeError) {
+      await globalErrorHandler.handleWithRetry(
+        async () => {
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+          const response = await fetch(`${baseUrl}/api/0g/market-store`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'trade_execution',
+              data: {
+                mirrorKey,
+                agentId,
+                isYes,
+                amount,
+                txHash,
+                prediction,
+                useVRF,
+                blockNumber: receipt.blockNumber.toString(),
+                timestamp: Date.now(),
+              },
+            }),
+          });
+          if (!response.ok) {
+            throw new Error('Failed to store to 0G');
+          }
+          FlowMetrics.recordZeroGVerification(true);
+        },
+        { operation: 'store_to_0g', severity: 'medium', retryable: true }
+      ).catch(storeError => {
         console.warn('Failed to store trade in 0G:', storeError);
-      }
+        FlowMetrics.recordZeroGVerification(false);
+      });
     }
 
     const response: TradeResponse = {
@@ -380,6 +422,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
 
   } catch (error) {
+    timer.end({ status: 'error' });
+    FlowMetrics.recordOperationFailed('vrf_trade');
     return handleAPIError(error, 'API:Flow:VRFTrade:POST');
   }
 }
@@ -426,7 +470,7 @@ export async function GET(request: NextRequest) {
         const mirrorMarket = await executeWithFlowFallback((client) =>
           client.readContract({
             address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
-            abi: ExternalMarketMirrorABI,
+            abi: EXTERNAL_MARKET_MIRROR_ABI,
             functionName: 'getMirrorMarket',
             args: [mirrorKey as `0x${string}`],
           })
