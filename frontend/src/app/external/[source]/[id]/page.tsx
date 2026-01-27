@@ -24,6 +24,8 @@ export default function ExternalMarketDetailPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [mirrorKey, setMirrorKey] = useState<string | null>(null);
+  const [arbitrageOpp, setArbitrageOpp] = useState<any>(null);
+  const [loadingArbitrage, setLoadingArbitrage] = useState(false);
 
   // Check if mirror market exists
   useEffect(() => {
@@ -33,6 +35,35 @@ export default function ExternalMarketDetailPage() {
       queryMirrorMarket(key);
     }
   }, [market, queryMirrorMarket]);
+
+  // Check for arbitrage opportunities
+  useEffect(() => {
+    const fetchArbitrage = async () => {
+      if (!market) return;
+
+      try {
+        setLoadingArbitrage(true);
+        const response = await fetch('/api/external/arbitrage');
+        const data = await response.json();
+
+        if (data.success && data.data?.opportunities) {
+          // Find arbitrage opportunity for this market
+          const opp = data.data.opportunities.find(
+            (o: any) =>
+              (o.externalMarket?.id === market.id || o.externalMarket?.externalId === market.externalId) &&
+              o.externalMarket?.source === market.source
+          );
+          setArbitrageOpp(opp || null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch arbitrage opportunities:', error);
+      } finally {
+        setLoadingArbitrage(false);
+      }
+    };
+
+    fetchArbitrage();
+  }, [market]);
 
   const getSourceColor = (src: MarketSource) => {
     switch (src) {
@@ -58,10 +89,10 @@ export default function ExternalMarketDetailPage() {
 
   if (marketLoading) {
     return (
-      <div className="min-h-screen bg-gray-950 text-white">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+        <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="text-center py-20">
-            <div className="w-12 h-12 mx-auto mb-4 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-12 h-12 mx-auto mb-4 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-gray-400">Loading market details...</p>
           </div>
         </div>
@@ -71,19 +102,19 @@ export default function ExternalMarketDetailPage() {
 
   if (marketError || !market) {
     return (
-      <div className="min-h-screen bg-gray-950 text-white">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+        <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="text-center py-20">
             <div className="w-16 h-16 mx-auto mb-4 bg-red-500/20 rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold mb-2">Market Not Found</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Market Not Found</h2>
             <p className="text-gray-400 mb-6">{marketError || 'This market does not exist or could not be loaded.'}</p>
             <Link
               href="/external"
-              className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black font-medium rounded-lg transition-colors"
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
             >
               Back to Markets
             </Link>
@@ -98,12 +129,12 @@ export default function ExternalMarketDetailPage() {
   const isExpired = timeUntilEnd <= 0;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-6xl mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+      <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Back Button */}
         <Link
           href="/external"
-          className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition-colors"
+          className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 mb-6 transition-colors"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -173,6 +204,45 @@ export default function ExternalMarketDetailPage() {
               </div>
             </div>
 
+            {/* Arbitrage Opportunity Alert */}
+            {arbitrageOpp && !loadingArbitrage && (
+              <div className="bg-yellow-500/10 border-2 border-yellow-500/50 rounded-xl p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                      <span className="text-2xl">🎯</span>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-yellow-400 mb-2">Arbitrage Opportunity Detected!</h3>
+                    <p className="text-gray-300 text-sm mb-4">
+                      There's a price difference between this market and its counterpart on another platform.
+                    </p>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="bg-gray-900/50 rounded-lg p-3">
+                        <div className="text-xs text-gray-400 mb-1">Potential Profit</div>
+                        <div className="text-xl font-bold text-green-400">
+                          {arbitrageOpp.profitPercentage?.toFixed(2) || arbitrageOpp.potentialProfit?.toFixed(2)}%
+                        </div>
+                      </div>
+                      <div className="bg-gray-900/50 rounded-lg p-3">
+                        <div className="text-xs text-gray-400 mb-1">Price Spread</div>
+                        <div className="text-xl font-bold text-yellow-400">
+                          {(arbitrageOpp.spread / 100)?.toFixed(2) || 'N/A'}%
+                        </div>
+                      </div>
+                    </div>
+                    <Link
+                      href="/external/arbitrage"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm"
+                    >
+                      View All Opportunities →
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Mirror Market Info */}
             {mirrorMarket && mirrorMarket.isActive && (
               <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
@@ -182,7 +252,7 @@ export default function ExternalMarketDetailPage() {
                   </svg>
                   Mirror Market on Flow
                 </h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                   <div>
                     <div className="text-sm text-gray-500">Mirror YES</div>
                     <div className="text-lg font-semibold text-green-400">{mirrorMarket.yesPrice.toFixed(1)}%</div>
@@ -200,6 +270,19 @@ export default function ExternalMarketDetailPage() {
                     <div className="text-lg font-semibold">{mirrorMarket.tradeCount}</div>
                   </div>
                 </div>
+                {mirrorMarket.yesPrice !== market.yesPrice && (
+                  <div className="pt-4 border-t border-gray-700">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400">Price Difference:</span>
+                      <span className={`font-semibold ${
+                        Math.abs(mirrorMarket.yesPrice - market.yesPrice) > 5 ? 'text-yellow-400' : 'text-green-400'
+                      }`}>
+                        {Math.abs(mirrorMarket.yesPrice - market.yesPrice).toFixed(2)}%
+                        {Math.abs(mirrorMarket.yesPrice - market.yesPrice) > 5 && ' ⚠️'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

@@ -139,17 +139,18 @@ export default function CreateMarketPage() {
   }, [getEndTimestamp]);
 
   return (
-    <main className="container mx-auto px-4 py-8 max-w-2xl">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+      <main className="container mx-auto px-4 py-8 max-w-2xl">
         {/* Breadcrumb */}
         <div className="mb-6">
-          <Link href="/markets" className="text-purple-400 hover:text-purple-300">
+          <Link href="/markets" className="text-blue-400 hover:text-blue-300">
             ← Back to Markets
           </Link>
         </div>
 
         {/* Page Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Create Prediction Market</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2">Create Prediction Market</h1>
           <p className="text-gray-400">
             Create a custom prediction market and earn fees from trading activity
           </p>
@@ -401,6 +402,7 @@ export default function CreateMarketPage() {
             </p>
           </div>
         </div>
-    </main>
+      </main>
+    </div>
   );
 }

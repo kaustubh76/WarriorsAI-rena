@@ -55,10 +55,11 @@ export default function LeaderboardPage() {
     : null;
 
   return (
-    <main className="container mx-auto px-4 py-8 max-w-6xl">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+      <main className="container-arcade py-6 md:py-8">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4">
             Leaderboard
           </h1>
           <p className="text-xl text-gray-400">
@@ -68,7 +69,7 @@ export default function LeaderboardPage() {
 
         {/* User Stats Card (if connected) */}
         {isConnected && (
-          <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 rounded-2xl p-6 border border-purple-500/30 mb-8">
+          <div className="bg-purple-500/10 rounded-2xl p-6 border border-purple-500/30 mb-8">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <span className="text-gray-400 text-sm">Your Ranking</span>
@@ -341,7 +342,8 @@ export default function LeaderboardPage() {
             Season ends in 23 days. Keep trading to climb the ranks!
           </p>
         </div>
-    </main>
+      </main>
+    </div>
   );
 }
 

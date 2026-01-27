@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useExternalMarkets, useExternalMarketStats } from '@/hooks/useExternalMarkets';
 import { ExternalMarketCard } from '@/components/markets/ExternalMarketCard';
@@ -26,6 +26,24 @@ const SORT_OPTIONS = [
   { value: 'createdAt', label: 'Newest' },
 ];
 
+// Loading skeleton component
+const ExternalMarketCardSkeleton = () => (
+  <div className="card animate-pulse">
+    <div className="flex items-center justify-between mb-4">
+      <div className="skeleton h-6 w-24 rounded-full" />
+      <div className="skeleton h-5 w-16" />
+    </div>
+    <div className="skeleton h-5 w-full mb-2" />
+    <div className="skeleton h-4 w-3/4 mb-4" />
+    <div className="flex items-center gap-4 mb-4">
+      <div className="skeleton h-12 w-20" />
+      <div className="skeleton h-12 w-24" />
+    </div>
+    <div className="skeleton h-3 w-1/2 mb-2" />
+    <div className="skeleton h-10 w-full rounded-lg" />
+  </div>
+);
+
 export default function ExternalMarketsPage() {
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<MarketSource | 'all'>('all');
@@ -36,6 +54,10 @@ export default function ExternalMarketsPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const pageSize = 50;
+
+  // Arbitrage state
+  const [arbitrageOpps, setArbitrageOpps] = useState<any[]>([]);
+  const [arbitrageLoading, setArbitrageLoading] = useState(false);
 
   // Build filters
   const filters = useMemo(() => ({
@@ -56,6 +78,31 @@ export default function ExternalMarketsPage() {
   const { markets, loading, error, total, refetch, syncMarkets, syncing } = useExternalMarkets(filters);
   const { stats, loading: statsLoading } = useExternalMarketStats();
 
+  // Fetch arbitrage opportunities
+  useEffect(() => {
+    const fetchArbitrage = async () => {
+      try {
+        setArbitrageLoading(true);
+        const response = await fetch('/api/external/arbitrage');
+        const data = await response.json();
+
+        if (data.success && data.data?.opportunities) {
+          setArbitrageOpps(data.data.opportunities);
+        }
+      } catch (error) {
+        console.error('Failed to fetch arbitrage opportunities:', error);
+      } finally {
+        setArbitrageLoading(false);
+      }
+    };
+
+    fetchArbitrage();
+
+    // Refresh arbitrage data every 60 seconds
+    const interval = setInterval(fetchArbitrage, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Handle sync
   const handleSync = async () => {
     if (sourceFilter === 'all') {
@@ -64,6 +111,21 @@ export default function ExternalMarketsPage() {
       await syncMarkets(sourceFilter);
     }
   };
+
+  // Check if a market has arbitrage opportunities
+  const hasArbitrageOpportunity = (marketId: string, source: MarketSource) => {
+    return arbitrageOpps.some(
+      (opp) =>
+        (opp.externalMarket?.id === marketId ||
+          opp.externalMarket?.externalId === marketId) &&
+        opp.externalMarket?.source === source
+    );
+  };
+
+  // Count markets with arbitrage
+  const arbitrageCount = useMemo(() => {
+    return markets.filter((m) => hasArbitrageOpportunity(m.id, m.source)).length;
+  }, [markets, arbitrageOpps]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
@@ -85,6 +147,13 @@ export default function ExternalMarketsPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <Link
+                href="/external/arbitrage"
+                className="px-4 py-2 rounded-lg font-medium bg-yellow-600 text-white hover:bg-yellow-500 transition-all flex items-center gap-2"
+              >
+                <span>🎯</span>
+                Arbitrage {arbitrageCount > 0 && `(${arbitrageCount})`}
+              </Link>
               <button
                 onClick={handleSync}
                 disabled={syncing}
@@ -218,35 +287,40 @@ export default function ExternalMarketsPage() {
 
         {/* Loading State */}
         {loading && (
-          <div className="flex justify-center items-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500" />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+            {[...Array(6)].map((_, i) => (
+              <ExternalMarketCardSkeleton key={i} />
+            ))}
           </div>
         )}
 
         {/* Error State */}
         {error && (
-          <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4 mb-6">
-            <p className="text-red-400">{error}</p>
+          <div className="card p-8 text-center border-red-500/30">
+            <div className="mb-4 text-red-400 text-4xl">⚠️</div>
+            <h3 className="text-xl font-semibold text-white mb-2">Failed to Load Markets</h3>
+            <p className="text-red-400 mb-6">{error}</p>
             <button
               onClick={refetch}
-              className="mt-2 text-sm text-red-300 hover:text-white"
+              className="px-6 py-3 bg-red-600/30 hover:bg-red-600/50 text-red-300 hover:text-white rounded-lg transition-colors"
             >
-              Try again
+              Try Again
             </button>
           </div>
         )}
 
         {/* Empty State */}
         {!loading && !error && markets.length === 0 && (
-          <div className="text-center py-20">
-            <p className="text-gray-400 text-lg mb-4">No markets found</p>
-            <p className="text-gray-500 mb-6">
+          <div className="card p-12 text-center">
+            <div className="mb-4 text-gray-500 text-5xl">📊</div>
+            <h3 className="text-xl font-semibold text-white mb-2">No Markets Found</h3>
+            <p className="text-gray-400 mb-6">
               Try adjusting your filters or sync markets from external sources
             </p>
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-500 disabled:opacity-50"
+              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
             >
               {syncing ? 'Syncing...' : 'Sync Markets Now'}
             </button>
@@ -257,7 +331,11 @@ export default function ExternalMarketsPage() {
         {!loading && markets.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {markets.map((market) => (
-              <ExternalMarketCard key={market.id} market={market} />
+              <ExternalMarketCard
+                key={market.id}
+                market={market}
+                hasArbitrage={hasArbitrageOpportunity(market.id, market.source)}
+              />
             ))}
           </div>
         )}

@@ -54,13 +54,13 @@ export default function WhaleTrackerPage() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-4 mb-4">
-            <Link href="/markets" className="text-gray-400 hover:text-white">
+            <Link href="/markets" className="text-blue-400 hover:text-blue-300">
               ← Back to Markets
             </Link>
           </div>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-3">
                 <span>🐋</span> Whale Tracker
               </h1>
               <p className="text-gray-400">
