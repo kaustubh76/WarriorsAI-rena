@@ -22,15 +22,18 @@ export const getChainId = (): SupportedChainId => {
 
 /**
  * Flow RPC URLs - primary and fallback for reliability
+ *
+ * Fallback RPC updated to use official Flow access node
+ * Previous Tatum endpoint was returning 404
  */
 export const FLOW_RPC_URLS = {
   testnet: {
     primary: 'https://testnet.evm.nodes.onflow.org',
-    fallback: 'https://flow-testnet.gateway.tatum.io',
+    fallback: 'https://access-testnet.onflow.org', // Updated: Official Flow access node
   },
   mainnet: {
     primary: 'https://mainnet.evm.nodes.onflow.org',
-    fallback: 'https://flow-mainnet.gateway.tatum.io',
+    fallback: 'https://access-mainnet.onflow.org', // Updated: Official Flow access node
   },
 };
 

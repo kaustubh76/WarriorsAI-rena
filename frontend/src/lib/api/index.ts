@@ -16,3 +16,4 @@ export * from './circuitBreaker';
 export * from './dedup';
 export * from './metrics';
 export * from './client';
+export * from './middleware';
