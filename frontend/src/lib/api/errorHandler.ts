@@ -137,3 +137,88 @@ export const ErrorResponses = {
   serviceUnavailable: (message: string = 'Service temporarily unavailable') =>
     new APIError(message, 503, 'SERVICE_UNAVAILABLE'),
 };
+
+/**
+ * Flow-specific transaction error with additional context
+ */
+export class FlowTransactionError extends APIError {
+  constructor(
+    message: string,
+    public transactionId?: string,
+    public blockHeight?: number,
+    public originalError?: any
+  ) {
+    super(message, 500, 'FLOW_TX_ERROR');
+    this.name = 'FlowTransactionError';
+  }
+}
+
+/**
+ * Handle Flow-specific errors and return appropriate API errors
+ * @param error The caught error
+ * @param context Description of what operation failed
+ * @returns An appropriate APIError instance
+ */
+export function handleFlowError(error: any, context: string): APIError {
+  // Timeout errors
+  if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
+    return new APIError(
+      `Flow transaction timed out during ${context}`,
+      504,
+      'FLOW_TIMEOUT'
+    );
+  }
+
+  // Insufficient balance
+  if (error.message?.includes('insufficient FLOW') || error.message?.includes('insufficient balance')) {
+    return new APIError(
+      'Insufficient FLOW balance to execute transaction',
+      400,
+      'INSUFFICIENT_BALANCE'
+    );
+  }
+
+  // Not found errors
+  if (error.statusCode === 404 || error.message?.includes('not found')) {
+    return new APIError(
+      `Battle not found on Flow blockchain`,
+      404,
+      'BATTLE_NOT_FOUND'
+    );
+  }
+
+  // Already executed
+  if (error.message?.includes('already executed') || error.message?.includes('already completed')) {
+    return new APIError(
+      'Battle has already been executed',
+      409,
+      'ALREADY_EXECUTED'
+    );
+  }
+
+  // Too early to execute
+  if (error.message?.includes('too early') || error.message?.includes('scheduled time')) {
+    return new APIError(
+      'Battle cannot be executed before scheduled time',
+      400,
+      'TOO_EARLY'
+    );
+  }
+
+  // Flow network errors
+  if (error.message?.includes('network') || error.message?.includes('connection')) {
+    return new APIError(
+      'Flow network error - please try again',
+      503,
+      'NETWORK_ERROR'
+    );
+  }
+
+  // Generic Flow transaction error
+  return new FlowTransactionError(
+    `Flow transaction failed during ${context}: ${error.message || 'Unknown error'}`,
+    error.transactionId,
+    error.blockHeight,
+    error
+  );
+}
