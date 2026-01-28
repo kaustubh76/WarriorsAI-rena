@@ -44,6 +44,17 @@ const NAV_LINKS: NavLink[] = [
       { href: "/external/sync-history", label: "Sync History", icon: "📊" },
     ]
   },
+  {
+    href: "/flow-scheduled",
+    label: "Automation",
+    hoverColor: "hover:text-purple-400",
+    submenu: [
+      { href: "/flow-scheduled", label: "Scheduled Battles", icon: "⏰" },
+      { href: "/flow-scheduled-resolutions", label: "Market Resolutions", icon: "🎯" },
+      { href: "/flow-scheduled?filter=ready", label: "Ready to Execute", icon: "⚡" },
+      { href: "/flow-scheduled?filter=executed", label: "History", icon: "📜" },
+    ]
+  },
   { href: "/creator-dashboard", label: "Creator", hoverColor: "hover:text-green-400" },
   { href: "/warriorsMinter", label: "Mint", hoverColor: "hover:text-red-400" },
 ];
