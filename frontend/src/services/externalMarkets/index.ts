@@ -283,6 +283,19 @@ class ExternalMarketsService {
 
         for (const market of markets) {
           const unified = polymarketService.normalizeMarket(market);
+
+          // If market is resolved, fetch outcome
+          if (market.resolved && !unified.outcome) {
+            try {
+              const outcomeData = await polymarketService.getMarketOutcome(market.conditionId);
+              if (outcomeData.resolved && outcomeData.outcome) {
+                unified.outcome = outcomeData.outcome;
+              }
+            } catch (error) {
+              console.error(`Failed to fetch outcome for ${market.conditionId}:`, error);
+            }
+          }
+
           const result = await this.upsertMarket(unified);
 
           if (result === 'created') added++;
@@ -344,6 +357,10 @@ class ExternalMarketsService {
 
       for (const market of markets) {
         const unified = kalshiService.normalizeMarket(market);
+
+        // Kalshi already includes outcome in market.result for settled markets
+        // The normalizeMarket method handles this, so no additional fetching needed
+
         const result = await this.upsertMarket(unified);
 
         if (result === 'created') added++;

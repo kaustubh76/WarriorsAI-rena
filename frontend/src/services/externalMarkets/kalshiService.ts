@@ -246,6 +246,51 @@ class KalshiService {
   }
 
   /**
+   * Get market with outcome details for resolved markets
+   * Kalshi already includes outcome in market.result
+   */
+  async getMarketWithOutcome(ticker: string): Promise<{
+    market: KalshiMarket | null;
+    outcome?: 'yes' | 'no';
+    resolvedAt?: Date;
+  }> {
+    return monitoredCall(
+      'kalshi',
+      'getMarketWithOutcome',
+      async () => {
+        const market = await this.getMarket(ticker);
+
+        if (!market) {
+          return { market: null };
+        }
+
+        // Check if market is settled
+        if (market.status !== 'settled') {
+          return { market, outcome: undefined };
+        }
+
+        // Kalshi result field contains the outcome
+        let outcome: 'yes' | 'no' | undefined;
+        if (market.result === 'yes') {
+          outcome = 'yes';
+        } else if (market.result === 'no') {
+          outcome = 'no';
+        }
+
+        // Use close_time as resolution timestamp
+        const resolvedAt = market.close_time ? new Date(market.close_time) : undefined;
+
+        return {
+          market,
+          outcome,
+          resolvedAt,
+        };
+      },
+      { ticker }
+    );
+  }
+
+  /**
    * Search markets
    */
   async searchMarkets(query: string): Promise<KalshiMarket[]> {

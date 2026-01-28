@@ -142,6 +142,67 @@ class PolymarketService {
   }
 
   /**
+   * Get market outcome for a resolved market
+   * Fetches market details and determines which outcome won
+   */
+  async getMarketOutcome(conditionId: string): Promise<{
+    resolved: boolean;
+    outcome?: 'yes' | 'no';
+    resolvedAt?: Date;
+  }> {
+    return monitoredCall(
+      'polymarket',
+      'getMarketOutcome',
+      async () => {
+        return polymarketCircuit.execute(async () => {
+          const market = await this.getMarket(conditionId);
+
+          if (!market) {
+            return { resolved: false };
+          }
+
+          if (!market.resolved) {
+            return { resolved: false };
+          }
+
+          // Determine which outcome won based on outcomes array
+          // Polymarket outcomes array indicates winning outcome
+          let outcome: 'yes' | 'no' | undefined;
+
+          if (market.outcomes && market.outcomes.length >= 2) {
+            // Check outcomePrices - winning outcome should be near 1.0
+            const yesPriceStr = market.outcomePrices?.[0] || '0';
+            const noPriceStr = market.outcomePrices?.[1] || '0';
+            const yesPrice = parseFloat(yesPriceStr);
+            const noPrice = parseFloat(noPriceStr);
+
+            // Final price near 1.0 indicates winning outcome
+            if (yesPrice > 0.9) {
+              outcome = 'yes';
+            } else if (noPrice > 0.9) {
+              outcome = 'no';
+            } else if (yesPrice < 0.1) {
+              outcome = 'no';
+            } else if (noPrice < 0.1) {
+              outcome = 'yes';
+            }
+          }
+
+          // Use end date as resolution time (Polymarket doesn't expose exact resolution time)
+          const resolvedAt = market.endDate ? new Date(market.endDate) : undefined;
+
+          return {
+            resolved: true,
+            outcome,
+            resolvedAt,
+          };
+        });
+      },
+      { conditionId }
+    );
+  }
+
+  /**
    * Search markets by query
    */
   async searchMarkets(query: string): Promise<PolymarketMarket[]> {
