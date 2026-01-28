@@ -46,6 +46,9 @@ model ExternalMarket {
   // Sync tracking
   lastSyncAt DateTime @default(now())
 
+  // Relations
+  scheduledResolutions ScheduledResolution[]
+
   @@unique([source, externalId])
   @@index([source])
 }
@@ -93,6 +96,50 @@ model ScheduledTransaction {
   @@index([scheduledTime])
   @@index([battleId])
   @@index([creator])
+}
+
+// ============================================
+// SCHEDULED MARKET RESOLUTIONS
+// ============================================
+
+model ScheduledResolution {
+  id String @id @default(cuid())
+
+  // Flow on-chain data
+  flowResolutionId BigInt? @unique
+  scheduledTime    DateTime
+
+  // External market link
+  externalMarketId String
+  externalMarket   ExternalMarket @relation(fields: [externalMarketId], references: [id])
+
+  // Mirror market link (if mirrored)
+  mirrorKey   String?  @unique
+  mirrorMarket MirrorMarket? @relation(fields: [mirrorKey], references: [mirrorKey])
+
+  // Oracle source
+  oracleSource String // 'polymarket' | 'kalshi' | 'internal'
+
+  // Resolution data
+  outcome Boolean? // YES = true, NO = false
+  status  String   @default("pending") // pending|ready|executing|completed|failed|cancelled
+
+  // Execution tracking
+  scheduledAt DateTime @default(now())
+  executedAt  DateTime?
+  attempts    Int      @default(0)
+  lastError   String?
+
+  // Blockchain references
+  scheduleTransactionHash String?
+  executeTransactionHash  String?
+
+  creator String
+
+  @@index([status])
+  @@index([scheduledTime])
+  @@index([externalMarketId])
+  @@index([mirrorKey])
 }
 
 // ============================================
@@ -589,6 +636,7 @@ model MirrorMarket {
   // Relations
   trades          MirrorTrade[]
   predictions     VerifiedPrediction[]
+  scheduledResolution ScheduledResolution?
 
   @@index([source])
   @@index([isActive])
