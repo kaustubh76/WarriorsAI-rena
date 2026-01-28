@@ -5,7 +5,6 @@ import * as types from '@onflow/types';
 import { withTimeout } from '@/lib/flow/cadenceClient';
 import { prisma } from '@/lib/prisma';
 import { verifyToken, extractAddressFromHeader } from '@/lib/auth';
-
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'fallback-dev-secret';
 
 /**

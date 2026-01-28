@@ -98,7 +98,7 @@ export function ScheduledTransactionCard({
       : 'bg-purple-500 text-white';
 
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700 hover:border-purple-500 transition-all duration-200 group">
+    <div className="bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 rounded-xl p-6 border border-gray-700 hover:border-purple-500 transition-all duration-200 group">
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="space-y-1">

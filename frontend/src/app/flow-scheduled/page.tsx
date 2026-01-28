@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useScheduledBattles } from '@/hooks/useScheduledBattles';
 import { ScheduledTransactionCard } from '@/components/flow/ScheduledTransactionCard';
 import { ScheduleBattleModal } from '@/components/flow/ScheduleBattleModal';
@@ -40,11 +41,18 @@ export default function FlowScheduledPage() {
   const executedCount = allBattles.filter((b) => b.executed).length;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+      <main className="container-arcade py-6 md:py-8">
+        {/* Back Link */}
+        <div className="mb-6">
+          <Link href="/arena" className="text-blue-400 hover:text-blue-300 transition-colors">
+            ← Back to Arena
+          </Link>
+        </div>
+
         {/* Hero Section */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 animate-fade-in">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4 animate-fade-in">
             Flow Scheduled Transactions
           </h1>
           <p className="text-lg text-slate-400 mb-8 animate-fade-in" style={{ animationDelay: '100ms' }}>
@@ -301,7 +309,7 @@ export default function FlowScheduledPage() {
             </Button>
           </Card>
         </div>
-      </div>
+      </main>
 
       {/* Schedule Modal */}
       <ScheduleBattleModal
