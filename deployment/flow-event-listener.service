@@ -1,0 +1,85 @@
+# Systemd Service Configuration for Flow Event Listener
+#
+# Installation:
+#   1. Copy this file to: /etc/systemd/system/flow-event-listener.service
+#   2. Update paths and user in the [Service] section
+#   3. Reload systemd: sudo systemctl daemon-reload
+#   4. Enable service: sudo systemctl enable flow-event-listener
+#   5. Start service: sudo systemctl start flow-event-listener
+#
+# Management Commands:
+#   - Start:   sudo systemctl start flow-event-listener
+#   - Stop:    sudo systemctl stop flow-event-listener
+#   - Restart: sudo systemctl restart flow-event-listener
+#   - Status:  sudo systemctl status flow-event-listener
+#   - Logs:    sudo journalctl -u flow-event-listener -f
+
+[Unit]
+Description=Flow Event Listener - Blockchain Event Monitoring Service
+Documentation=https://github.com/your-org/WarriorsAI-rena
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+# Service Type
+Type=simple
+
+# User and Group
+# IMPORTANT: Change this to your application user
+User=app
+Group=app
+WorkingDirectory=/opt/WarriorsAI-rena/frontend
+
+# Environment Variables
+# IMPORTANT: Update these paths and values for your environment
+Environment="NODE_ENV=production"
+Environment="DATABASE_URL=postgresql://user:password@localhost:5432/warriors_db"
+Environment="EXTERNAL_MARKET_MIRROR_ADDRESS=0x7485019de6Eca5665057bAe08229F9E660ADEfDa"
+Environment="NEXT_PUBLIC_CHAIN_ID=545"
+Environment="NEXT_PUBLIC_CRWN_TOKEN_ADDRESS=0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6"
+
+# Load additional environment variables from file (recommended for secrets)
+# Create /etc/WarriorsAI/env and set proper permissions (600)
+EnvironmentFile=-/etc/WarriorsAI/env
+
+# Execution
+# Option 1: Using compiled JavaScript (recommended for production)
+ExecStart=/usr/bin/node /opt/WarriorsAI-rena/frontend/dist/services/eventListener.js
+
+# Option 2: Using ts-node (development/staging only)
+# ExecStart=/usr/bin/ts-node /opt/WarriorsAI-rena/frontend/services/eventListener.ts
+
+# Restart Policy
+Restart=always
+RestartSec=10
+
+# Startup
+StartLimitInterval=5min
+StartLimitBurst=5
+
+# Resource Limits
+# Adjust these based on your server capacity
+LimitNOFILE=65536
+MemoryLimit=1G
+CPUQuota=200%
+
+# Security Hardening
+# Uncomment these for additional security (test first!)
+# NoNewPrivileges=true
+# PrivateTmp=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ReadWritePaths=/opt/WarriorsAI-rena/frontend/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=flow-event-listener
+
+# Process Management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
