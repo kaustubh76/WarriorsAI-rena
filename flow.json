@@ -1,0 +1,54 @@
+{
+  "networks": {
+    "emulator": "127.0.0.1:3569",
+    "testnet": "access.devnet.nodes.onflow.org:9000",
+    "mainnet": "access.mainnet.nodes.onflow.org:9000"
+  },
+  "accounts": {
+    "emulator-account": {
+      "address": "f8d6e0586b0a20c7",
+      "key": "ae1b44c0f5e8f6cc83c52e36283a6b4087a8e4fb494e9f3f89fc8c6e4f5d8e1f"
+    },
+    "testnet-account": {
+      "address": "0x0ae53cb6e3f42a79",
+      "key": {
+        "type": "hex",
+        "index": 0,
+        "signatureAlgorithm": "ECDSA_P256",
+        "hashAlgorithm": "SHA3_256",
+        "privateKey": "c6354f2a405a24b97b0afefd1374d1ba490f3db8944217f8d53387cc9fdecaa2"
+      }
+    },
+    "mainnet-account": {
+      "address": "0x01",
+      "key": {
+        "type": "hex",
+        "index": 0,
+        "signatureAlgorithm": "ECDSA_P256",
+        "hashAlgorithm": "SHA3_256",
+        "privateKey": "c6354f2a405a24b97b0afefd1374d1ba490f3db8944217f8d53387cc9fdecaa2"
+      }
+    }
+  },
+  "contracts": {
+    "ScheduledBattle": "./cadence/contracts/ScheduledBattle.cdc",
+    "ScheduledMarketResolver": "./cadence/contracts/ScheduledMarketResolver.cdc",
+    "EVMBridge": "./cadence/contracts/EVMBridge.cdc"
+  },
+  "deployments": {
+    "emulator": {
+      "emulator-account": [
+        "ScheduledBattle",
+        "ScheduledMarketResolver",
+        "EVMBridge"
+      ]
+    },
+    "testnet": {
+      "testnet-account": [
+        "ScheduledBattle",
+        "ScheduledMarketResolver",
+        "EVMBridge"
+      ]
+    }
+  }
+}
