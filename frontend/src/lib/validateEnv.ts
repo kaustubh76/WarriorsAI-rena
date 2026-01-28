@@ -23,6 +23,7 @@ const recommendedBlockchainEnvVars = [
 const sensitiveEnvVars = [
   'PRIVATE_KEY',              // Oracle signing key for Flow operations
   'GAME_MASTER_PRIVATE_KEY',  // Game master signing key
+  'CRON_SECRET',              // Secret for automated cron job authentication
 ] as const;
 
 // Public environment variables (exposed to client)
@@ -105,6 +106,25 @@ export function validateEnvironmentOrThrow(options?: {
       `Missing required environment variables: ${result.missing.join(', ')}\n` +
       `Please check your .env file or environment configuration.`
     );
+  }
+
+  // Validate CRON_SECRET strength if checking sensitive vars
+  if (options?.checkSensitive !== false) {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      if (cronSecret.length < 32) {
+        throw new Error(
+          'CRON_SECRET must be at least 32 characters long for security. ' +
+          'Generate a secure secret with: openssl rand -base64 32'
+        );
+      }
+      if (cronSecret === 'change-me-in-production' || cronSecret.toLowerCase().includes('test')) {
+        throw new Error(
+          'CRON_SECRET must not use default or test values. ' +
+          'Generate a secure secret with: openssl rand -base64 32'
+        );
+      }
+    }
   }
 
   // Log warnings in development

@@ -212,10 +212,6 @@ access(all) contract EVMBridge {
             let coaRef = &self.coa as &EVM.CadenceOwnedAccount?
             coaRef.deposit(from: <-vault)
         }
-
-        destroy() {
-            destroy self.coa
-        }
     }
 
     // Admin resource

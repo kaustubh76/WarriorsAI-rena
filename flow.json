@@ -10,7 +10,7 @@
       "key": "ae1b44c0f5e8f6cc83c52e36283a6b4087a8e4fb494e9f3f89fc8c6e4f5d8e1f"
     },
     "testnet-account": {
-      "address": "0x0ae53cb6e3f42a79",
+      "address": "0xf8d6e0586b0a20c7",
       "key": {
         "type": "hex",
         "index": 0,
@@ -33,7 +33,13 @@
   "contracts": {
     "ScheduledBattle": "./cadence/contracts/ScheduledBattle.cdc",
     "ScheduledMarketResolver": "./cadence/contracts/ScheduledMarketResolver.cdc",
-    "EVMBridge": "./cadence/contracts/EVMBridge.cdc"
+    "EVMBridge": "./cadence/contracts/EVMBridge.cdc",
+    "EVM": {
+      "aliases": {
+        "emulator": "0xf8d6e0586b0a20c7",
+        "testnet": "0x8c5303eaa26202d6"
+      }
+    }
   },
   "deployments": {
     "emulator": {

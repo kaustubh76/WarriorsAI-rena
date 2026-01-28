@@ -321,10 +321,28 @@ export async function POST(request: NextRequest) {
           'approve_crwn_token'
         );
 
-        await waitForReceiptWithFallback(approveHash, publicClient, fallbackClient);
+        const approvalReceipt = await waitForReceiptWithFallback(
+          approveHash,
+          publicClient,
+          fallbackClient
+        );
+
+        // Check if approval was successful
+        if (approvalReceipt.status === 'reverted') {
+          throw new Error('Token approval transaction reverted');
+        }
+
+        console.log('[VRF Trade] Token approval successful:', approveHash);
       }
-    } catch (approvalError) {
-      console.warn('Token approval check failed:', approvalError);
+    } catch (approvalError: any) {
+      // Don't silently fail - return error to user
+      console.error('[VRF Trade] Token approval failed:', approvalError);
+      timer.end({ status: 'error' });
+
+      return NextResponse.json(
+        ErrorResponses.internal(`Token approval failed: ${approvalError.message}`),
+        { status: 500 }
+      );
     }
 
     let txHash: `0x${string}`;
@@ -367,6 +385,31 @@ export async function POST(request: NextRequest) {
 
     // Wait for confirmation
     const receipt = await waitForReceiptWithFallback(txHash, publicClient, fallbackClient);
+
+    // Extract VRF request ID from events if VRF was used
+    let vrfRequestId: string | undefined;
+    if (useVRF && agentId) {
+      try {
+        // Look for VRF request event in transaction logs
+        const vrfEvent = receipt.logs.find(
+          (log) =>
+            log.topics[0] &&
+            (log.topics[0].toLowerCase().includes('vrf') ||
+              log.topics[0].toLowerCase().includes('request'))
+        );
+
+        if (vrfEvent && vrfEvent.topics[1]) {
+          vrfRequestId = vrfEvent.topics[1];
+          console.log('[VRF Trade] VRF Request ID:', vrfRequestId);
+          console.log('[VRF Trade] Transaction Hash:', txHash);
+          console.log('[VRF Trade] Check status at:', `${process.env.NEXT_PUBLIC_API_URL}/api/vrf/status/${vrfRequestId}`);
+        } else {
+          console.warn('[VRF Trade] VRF event not found in transaction logs');
+        }
+      } catch (eventError: any) {
+        console.error('[VRF Trade] Failed to extract VRF request ID:', eventError.message);
+      }
+    }
 
     // Record success metrics
     timer.end({ status: 'success' });
@@ -417,6 +460,10 @@ export async function POST(request: NextRequest) {
       txHash,
       useVRF,
       blockNumber: receipt.blockNumber.toString(),
+      ...(vrfRequestId && {
+        vrfRequestId,
+        statusUrl: `${process.env.NEXT_PUBLIC_API_URL}/api/vrf/status/${vrfRequestId}`,
+      }),
     };
 
     return NextResponse.json(response);
