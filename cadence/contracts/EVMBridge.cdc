@@ -6,6 +6,8 @@
  */
 
 import "EVM"
+import "FlowToken"
+import "FungibleToken"
 
 access(all) contract EVMBridge {
 
@@ -171,14 +173,13 @@ access(all) contract EVMBridge {
             assert(!call.executed, message: "Call already executed")
 
             // Convert hex address string to EVM address
-            let evmAddressBytes = call.evmContractAddress.decodeHex()
-            let evmAddress = EVM.EVMAddress(bytes: evmAddressBytes)
+            let evmAddress = EVM.addressFromString(call.evmContractAddress)
 
             // Execute the call through COA
-            let coaRef = &self.coa as &EVM.CadenceOwnedAccount?
+            let coaRef = &self.coa as auth(EVM.Call) &EVM.CadenceOwnedAccount?
             let balance = EVM.Balance(attoflow: UInt(call.value))
 
-            let result = coaRef.call(
+            let result = coaRef?.call(
                 to: evmAddress,
                 data: call.callData,
                 gasLimit: 300000, // Standard gas limit
@@ -189,7 +190,7 @@ access(all) contract EVMBridge {
             call.markExecuted()
             EVMBridge.scheduledCalls[callId] = call
 
-            let success = result.status == EVM.Status.successful
+            let success = result?.status == EVM.Status.successful
 
             emit EVMCallExecuted(
                 id: callId,
@@ -204,13 +205,14 @@ access(all) contract EVMBridge {
         /**
          * Fund the COA with FLOW (converted to EVM balance)
          */
-        access(all) fun fundCOA(vault: @FungibleToken.Vault) {
+        access(all) fun fundCOA(from: @FlowToken.Vault) {
             pre {
                 self.coa != nil: "COA not created"
             }
 
-            let coaRef = &self.coa as &EVM.CadenceOwnedAccount?
-            coaRef.deposit(from: <-vault)
+            // Borrow COA reference and deposit
+            let coaRef = (&self.coa as &EVM.CadenceOwnedAccount?)!
+            coaRef.deposit(from: <-from)
         }
     }
 
@@ -290,7 +292,7 @@ access(all) contract EVMBridge {
 
         // Create and save admin resource
         let admin <- create Admin()
-        self.account.save(<-admin, to: self.AdminStoragePath)
+        self.account.storage.save(<-admin, to: self.AdminStoragePath)
 
         // Make contract account an authorized operator
         self.bridgeOperators[self.account.address] = true

@@ -283,7 +283,7 @@ access(all) contract ScheduledMarketResolver {
 
         // Create and save admin resource
         let admin <- create Admin()
-        self.account.save(<-admin, to: self.AdminStoragePath)
+        self.account.storage.save(<-admin, to: self.AdminStoragePath)
 
         // Make contract account an authorized resolver
         self.resolvers[self.account.address] = true
