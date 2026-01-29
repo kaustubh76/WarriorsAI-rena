@@ -19,6 +19,18 @@
     {
       "path": "/api/cron/execute-resolutions",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-markets",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/settle-arbitrage-battles",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/detect-arbitrage",
+      "schedule": "*/10 * * * *"
     }
   ],
   "env": {
