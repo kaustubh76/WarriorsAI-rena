@@ -56,6 +56,7 @@ const NAV_LINKS: NavLink[] = [
     ]
   },
   { href: "/creator-dashboard", label: "Creator", hoverColor: "hover:text-green-400" },
+  { href: "/external/arbitrage", label: "Arbitrage", hoverColor: "hover:text-green-400" },
   { href: "/warriorsMinter", label: "Mint", hoverColor: "hover:text-red-400" },
 ];
 

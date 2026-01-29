@@ -191,7 +191,7 @@ export const ScheduleResolutionModal: React.FC<ScheduleResolutionModalProps> = (
                 setSelectedMarket(market);
               }}
               disabled={isScheduling}
-              onlyResolved={true}
+              onlyResolved={false}
             />
             <p className="mt-1 text-xs text-gray-500">
               Select a resolved external market to schedule for on-chain resolution

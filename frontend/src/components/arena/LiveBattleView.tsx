@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { formatEther } from 'viem';
 import { PredictionBattle, PredictionRound, DebateMove } from '../../types/predictionArena';
 import { useBattleBetting, formatOdds, formatMultiplier } from '../../hooks/arena';
+import ArbitrageTrackingPanel from './ArbitrageTrackingPanel';
+import { TrendingUp } from 'lucide-react';
 
 interface LiveBattleViewProps {
   battle: PredictionBattle;
@@ -257,6 +259,24 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
           })}
         </div>
       </div>
+
+      {/* Arbitrage Trade Tracking */}
+      {(battle as any).isArbitrageBattle && (battle as any).arbitrageTradeId && (
+        <div className="p-6 border-b border-gray-700">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp className="w-5 h-5 text-green-500" />
+            <h3 className="text-lg font-bold text-white">Arbitrage Trade Tracking</h3>
+            <span className="ml-auto px-3 py-1 bg-green-500/20 text-green-400 text-xs font-bold border border-green-500/50 rounded-full">
+              ARBITRAGE BATTLE
+            </span>
+          </div>
+          <ArbitrageTrackingPanel
+            arbitrageTradeId={(battle as any).arbitrageTradeId}
+            polymarketId={battle.externalMarketId}
+            kalshiId={(battle as any).kalshiMarketId || ''}
+          />
+        </div>
+      )}
 
       {/* Selected Round Detail */}
       {selectedRound && (

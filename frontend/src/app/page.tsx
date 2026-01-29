@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { parseEther } from 'viem';
 import { chainsToContracts, crownTokenAbi } from '../constants';
 import { useCRwNTokenMessages } from '../hooks/useCRwNTokenMessages';
+import { ArbitrageOpportunityList } from '@/components/arbitrage/ArbitrageOpportunityList';
 import './home-glass.css';
 
 // Token Exchange Card Component
@@ -483,6 +484,39 @@ export default function HomePage() {
                 rate="1:1"
                 type="burn"
               />
+            </div>
+          </div>
+        )}
+
+        {/* Arbitrage Opportunities Section */}
+        {isMounted && (
+          <div className="mt-20 max-w-6xl mx-auto">
+            <div className="text-center mb-8">
+              <h2
+                className="text-3xl text-green-400 mb-4 tracking-wider arcade-glow"
+                style={{fontFamily: 'Press Start 2P, monospace'}}
+              >
+                💰 ARBITRAGE OPPORTUNITIES
+              </h2>
+              <p className="text-gray-400 text-sm">
+                Cross-market price differences - Exploit inefficiencies for profit
+              </p>
+            </div>
+            <ArbitrageOpportunityList
+              maxItems={3}
+              showControls={false}
+              compact={true}
+            />
+            <div className="text-center mt-6">
+              <Link
+                href="/external/arbitrage"
+                className="inline-block px-6 py-3 bg-green-600/20 hover:bg-green-600/30
+                           border-2 border-green-500/50 text-green-400 rounded-lg
+                           transition-all hover:border-green-400"
+                style={{fontFamily: 'Press Start 2P, monospace'}}
+              >
+                VIEW ALL →
+              </Link>
             </div>
           </div>
         )}

@@ -5,6 +5,8 @@ import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import Link from 'next/link';
 import { ArenaLeaderboard, CreateChallengeModal, AcceptChallengeModal } from '../../components/arena';
+import CreateArbitrageBattleModal from '../../components/arena/CreateArbitrageBattleModal';
+import { useRouter } from 'next/navigation';
 
 interface Battle {
   id: string;
@@ -39,6 +41,7 @@ type TabType = 'active' | 'pending' | 'completed';
 
 export default function PredictionArenaPage() {
   const { address } = useAccount();
+  const router = useRouter();
   const [battles, setBattles] = useState<Battle[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('active');
@@ -46,6 +49,7 @@ export default function PredictionArenaPage() {
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAcceptModal, setShowAcceptModal] = useState(false);
+  const [showArbitrageModal, setShowArbitrageModal] = useState(false);
   const [selectedBattle, setSelectedBattle] = useState<Battle | null>(null);
 
   useEffect(() => {
@@ -140,13 +144,21 @@ export default function PredictionArenaPage() {
           />
         </div>
 
-        {/* Create Challenge Button */}
-        <div className="flex justify-center mb-8">
+        {/* Create Challenge Buttons */}
+        <div className="flex justify-center gap-4 mb-8">
           <button
             className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-white hover:from-purple-500 hover:to-pink-500 transition-all transform hover:scale-105 shadow-lg shadow-purple-500/25"
             onClick={() => setShowCreateModal(true)}
           >
             ⚔️ Create Prediction Challenge
+          </button>
+
+          <button
+            className="px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-bold text-white hover:from-green-500 hover:to-emerald-500 transition-all transform hover:scale-105 shadow-lg shadow-green-500/25 flex items-center gap-2"
+            onClick={() => setShowArbitrageModal(true)}
+          >
+            📈 Create Arbitrage Battle
+            <span className="text-xs bg-green-700 px-2 py-1 rounded">GUARANTEED PROFIT</span>
           </button>
         </div>
 
@@ -233,6 +245,16 @@ export default function PredictionArenaPage() {
         onSuccess={() => {
           fetchBattles();
           setActiveTab('active');
+        }}
+      />
+
+      <CreateArbitrageBattleModal
+        isOpen={showArbitrageModal}
+        onClose={() => setShowArbitrageModal(false)}
+        onSuccess={(battleId) => {
+          setShowArbitrageModal(false);
+          fetchBattles();
+          router.push(`/prediction-arena/battle/${battleId}`);
         }}
       />
     </div>

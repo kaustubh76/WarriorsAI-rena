@@ -4,7 +4,7 @@ import { OracleSourceBadge, OutcomeBadge } from './ResolutionStatusBadge';
 
 interface ExternalMarket {
   id: string;
-  marketId: string;
+  externalId: string;
   question: string;
   source: string;
   outcome?: string;
@@ -12,6 +12,8 @@ interface ExternalMarket {
   endTime?: string;
   status: string;
   volume?: number;
+  yesPrice?: number;
+  noPrice?: number;
 }
 
 interface ExternalMarketSelectorProps {
@@ -42,17 +44,30 @@ export const ExternalMarketSelector: React.FC<ExternalMarketSelectorProps> = ({
         setError(null);
 
         // Fetch from external markets API
-        const response = await fetch('/api/external/markets');
+        // Fetch both sources to ensure we get markets from Polymarket AND Kalshi
+        const [polyResponse, kalshiResponse] = await Promise.all([
+          fetch('/api/external/markets?source=polymarket&pageSize=100'),
+          fetch('/api/external/markets?source=kalshi&pageSize=100'),
+        ]);
 
-        if (!response.ok) {
+        // Check both responses
+        if (!polyResponse.ok || !kalshiResponse.ok) {
           throw new Error('Failed to fetch external markets');
         }
 
-        const data = await response.json();
+        // Parse both responses
+        const [polyData, kalshiData] = await Promise.all([
+          polyResponse.json(),
+          kalshiResponse.json(),
+        ]);
+
+        // Merge markets from both sources
+        let filteredMarkets = [
+          ...(polyData.data?.markets || []),
+          ...(kalshiData.data?.markets || [])
+        ];
 
         // Filter for resolved markets if needed
-        let filteredMarkets = data.markets || [];
-
         if (onlyResolved) {
           filteredMarkets = filteredMarkets.filter((m: ExternalMarket) =>
             m.status === 'resolved' && m.outcome !== undefined
@@ -76,7 +91,7 @@ export const ExternalMarketSelector: React.FC<ExternalMarketSelectorProps> = ({
     return markets.filter(market => {
       const matchesSearch = searchQuery === '' ||
         market.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        market.marketId.toLowerCase().includes(searchQuery.toLowerCase());
+        market.externalId.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesSource = sourceFilter === 'all' ||
         market.source.toLowerCase() === sourceFilter.toLowerCase();
@@ -235,7 +250,7 @@ export const ExternalMarketSelector: React.FC<ExternalMarketSelectorProps> = ({
                         )}
                       </div>
                       <div className="text-xs text-gray-500 mt-1 font-mono">
-                        {market.marketId}
+                        {market.externalId}
                       </div>
                     </div>
                   </div>
