@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
+import {
+  scheduleNativeResolution,
+  resolveMarket,
+  cancelResolution as cancelOnChain,
+  waitForSealed,
+  OracleSource,
+} from '@/lib/flow/marketResolutionClient';
 
 export interface ScheduledResolution {
   id: string;
@@ -147,12 +154,13 @@ export function useScheduledResolutions(
     }
   }, [statusFilter]);
 
-  // Schedule new resolution
+  // Schedule new resolution: saves to DB then submits on-chain via Flow Wallet
   const scheduleResolution = useCallback(async (params: ScheduleParams): Promise<string> => {
     try {
       setScheduling(true);
       setError(null);
 
+      // Step 1: Save to database
       const response = await fetch('/api/flow/scheduled-resolutions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,13 +173,50 @@ export function useScheduledResolutions(
       }
 
       const data = await response.json();
+      const resolutionId = data.resolution?.id;
 
-      toast.success('Resolution scheduled successfully!');
+      toast.success('Resolution saved! Submitting to Flow blockchain...');
 
-      // Refresh data
+      // Step 2: Submit on-chain via Flow Wallet (user signs)
+      let txHash = '';
+      try {
+        const oracleSourceMap: Record<string, OracleSource> = {
+          polymarket: OracleSource.POLYMARKET,
+          kalshi: OracleSource.KALSHI,
+          internal: OracleSource.INTERNAL,
+        };
+
+        const txId = await scheduleNativeResolution({
+          marketId: parseInt(data.resolution?.externalMarket?.marketId || '0') || Date.now(),
+          scheduledTime: Math.floor(params.scheduledTime.getTime() / 1000),
+          oracleSource: oracleSourceMap[params.oracleSource] || OracleSource.INTERNAL,
+        });
+
+        toast.info('Waiting for Flow transaction to be sealed...');
+        await waitForSealed(txId);
+        txHash = txId;
+
+        // Step 3: Update DB with transaction hash
+        if (resolutionId && txHash) {
+          await fetch('/api/flow/scheduled-resolutions', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              resolutionId,
+              scheduleTransactionHash: txHash,
+            }),
+          });
+        }
+
+        toast.success('Resolution scheduled on Flow blockchain!');
+      } catch (chainErr: any) {
+        // User may have rejected the wallet popup - DB record still exists
+        console.warn('On-chain scheduling failed (DB record kept):', chainErr.message);
+        toast.warning('Resolution saved to database. On-chain submission was cancelled or failed.');
+      }
+
       await fetchResolutions();
-
-      return data.transactionId || data.resolution?.scheduleTransactionHash || '';
+      return txHash || data.resolution?.scheduleTransactionHash || '';
     } catch (err: any) {
       console.error('Error scheduling resolution:', err);
       toast.error(`Failed to schedule: ${err.message}`);
@@ -181,12 +226,13 @@ export function useScheduledResolutions(
     }
   }, [fetchResolutions]);
 
-  // Execute resolution
+  // Execute resolution: updates DB then resolves on-chain via Flow Wallet
   const executeResolution = useCallback(async (id: string): Promise<void> => {
     try {
       setExecuting(true);
       setError(null);
 
+      // Step 1: Update DB status
       const response = await fetch('/api/flow/scheduled-resolutions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -198,9 +244,26 @@ export function useScheduledResolutions(
         throw new Error(errorData.error || 'Failed to execute resolution');
       }
 
-      toast.success('Resolution executed successfully!');
+      const data = await response.json();
 
-      // Refresh data
+      // Step 2: Submit resolve transaction on-chain via Flow Wallet
+      try {
+        if (data.resolution?.flowResolutionId && data.resolution?.outcome !== undefined) {
+          toast.info('Submitting resolution to Flow blockchain...');
+          const txId = await resolveMarket(
+            Number(data.resolution.flowResolutionId),
+            data.resolution.outcome === true
+          );
+          await waitForSealed(txId);
+          toast.success('Resolution executed on Flow blockchain!');
+        } else {
+          toast.success('Resolution executed successfully!');
+        }
+      } catch (chainErr: any) {
+        console.warn('On-chain resolution failed:', chainErr.message);
+        toast.warning('DB updated but on-chain resolution failed. You can retry.');
+      }
+
       await fetchResolutions();
     } catch (err: any) {
       console.error('Error executing resolution:', err);
@@ -211,12 +274,16 @@ export function useScheduledResolutions(
     }
   }, [fetchResolutions]);
 
-  // Cancel resolution
+  // Cancel resolution: updates DB then cancels on-chain via Flow Wallet
   const cancelResolution = useCallback(async (id: string): Promise<void> => {
     try {
       setCancelling(true);
       setError(null);
 
+      // Get resolution details first for on-chain cancel
+      const resolution = await getResolution(id);
+
+      // Step 1: Update DB
       const response = await fetch(`/api/flow/scheduled-resolutions?id=${id}`, {
         method: 'DELETE',
       });
@@ -226,9 +293,21 @@ export function useScheduledResolutions(
         throw new Error(errorData.error || 'Failed to cancel resolution');
       }
 
-      toast.success('Resolution cancelled successfully!');
+      // Step 2: Cancel on-chain via Flow Wallet (50% fee refund)
+      try {
+        if (resolution?.flowResolutionId) {
+          toast.info('Cancelling on Flow blockchain (50% fee refund)...');
+          const txId = await cancelOnChain(Number(resolution.flowResolutionId));
+          await waitForSealed(txId);
+          toast.success('Resolution cancelled on-chain! Fee partially refunded.');
+        } else {
+          toast.success('Resolution cancelled successfully!');
+        }
+      } catch (chainErr: any) {
+        console.warn('On-chain cancellation failed:', chainErr.message);
+        toast.warning('Cancelled in database. On-chain cancellation failed.');
+      }
 
-      // Refresh data
       await fetchResolutions();
     } catch (err: any) {
       console.error('Error cancelling resolution:', err);
@@ -237,7 +316,7 @@ export function useScheduledResolutions(
     } finally {
       setCancelling(false);
     }
-  }, [fetchResolutions]);
+  }, [fetchResolutions, getResolution]);
 
   // Get single resolution
   const getResolution = useCallback(async (id: string): Promise<ScheduledResolution | null> => {

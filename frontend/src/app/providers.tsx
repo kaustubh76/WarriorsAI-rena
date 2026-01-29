@@ -8,6 +8,7 @@ import {RainbowKitProvider} from "@rainbow-me/rainbowkit"
 import {useState, useEffect} from "react"
 import "@rainbow-me/rainbowkit/styles.css"
 import {useEncryptionCacheManager} from "@/hooks/useEncryptionCacheManager"
+import {FlowWalletProvider} from "@/contexts/FlowWalletContext"
 
 // Inner component that can use wagmi hooks (must be inside WagmiProvider)
 function EncryptionCacheManager({children}: {children: ReactNode}) {
@@ -51,9 +52,11 @@ export function Providers(props: {children: ReactNode}) {
         <WagmiProvider config={wagmiConfig} reconnectOnMount={false}>
             <QueryClientProvider client={queryClientRef.current}>
                 <RainbowKitProvider>
-                    <EncryptionCacheManager>
-                        {props.children}
-                    </EncryptionCacheManager>
+                    <FlowWalletProvider>
+                        <EncryptionCacheManager>
+                            {props.children}
+                        </EncryptionCacheManager>
+                    </FlowWalletProvider>
                 </RainbowKitProvider>
             </QueryClientProvider>
         </WagmiProvider>

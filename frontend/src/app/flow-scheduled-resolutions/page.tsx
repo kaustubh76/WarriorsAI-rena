@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { RefreshCw, Plus, Search, Filter, Clock, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp, Zap, Shield } from 'lucide-react';
+import { RefreshCw, Plus, Search, Filter, Clock, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp, Zap, Shield, Wallet } from 'lucide-react';
 import { useScheduledResolutions } from '@/hooks/useScheduledResolutions';
 import { ScheduledResolutionCard } from '@/components/flow/ScheduledResolutionCard';
 import { ScheduleResolutionModal } from '@/components/flow/ScheduleResolutionModal';
 import { ResolutionDetailsModal } from '@/components/flow/ResolutionDetailsModal';
+import { useFlowWallet } from '@/contexts/FlowWalletContext';
 
 type StatusFilter = 'all' | 'pending' | 'ready' | 'executing' | 'completed' | 'failed';
 
@@ -16,6 +17,8 @@ export default function FlowScheduledResolutionsPage() {
   const [selectedResolutionId, setSelectedResolutionId] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const { flowAddress, isFlowConnected, connectFlowWallet } = useFlowWallet();
 
   const {
     resolutions,
@@ -110,6 +113,11 @@ export default function FlowScheduledResolutionsPage() {
               <p className="mt-2 text-gray-600">
                 Automated resolution of external markets on Flow blockchain
               </p>
+              {isFlowConnected && flowAddress && (
+                <p className="mt-1 text-xs text-purple-600 font-mono">
+                  Flow Wallet: {flowAddress}
+                </p>
+              )}
             </div>
             <div className="flex gap-3">
               <button
@@ -133,6 +141,27 @@ export default function FlowScheduledResolutionsPage() {
       </div>
 
       <div className="container mx-auto px-4 py-8">
+        {/* Flow Wallet Connection Banner */}
+        {!isFlowConnected && (
+          <div className="mb-6 bg-gradient-to-r from-purple-100 to-blue-100 border-2 border-purple-300 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Wallet className="w-6 h-6 text-purple-600" />
+              <div>
+                <p className="font-semibold text-gray-900">Connect Flow Wallet</p>
+                <p className="text-sm text-gray-600">
+                  Connect your Flow Wallet to schedule and execute on-chain transactions
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={connectFlowWallet}
+              className="px-5 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg font-medium transition-all shadow-md"
+            >
+              Connect Flow Wallet
+            </button>
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-blue-200">

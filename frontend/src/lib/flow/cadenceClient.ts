@@ -21,12 +21,16 @@ export async function withTimeout<T>(
   ]);
 }
 
-// Configure FCL for Flow testnet
+// Configure FCL for Flow testnet with Flow Wallet (Blocto shut down Dec 2025)
 fcl.config({
-  'accessNode.api': process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://access-testnet.onflow.org',
+  'flow.network': 'testnet',
+  'accessNode.api': process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://rest-testnet.onflow.org',
   'discovery.wallet': 'https://fcl-discovery.onflow.org/testnet/authn',
+  'discovery.authn.endpoint': 'https://fcl-discovery.onflow.org/api/testnet/authn',
+  'discovery.authn.exclude': ['0x55ad22f01ef568a1'], // Exclude defunct Blocto
   'app.detail.title': 'WarriorsAI Arena',
   'app.detail.icon': 'https://warriorsai-arena.vercel.app/logo.png',
+  'app.detail.description': 'AI Prediction Arena on Flow',
 });
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;

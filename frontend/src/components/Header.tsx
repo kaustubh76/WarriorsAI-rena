@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation"
 import { WhaleAlertBadge } from "@/components/whale/WhaleAlertBadge"
 import { WhaleAlertDropdown } from "@/components/whale/WhaleAlertDropdown"
 import { useWhaleAlertBadge } from "@/hooks/useWhaleAlertBadge"
+import { useFlowWallet } from "@/contexts/FlowWalletContext"
 
 // Chain type indicator
 const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602
@@ -96,6 +97,9 @@ const Header: React.FC = () => {
     hasNew: hasNewWhaleAlerts,
     markAllAsRead: markWhaleAlertsRead,
   } = useWhaleAlertBadge();
+
+  // Flow wallet
+  const { flowAddress, isFlowConnected, connectFlowWallet, disconnectFlowWallet } = useFlowWallet();
 
   // Gamification context for streaks and quests
   let gamificationContext: ReturnType<typeof useGamificationContext> | null = null;
@@ -352,6 +356,28 @@ const Header: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Flow Wallet Connect */}
+              {isMounted && (
+                <div className="hidden sm:block">
+                  {isFlowConnected ? (
+                    <button
+                      onClick={disconnectFlowWallet}
+                      className="px-2 py-1 rounded-md text-[10px] font-bold bg-green-900/50 text-green-300 border border-green-500/50 hover:bg-green-800/50 transition-colors"
+                      title={`Flow: ${flowAddress}`}
+                    >
+                      Flow: {flowAddress?.slice(0, 6)}...{flowAddress?.slice(-4)}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={connectFlowWallet}
+                      className="px-2 py-1 rounded-md text-[10px] font-bold bg-purple-900/50 text-purple-300 border border-purple-500/50 hover:bg-purple-800/50 transition-colors"
+                    >
+                      Connect Flow
+                    </button>
+                  )}
                 </div>
               )}
 
