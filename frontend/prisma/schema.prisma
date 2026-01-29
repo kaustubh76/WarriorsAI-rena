@@ -48,6 +48,9 @@ model ExternalMarket {
 
   // Relations
   scheduledResolutions ScheduledResolution[]
+  marketBets MarketBet[]
+  polymarketPairs MatchedMarketPair[] @relation("PolymarketPairs")
+  kalshiPairs MatchedMarketPair[] @relation("KalshiPairs")
 
   @@unique([source, externalId])
   @@index([source])
@@ -825,16 +828,23 @@ model PredictionBattle {
   // 0G Storage
   battleDataHash    String?  // Root hash of full battle data
 
+  // Arbitrage integration fields
+  kalshiMarketId    String?           // Second market for arbitrage
+  arbitrageTradeId  String?   @unique // Link to ArbitrageTrade
+  isArbitrageBattle Boolean   @default(false) // Flag for special handling
+
   createdAt         DateTime @default(now())
   completedAt       DateTime?
 
   // Relations
   rounds            PredictionRound[]
+  arbitrageTrade    ArbitrageTrade? @relation(fields: [arbitrageTradeId], references: [id])
 
   @@index([status])
   @@index([externalMarketId, source])
   @@index([warrior1Id])
   @@index([warrior2Id])
+  @@index([isArbitrageBattle])
 }
 
 model PredictionRound {
@@ -953,6 +963,7 @@ model MatchedMarketPair {
 
   // Polymarket side
   polymarketId        String
+  polymarket          ExternalMarket? @relation("PolymarketPairs", fields: [polymarketId], references: [id])
   polymarketQuestion  String
   polymarketYesPrice  Int
   polymarketNoPrice   Int
@@ -960,6 +971,7 @@ model MatchedMarketPair {
 
   // Kalshi side
   kalshiId            String
+  kalshi              ExternalMarket? @relation("KalshiPairs", fields: [kalshiId], references: [id])
   kalshiQuestion      String
   kalshiYesPrice      Int
   kalshiNoPrice       Int
@@ -972,12 +984,233 @@ model MatchedMarketPair {
   // Arbitrage
   hasArbitrage        Boolean  @default(false)
   arbitrageStrategy   String?  // JSON: { buyYesOn, buyNoOn, potentialProfit }
+  minSpread           Float    @default(5.0) // Minimum spread % that was used to detect this
 
   // Status
   isActive            Boolean  @default(true)
   lastUpdated         DateTime @default(now())
+  lastChecked         DateTime @default(now())
 
   @@unique([polymarketId, kalshiId])
   @@index([hasArbitrage])
   @@index([similarity])
+  @@index([polymarketId])
+  @@index([kalshiId])
+}
+
+// ============================================
+// DIRECT MARKET BETTING
+// ============================================
+
+model MarketBet {
+  id String @id @default(cuid())
+
+  // User identification
+  userId String // Wallet address
+  warriorId Int? // Optional: warrior making the bet
+
+  // External market link
+  externalMarketId String
+  source String // 'polymarket' | 'kalshi'
+  question String
+
+  // Bet details
+  side Boolean // true = YES, false = NO
+  amount BigInt // CRwN amount
+  entryPrice Float // Price at bet placement (0-100%)
+  shares Float? // Shares purchased on external platform
+  orderId String? // External platform order ID
+
+  // Resolution
+  status String @default("pending") // 'pending' | 'placed' | 'won' | 'lost' | 'cancelled'
+  outcome Boolean? // Final outcome (true = YES won, false = NO won)
+  payout BigInt? // Winnings in CRwN
+
+  // Transaction tracking
+  placementTxHash String? // CRwN lock transaction
+  claimTxHash String? // Winnings claim transaction
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  placedAt DateTime? // When order was placed on external platform
+  settledAt DateTime? // When bet was settled
+
+  // Relations
+  externalMarket ExternalMarket @relation(fields: [externalMarketId], references: [id])
+
+  @@index([userId])
+  @@index([externalMarketId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================
+// AUTOMATED ARBITRAGE TRADING
+// ============================================
+
+model ArbitrageTrade {
+  id String @id @default(cuid())
+
+  // User identification
+  userId String // Wallet address
+  opportunityId String // Reference to detected opportunity
+
+  // Market details
+  market1Source String // 'polymarket' | 'kalshi'
+  market1Id String
+  market1Question String
+  market1Side Boolean // true = YES, false = NO
+
+  market2Source String
+  market2Id String
+  market2Question String
+  market2Side Boolean // Opposite of market1
+
+  // Trade details
+  investmentAmount BigInt // Total CRwN invested
+  market1Amount BigInt // Amount allocated to market 1
+  market2Amount BigInt // Amount allocated to market 2
+
+  // Expected vs actual
+  expectedProfit Float // % profit expected
+  expectedSpread Float // Spread at detection
+  actualProfit BigInt? // Actual profit in CRwN after settlement
+  actualSpread Float? // Actual spread at execution
+
+  // Execution tracking
+  status String @default("pending") // 'pending' | 'partial' | 'completed' | 'failed' | 'settled'
+
+  market1OrderId String?
+  market1Filled Boolean @default(false)
+  market1Shares Float?
+  market1ExecutionPrice Float?
+
+  market2OrderId String?
+  market2Filled Boolean @default(false)
+  market2Shares Float?
+  market2ExecutionPrice Float?
+
+  // Settlement
+  market1Outcome Boolean? // Final outcome of market 1
+  market2Outcome Boolean? // Final outcome of market 2
+  settled Boolean @default(false)
+
+  // Error tracking
+  error String?
+  lastError String?
+  attempts Int @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  executedAt DateTime? // When both orders were placed
+  market1FilledAt DateTime?
+  market2FilledAt DateTime?
+  settledAt DateTime? // When profits were claimed
+
+  // Battle linkage
+  predictionBattleId String? @unique
+  predictionBattle   PredictionBattle?
+
+  @@index([userId])
+  @@index([status])
+  @@index([settled])
+  @@index([createdAt])
+}
+
+// ============================================
+// ESCROW SYSTEM (Fund Locking)
+// ============================================
+
+model EscrowLock {
+  id            String   @id @default(cuid())
+  userId        String
+  amount        BigInt
+  purpose       String   // 'arbitrage_trade' | 'market_bet' | 'battle_stake'
+  referenceId   String   // Trade ID, Bet ID, or Battle ID
+  status        String   @default("locked") // 'locked' | 'released' | 'forfeited'
+  lockedAt      DateTime @default(now())
+  releasedAt    DateTime?
+  releaseReason String?
+
+  @@index([userId])
+  @@index([referenceId])
+  @@index([status])
+}
+
+model UserBalance {
+  id            String @id @default(cuid())
+  userId        String @unique
+  balance       BigInt @default(0)      // Total balance in wei
+  lockedBalance BigInt @default(0)      // Amount locked in escrow
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================
+// SETTLEMENT TRANSACTIONS
+// ============================================
+
+model SettlementTransaction {
+  id            String   @id @default(cuid())
+  recipient     String   // Wallet address receiving funds
+  amount        BigInt   // Amount in wei
+  type          String   // 'ARBITRAGE_PAYOUT' | 'BET_PAYOUT' | 'BATTLE_PAYOUT' | 'REFUND'
+  status        String   @default("pending") // 'pending' | 'completed' | 'failed'
+
+  // Reference to source
+  sourceType    String?  // 'arbitrage_trade' | 'market_bet' | 'prediction_battle'
+  sourceId      String?  // ID of the source record
+
+  // Transaction details
+  txHash        String?  // On-chain transaction hash (if applicable)
+  error         String?
+
+  // Timestamps
+  createdAt     DateTime @default(now())
+  settledAt     DateTime?
+
+  @@index([recipient])
+  @@index([status])
+  @@index([sourceId])
+  @@index([createdAt])
+}
+
+// ============================================
+// TRADE AUDIT LOG (Production Safeguards)
+// ============================================
+
+model TradeAuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  tradeType String   // 'bet' | 'arbitrage' | 'battle'
+  action    String   // 'place_order' | 'cancel_order' | 'settle' | 'rollback'
+
+  // Market/Trade references
+  marketId  String?
+  orderId   String?
+  tradeId   String?  // ArbitrageTrade or MarketBet ID
+
+  // Trade details
+  amount    String   // CRwN amount
+  source    String?  // 'polymarket' | 'kalshi'
+  side      String?  // 'YES' | 'NO'
+
+  // Result
+  success   Boolean
+  error     String?
+
+  // Full request/response metadata (JSON)
+  metadata  String?  // { request: {...}, response: {...}, prices: {...} }
+
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([success])
+  @@index([tradeType])
+  @@index([action])
 }
