@@ -6,6 +6,12 @@ import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
 import { validateInteger, validateAddress, validateBigIntString, validateEnum } from '@/lib/api/validation';
 import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
+import { readContract } from '@wagmi/core';
+import { getConfig } from '@/rainbowKitConfig';
+import { getContracts, getChainId } from '@/constants';
+import { warriorsNFTAbi } from '@/constants';
+import { executeDebateRound } from '@/services/arena/debateService';
+import { WarriorTraits, MarketSource } from '@/types/predictionArena';
 
 // Helper to determine round winner
 function determineRoundWinner(w1Score: number, w2Score: number): 'warrior1' | 'warrior2' | 'draw' {
@@ -157,8 +163,41 @@ export async function POST(request: NextRequest) {
       validateInteger(warrior2Id, 'warrior2Id', { min: 0 });
       validateBigIntString(totalStake, 'totalStake');
 
-      // Verify both warriors are owned by the same user
-      // TODO: Add ownership verification with blockchain call
+      // Verify both warriors are owned by the caller
+      try {
+        const config = getConfig();
+        const nftAddress = getContracts().warriorsNFT as `0x${string}`;
+        const chainId = getChainId();
+
+        const [w1Owner, w2Owner] = await Promise.all([
+          readContract(config, {
+            address: nftAddress,
+            abi: warriorsNFTAbi,
+            functionName: 'ownerOf',
+            args: [BigInt(warrior1Id)],
+            chainId,
+          }),
+          readContract(config, {
+            address: nftAddress,
+            abi: warriorsNFTAbi,
+            functionName: 'ownerOf',
+            args: [BigInt(warrior2Id)],
+            chainId,
+          }),
+        ]);
+
+        if ((w1Owner as string).toLowerCase() !== warrior1Owner.toLowerCase()) {
+          throw ErrorResponses.badRequest('You do not own warrior 1');
+        }
+        if ((w2Owner as string).toLowerCase() !== warrior1Owner.toLowerCase()) {
+          throw ErrorResponses.badRequest('You do not own warrior 2');
+        }
+      } catch (err: any) {
+        // Re-throw our own validation errors
+        if (err?.status === 400) throw err;
+        // RPC failures should not block battle creation
+        console.warn('[Battles] Ownership verification skipped (RPC error):', err.message);
+      }
 
       // Get market data from matched pairs
       const matchedPair = await prisma.matchedMarketPair.findFirst({
@@ -232,12 +271,64 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // TODO: Execute first round immediately
-      // This would call the debate service to generate first round arguments
+      // Execute first round immediately
+      let firstRound = null;
+      try {
+        const defaultTraits: WarriorTraits = {
+          strength: 5000,
+          wit: 5000,
+          charisma: 5000,
+          defence: 5000,
+          luck: 5000,
+        };
+
+        const marketSource = source === 'kalshi' ? MarketSource.KALSHI : MarketSource.POLYMARKET;
+
+        const roundResult = executeDebateRound(
+          defaultTraits,
+          defaultTraits,
+          {
+            marketQuestion: matchedPair.polymarketQuestion,
+            marketSource,
+            roundNumber: 1,
+            previousRounds: [],
+          }
+        );
+
+        firstRound = await prisma.predictionRound.create({
+          data: {
+            battleId: battle.id,
+            roundNumber: 1,
+            w1Argument: roundResult.warrior1.argument,
+            w1Evidence: JSON.stringify(roundResult.warrior1.evidence),
+            w1Move: roundResult.warrior1.move,
+            w1Score: roundResult.warrior1Score,
+            w2Argument: roundResult.warrior2.argument,
+            w2Evidence: JSON.stringify(roundResult.warrior2.evidence),
+            w2Move: roundResult.warrior2.move,
+            w2Score: roundResult.warrior2Score,
+            roundWinner: roundResult.roundWinner,
+            judgeReasoning: roundResult.judgeReasoning,
+            endedAt: new Date(),
+          },
+        });
+
+        await prisma.predictionBattle.update({
+          where: { id: battle.id },
+          data: {
+            currentRound: 2,
+            warrior1Score: roundResult.warrior1Score,
+            warrior2Score: roundResult.warrior2Score,
+          },
+        });
+      } catch (roundErr: any) {
+        console.error('[Battles] First round auto-execute failed:', roundErr.message);
+      }
 
       return NextResponse.json({
         success: true,
         battle,
+        firstRound,
         arbitrageTradeId: tradeResult.tradeId,
         expectedProfit: tradeResult.expectedProfit,
         message: 'Arbitrage battle created and trade executed successfully',

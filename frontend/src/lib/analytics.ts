@@ -1,8 +1,9 @@
 /**
- * Analytics Module Stub
+ * Analytics Module — Google Analytics 4
  *
- * Minimal analytics implementation for event tracking
- * Can be extended to integrate with actual analytics services
+ * Sends events via window.gtag when GA4 is loaded.
+ * Guarded by NEXT_PUBLIC_ENABLE_ANALYTICS feature flag.
+ * Falls back to console.log in development.
  */
 
 export enum AnalyticsEvent {
@@ -19,22 +20,35 @@ export interface AnalyticsEventData {
   [key: string]: any;
 }
 
+// Extend Window for gtag
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void;
+  }
+}
+
+const isEnabled = (): boolean =>
+  typeof window !== 'undefined' &&
+  process.env.NEXT_PUBLIC_ENABLE_ANALYTICS === 'true';
+
+function gtag(...args: any[]): void {
+  if (typeof window !== 'undefined' && window.gtag) {
+    window.gtag(...args);
+  }
+}
+
 class Analytics {
   /**
    * Track an analytics event
    */
   track(event: AnalyticsEvent, data?: AnalyticsEventData): void {
-    // Stub implementation - logs to console in development
     if (process.env.NODE_ENV === 'development') {
       console.log(`[Analytics] ${event}:`, data);
     }
 
-    // TODO: Integrate with actual analytics service
-    // Examples:
-    // - Google Analytics
-    // - Mixpanel
-    // - Segment
-    // - PostHog
+    if (isEnabled()) {
+      gtag('event', event, data);
+    }
   }
 
   /**
@@ -45,7 +59,12 @@ class Analytics {
       console.log(`[Analytics] Identify user ${userId}:`, traits);
     }
 
-    // TODO: Implement user identification
+    if (isEnabled()) {
+      gtag('set', { user_id: userId });
+      if (traits) {
+        gtag('set', 'user_properties', traits);
+      }
+    }
   }
 
   /**
@@ -56,7 +75,12 @@ class Analytics {
       console.log(`[Analytics] Page view ${name}:`, properties);
     }
 
-    // TODO: Implement page tracking
+    if (isEnabled()) {
+      gtag('event', 'page_view', {
+        page_title: name,
+        ...properties,
+      });
+    }
   }
 }
 

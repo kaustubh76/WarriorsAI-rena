@@ -10,6 +10,7 @@
  */
 
 import { prisma } from '../prisma';
+import nodemailer from 'nodemailer';
 
 // ============================================================================
 // Types
@@ -224,22 +225,48 @@ export class AlertManager {
    * Send alert to Email
    */
   private async sendToEmail(alert: Alert): Promise<void> {
-    if (!this.notificationConfig.email) {
+    const emailConfig = this.notificationConfig.email;
+    if (!emailConfig) {
       console.warn('[AlertManager] Email configuration not set');
       return;
     }
 
-    // Note: Actual email sending would require nodemailer or similar
-    // This is a placeholder implementation
-    console.log('[AlertManager] Email alert would be sent:', {
-      to: this.notificationConfig.email.to,
-      subject: `[${alert.severity.toUpperCase()}] ${alert.title}`,
-      body: alert.message,
-    });
+    try {
+      const transporter = nodemailer.createTransport({
+        host: emailConfig.smtpHost,
+        port: emailConfig.smtpPort,
+        secure: emailConfig.smtpPort === 465,
+        auth: {
+          user: emailConfig.smtpUser,
+          pass: emailConfig.smtpPassword,
+        },
+      });
 
-    // TODO: Implement actual email sending
-    // const transporter = nodemailer.createTransport({ ... });
-    // await transporter.sendMail({ ... });
+      const color = this.getSeverityColor(alert.severity);
+
+      await transporter.sendMail({
+        from: emailConfig.from,
+        to: emailConfig.to.join(', '),
+        subject: `[${alert.severity.toUpperCase()}] ${alert.title}`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px;">
+            <div style="background: ${color}; color: white; padding: 12px 16px; border-radius: 4px 4px 0 0;">
+              <strong>${alert.severity.toUpperCase()}</strong> — ${alert.title}
+            </div>
+            <div style="border: 1px solid #e0e0e0; border-top: none; padding: 16px; border-radius: 0 0 4px 4px;">
+              <p>${alert.message}</p>
+              <hr style="border: none; border-top: 1px solid #e0e0e0;" />
+              <p style="color: #666; font-size: 12px;">
+                Source: ${alert.source}<br/>
+                Time: ${new Date(alert.timestamp).toISOString()}
+              </p>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      console.error('[AlertManager] Failed to send email notification:', error);
+    }
   }
 
   /**
@@ -510,6 +537,14 @@ export const globalAlertManager = new AlertManager({
     channel: process.env.SLACK_ALERT_CHANNEL || '#alerts',
     username: 'Warriors AI Monitor',
   },
+  email: process.env.SMTP_HOST ? {
+    from: process.env.ALERT_EMAIL_FROM || 'alerts@warriorsai.com',
+    to: (process.env.ALERT_EMAIL_TO || '').split(',').filter(Boolean),
+    smtpHost: process.env.SMTP_HOST,
+    smtpPort: parseInt(process.env.SMTP_PORT || '587'),
+    smtpUser: process.env.SMTP_USER || '',
+    smtpPassword: process.env.SMTP_PASSWORD || '',
+  } : undefined,
   pagerduty: {
     integrationKey: process.env.PAGERDUTY_INTEGRATION_KEY || '',
   },
