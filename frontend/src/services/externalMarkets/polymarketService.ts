@@ -173,8 +173,12 @@ class PolymarketService {
             // Check outcomePrices - winning outcome should be near 1.0
             const yesPriceStr = market.outcomePrices?.[0] || '0';
             const noPriceStr = market.outcomePrices?.[1] || '0';
-            const yesPrice = parseFloat(yesPriceStr);
-            const noPrice = parseFloat(noPriceStr);
+            let yesPrice = parseFloat(yesPriceStr);
+            let noPrice = parseFloat(noPriceStr);
+
+            // Handle NaN cases
+            if (isNaN(yesPrice)) yesPrice = 0;
+            if (isNaN(noPrice)) noPrice = 0;
 
             // Final price near 1.0 indicates winning outcome
             if (yesPrice > 0.9) {
@@ -493,11 +497,25 @@ class PolymarketService {
    * Convert Polymarket market to unified format
    */
   normalizeMarket(poly: PolymarketMarket): UnifiedMarket {
-    // Parse outcome prices
+    // Parse outcome prices with validation
     const yesPriceStr = poly.outcomePrices?.[0] || '0.5';
     const noPriceStr = poly.outcomePrices?.[1] || '0.5';
-    const yesPrice = parseFloat(yesPriceStr) * 100;
-    const noPrice = parseFloat(noPriceStr) * 100;
+
+    // Parse and validate - default to 50 if NaN or invalid
+    let yesPrice = parseFloat(yesPriceStr) * 100;
+    let noPrice = parseFloat(noPriceStr) * 100;
+
+    // Handle NaN cases - default to 50/50
+    if (isNaN(yesPrice) || !isFinite(yesPrice)) {
+      yesPrice = 50;
+    }
+    if (isNaN(noPrice) || !isFinite(noPrice)) {
+      noPrice = 50;
+    }
+
+    // Ensure prices are within valid range [0, 100]
+    yesPrice = Math.max(0, Math.min(100, yesPrice));
+    noPrice = Math.max(0, Math.min(100, noPrice));
 
     // Determine status
     let status: ExternalMarketStatus;
@@ -527,8 +545,15 @@ class PolymarketService {
       volume: poly.volume || '0',
       liquidity: poly.liquidity || '0',
 
-      endTime: new Date(poly.endDate).getTime(),
-      createdAt: new Date(poly.startDate).getTime(),
+      // Parse dates with validation - default to 1 year from now if invalid
+      endTime: (() => {
+        const date = new Date(poly.endDate);
+        return isNaN(date.getTime()) ? Date.now() + 365 * 24 * 60 * 60 * 1000 : date.getTime();
+      })(),
+      createdAt: (() => {
+        const date = new Date(poly.startDate);
+        return isNaN(date.getTime()) ? Date.now() : date.getTime();
+      })(),
 
       status,
       outcome: undefined, // Would need to resolve from outcomes array

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 
 export interface ScheduledResolution {
   id: string;
-  flowResolutionId: bigint;
+  flowResolutionId: bigint | null;
   scheduledTime: Date;
   externalMarketId: string;
   externalMarket: {
@@ -118,7 +118,7 @@ export function useScheduledResolutions(
       // Parse dates and bigints
       const parsedResolutions = (data.resolutions || []).map((r: any) => ({
         ...r,
-        flowResolutionId: BigInt(r.flowResolutionId || 0),
+        flowResolutionId: r.flowResolutionId ? BigInt(r.flowResolutionId) : null,
         scheduledTime: new Date(r.scheduledTime),
         executedAt: r.executedAt ? new Date(r.executedAt) : undefined,
         createdAt: new Date(r.createdAt),
@@ -217,10 +217,8 @@ export function useScheduledResolutions(
       setCancelling(true);
       setError(null);
 
-      const response = await fetch('/api/flow/scheduled-resolutions', {
+      const response = await fetch(`/api/flow/scheduled-resolutions?id=${id}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resolutionId: id }),
       });
 
       if (!response.ok) {
@@ -258,7 +256,7 @@ export function useScheduledResolutions(
       // Parse dates and bigints
       return {
         ...data.resolution,
-        flowResolutionId: BigInt(data.resolution.flowResolutionId || 0),
+        flowResolutionId: data.resolution.flowResolutionId ? BigInt(data.resolution.flowResolutionId) : null,
         scheduledTime: new Date(data.resolution.scheduledTime),
         executedAt: data.resolution.executedAt ? new Date(data.resolution.executedAt) : undefined,
         createdAt: new Date(data.resolution.createdAt),

@@ -4,6 +4,7 @@
  *
  * Usage:
  * import { handleAPIError, validateAddress, applyRateLimit } from '@/lib/api';
+ * import { verifyCronAuth, cronAuthErrorResponse } from '@/lib/api';
  */
 
 export * from './errorHandler';
@@ -17,3 +18,4 @@ export * from './dedup';
 export * from './metrics';
 export * from './client';
 export * from './middleware';
+export * from './cronAuth';

@@ -94,7 +94,8 @@ class ExternalMarketsService {
     }
 
     // Determine ordering
-    let orderBy: Record<string, 'asc' | 'desc'> = { lastSyncAt: 'desc' };
+    // Default to sorting by ID (which includes source prefix) to mix sources
+    let orderBy: Record<string, 'asc' | 'desc'> = { id: 'asc' };
     if (filters?.sortBy) {
       orderBy = {
         [filters.sortBy]: filters.sortOrder || 'desc',

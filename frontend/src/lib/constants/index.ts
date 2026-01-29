@@ -131,6 +131,83 @@ export const UI = {
   },
 } as const;
 
+// ==================== Price & Token Constants ====================
+
+export const PRICING = {
+  /** Token decimal configuration */
+  TOKEN_DECIMALS: 18,
+  TOKEN_MULTIPLIER: BigInt(10 ** 18), // 1e18 for CRwN token
+
+  /** Price representation */
+  BASIS_POINTS_MAX: 10000, // 100% = 10000 basis points
+  CENTS_PER_DOLLAR: 100,
+  PERCENT_MULTIPLIER: 100, // For percentage calculations
+
+  /** Kalshi-specific pricing */
+  KALSHI: {
+    PRICE_MIN: 1, // Minimum price in cents
+    PRICE_MAX: 99, // Maximum price in cents
+    CONTRACT_VALUE_CENTS: 100, // $1.00 payout per contract
+    PRICE_STEP: 1, // Price increment in cents
+  },
+
+  /** Polymarket-specific pricing */
+  POLYMARKET: {
+    USDC_DECIMALS: 6,
+    USDC_MULTIPLIER: BigInt(10 ** 6),
+    CHAIN_ID: 137, // Polygon mainnet
+    MIN_SIZE: 1, // Minimum trade size in USDC
+  },
+} as const;
+
+// Price conversion helper functions
+export const PriceUtils = {
+  /** Convert token BigInt amount to display number */
+  tokenToDisplay(amount: bigint): number {
+    return Number(amount) / Number(PRICING.TOKEN_MULTIPLIER);
+  },
+
+  /** Convert display number to token BigInt amount */
+  displayToToken(amount: number): bigint {
+    return BigInt(Math.floor(amount * Number(PRICING.TOKEN_MULTIPLIER)));
+  },
+
+  /** Convert basis points (0-10000) to percentage (0-100) */
+  basisPointsToPercent(bp: number): number {
+    return bp / 100;
+  },
+
+  /** Convert percentage (0-100) to basis points (0-10000) */
+  percentToBasisPoints(percent: number): number {
+    return Math.round(percent * 100);
+  },
+
+  /** Convert cents (1-99) to decimal (0.01-0.99) */
+  centsToDecimal(cents: number): number {
+    return cents / PRICING.CENTS_PER_DOLLAR;
+  },
+
+  /** Convert decimal (0.01-0.99) to cents (1-99) */
+  decimalToCents(decimal: number): number {
+    return Math.round(decimal * PRICING.CENTS_PER_DOLLAR);
+  },
+
+  /** Convert basis points to decimal (0-1) */
+  basisPointsToDecimal(bp: number): number {
+    return bp / PRICING.BASIS_POINTS_MAX;
+  },
+
+  /** Convert decimal (0-1) to basis points */
+  decimalToBasisPoints(decimal: number): number {
+    return Math.round(decimal * PRICING.BASIS_POINTS_MAX);
+  },
+
+  /** Format token amount for display with specified decimals */
+  formatTokenAmount(amount: bigint, displayDecimals: number = 2): string {
+    return this.tokenToDisplay(amount).toFixed(displayDecimals);
+  },
+};
+
 // ==================== Market Constants ====================
 
 export const MARKETS = {

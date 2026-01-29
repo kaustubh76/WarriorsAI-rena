@@ -86,3 +86,11 @@ export {
   twMerge,
   classNames,
 } from './cn';
+
+// JSON utilities
+export {
+  safeJsonParse,
+  safeJsonStringify,
+  safeJsonParseTyped,
+  parseOrReturn,
+} from './json';
