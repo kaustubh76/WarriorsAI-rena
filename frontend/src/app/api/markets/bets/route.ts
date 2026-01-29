@@ -1,0 +1,53 @@
+/**
+ * Market Betting API - Get User Bets
+ * GET /api/markets/bets?userId=xxx&status=xxx&source=xxx
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { marketBettingService } from '@/services/betting/marketBettingService';
+
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const userId = searchParams.get('userId');
+    const status = searchParams.get('status');
+    const source = searchParams.get('source');
+    const limitStr = searchParams.get('limit');
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Missing userId parameter' },
+        { status: 400 }
+      );
+    }
+
+    const filters: any = {};
+    if (status) filters.status = status;
+    if (source) filters.source = source;
+    if (limitStr) filters.limit = parseInt(limitStr);
+
+    const bets = await marketBettingService.getUserBets(userId, filters);
+
+    // Convert BigInt to string for JSON serialization
+    const serializedBets = bets.map((bet) => ({
+      ...bet,
+      amount: bet.amount.toString(),
+      payout: bet.payout?.toString() || null,
+    }));
+
+    return NextResponse.json({
+      success: true,
+      bets: serializedBets,
+      total: bets.length,
+    });
+  } catch (error) {
+    console.error('[Market Betting API] GET bets error:', error);
+    return NextResponse.json(
+      {
+        error: 'Failed to fetch bets',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 }
+    );
+  }
+}
