@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
 import { validateInteger, validateAddress, validateBigIntString, validateEnum } from '@/lib/api/validation';
 import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
 
 // Helper to determine round winner
 function determineRoundWinner(w1Score: number, w2Score: number): 'warrior1' | 'warrior2' | 'draw' {
@@ -23,6 +24,11 @@ export interface CreateBattleRequest {
   warrior1Owner: string;
   stakes: string;
   challengerSideYes: boolean;
+  // Arbitrage battle fields
+  isArbitrageBattle?: boolean;
+  warrior2Id?: number;
+  kalshiMarketId?: string;
+  totalStake?: string;
 }
 
 export interface AcceptBattleRequest {
@@ -96,7 +102,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/arena/battles
- * Create a new challenge (pending battle)
+ * Create a new challenge (pending battle) or arbitrage battle
  */
 export async function POST(request: NextRequest) {
   try {
@@ -116,6 +122,10 @@ export async function POST(request: NextRequest) {
       warrior1Owner,
       stakes,
       challengerSideYes,
+      isArbitrageBattle,
+      warrior2Id,
+      kalshiMarketId,
+      totalStake,
     } = body;
 
     // Validate required fields
@@ -130,6 +140,111 @@ export async function POST(request: NextRequest) {
     validateEnum(source, ['polymarket', 'kalshi'] as const, 'source');
     validateInteger(warrior1Id, 'warrior1Id', { min: 0 });
     validateAddress(warrior1Owner, 'warrior1Owner');
+
+    // Handle arbitrage battle creation
+    if (isArbitrageBattle) {
+      // Validate arbitrage-specific fields
+      if (!warrior2Id || warrior2Id <= 0) {
+        throw ErrorResponses.badRequest('warrior2Id is required for arbitrage battles');
+      }
+      if (!kalshiMarketId || typeof kalshiMarketId !== 'string') {
+        throw ErrorResponses.badRequest('kalshiMarketId is required for arbitrage battles');
+      }
+      if (!totalStake || typeof totalStake !== 'string') {
+        throw ErrorResponses.badRequest('totalStake is required for arbitrage battles');
+      }
+
+      validateInteger(warrior2Id, 'warrior2Id', { min: 0 });
+      validateBigIntString(totalStake, 'totalStake');
+
+      // Verify both warriors are owned by the same user
+      // TODO: Add ownership verification with blockchain call
+
+      // Get market data from matched pairs
+      const matchedPair = await prisma.matchedMarketPair.findFirst({
+        where: {
+          OR: [
+            { polymarketId: externalMarketId, kalshiId: kalshiMarketId },
+            { kalshiId: externalMarketId, polymarketId: kalshiMarketId },
+          ],
+          hasArbitrage: true,
+          isActive: true,
+        },
+      });
+
+      if (!matchedPair) {
+        throw ErrorResponses.badRequest('No active arbitrage opportunity found for these markets');
+      }
+
+      // Determine which market is Polymarket and which is Kalshi
+      const polymarketId = source === 'polymarket' ? externalMarketId : kalshiMarketId;
+      const kalshiId = source === 'kalshi' ? externalMarketId : kalshiMarketId;
+
+      // Create arbitrage opportunity record
+      const opportunity = await prisma.arbitrageOpportunity.create({
+        data: {
+          market1Source: 'polymarket',
+          market1Id: polymarketId,
+          market1Question: matchedPair.polymarketQuestion,
+          market1YesPrice: matchedPair.polymarketYesPrice,
+          market1NoPrice: matchedPair.polymarketNoPrice,
+          market2Source: 'kalshi',
+          market2Id: kalshiId,
+          market2Question: matchedPair.kalshiQuestion,
+          market2YesPrice: matchedPair.kalshiYesPrice,
+          market2NoPrice: matchedPair.kalshiNoPrice,
+          spread: Math.floor(matchedPair.priceDifference * 100),
+          potentialProfit: matchedPair.priceDifference,
+          confidence: matchedPair.similarity,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        },
+      });
+
+      // Execute arbitrage trade
+      const tradeResult = await arbitrageTradingService.executeArbitrage({
+        userId: warrior1Owner,
+        opportunityId: opportunity.id,
+        investmentAmount: BigInt(totalStake),
+      });
+
+      if (!tradeResult.success || !tradeResult.tradeId) {
+        throw ErrorResponses.internalServerError(
+          `Failed to execute arbitrage trade: ${tradeResult.error}`
+        );
+      }
+
+      // Create arbitrage battle (status: active, skip pending)
+      const battle = await prisma.predictionBattle.create({
+        data: {
+          externalMarketId: polymarketId,
+          source: 'polymarket',
+          question: matchedPair.polymarketQuestion,
+          warrior1Id,
+          warrior1Owner,
+          warrior2Id,
+          warrior2Owner: warrior1Owner, // Same owner for both warriors
+          stakes: totalStake,
+          status: 'active', // Skip pending, start immediately
+          currentRound: 1, // Start with round 1
+          isArbitrageBattle: true,
+          kalshiMarketId: kalshiId,
+          arbitrageTradeId: tradeResult.tradeId,
+        },
+      });
+
+      // TODO: Execute first round immediately
+      // This would call the debate service to generate first round arguments
+
+      return NextResponse.json({
+        success: true,
+        battle,
+        arbitrageTradeId: tradeResult.tradeId,
+        expectedProfit: tradeResult.expectedProfit,
+        message: 'Arbitrage battle created and trade executed successfully',
+      });
+    }
+
+    // Standard challenge creation (non-arbitrage)
     validateBigIntString(stakes, 'stakes');
 
     // Generate market key (same as contract)

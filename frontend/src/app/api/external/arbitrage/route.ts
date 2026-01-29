@@ -172,14 +172,20 @@ export async function GET(request: NextRequest) {
 
     // If no recent opportunities, scan for new ones
     if (dbOpportunities.length === 0) {
-      // Fetch markets from both sources
+      // Fetch markets from both sources (active or unopened)
       const [polyResponse, kalshiResponse] = await Promise.all([
         prisma.externalMarket.findMany({
-          where: { source: 'polymarket', status: 'active' },
+          where: {
+            source: 'polymarket',
+            status: { in: ['active', 'unopened'] }
+          },
           take: 100,
         }),
         prisma.externalMarket.findMany({
-          where: { source: 'kalshi', status: 'active' },
+          where: {
+            source: 'kalshi',
+            status: { in: ['active', 'unopened'] }
+          },
           take: 100,
         }),
       ]);
@@ -305,14 +311,20 @@ export async function POST(request: NextRequest) {
       data: { status: 'expired' },
     });
 
-    // Fetch fresh data from external markets
+    // Fetch fresh data from external markets (active or unopened)
     const [polyResponse, kalshiResponse] = await Promise.all([
       prisma.externalMarket.findMany({
-        where: { source: 'polymarket', status: 'active' },
+        where: {
+          source: 'polymarket',
+          status: { in: ['active', 'unopened'] }
+        },
         take: 100,
       }),
       prisma.externalMarket.findMany({
-        where: { source: 'kalshi', status: 'active' },
+        where: {
+          source: 'kalshi',
+          status: { in: ['active', 'unopened'] }
+        },
         take: 100,
       }),
     ]);

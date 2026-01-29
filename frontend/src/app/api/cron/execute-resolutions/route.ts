@@ -8,20 +8,16 @@ import { prisma } from '@/lib/prisma';
 import { resolveMarket, waitForSealed } from '@/lib/flow/marketResolutionClient';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
+import { verifyCronAuth, cronAuthErrorResponse, cronConfig } from '@/lib/api/cronAuth';
 
 export const maxDuration = 300; // 5 minutes max execution time
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  // Verify CRON_SECRET for security
-  const authHeader = request.headers.get('authorization');
-  const token = authHeader?.replace('Bearer ', '');
-
-  if (token !== process.env.CRON_SECRET) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
+  // Verify cron authorization (only accepts Authorization header)
+  const auth = verifyCronAuth(request);
+  if (!auth.authorized) {
+    return cronAuthErrorResponse(auth);
   }
 
   console.log('[Cron: Execute Resolutions] Starting execution...');
@@ -232,17 +228,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Also support GET for manual testing
+// GET handler for health check / manual testing
+// NOTE: Removed insecure query param auth - only accepts Authorization header now
 export async function GET(request: NextRequest) {
-  // Verify CRON_SECRET for security
-  const searchParams = request.nextUrl.searchParams;
-  const secret = searchParams.get('secret');
-
-  if (secret !== process.env.CRON_SECRET) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
+  // Verify cron authorization with dev bypass for health checks
+  const auth = verifyCronAuth(request, { allowDevBypass: true });
+  if (!auth.authorized) {
+    return cronAuthErrorResponse(auth);
   }
 
   // Forward to POST handler
