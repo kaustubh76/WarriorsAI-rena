@@ -594,6 +594,28 @@ const Header: React.FC = () => {
 
         {/* Mobile Menu Footer */}
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-700">
+          {/* Flow Wallet in mobile menu */}
+          {isMounted && (
+            <div className="mb-3">
+              {isFlowConnected ? (
+                <button
+                  onClick={() => { disconnectFlowWallet(); setIsMobileMenuOpen(false); }}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-bold bg-green-900/50 text-green-300 border border-green-500/50 hover:bg-green-800/50 transition-colors"
+                  title={`Flow: ${flowAddress}`}
+                >
+                  Flow: {flowAddress?.slice(0, 6)}...{flowAddress?.slice(-4)}
+                </button>
+              ) : (
+                <button
+                  onClick={() => { connectFlowWallet(); setIsMobileMenuOpen(false); }}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-bold bg-purple-900/50 text-purple-300 border border-purple-500/50 hover:bg-purple-800/50 transition-colors"
+                >
+                  Connect Flow Wallet
+                </button>
+              )}
+            </div>
+          )}
+
           {/* 0G Status in mobile menu */}
           <div className="mb-3">
             <ZeroGStatusCompact />

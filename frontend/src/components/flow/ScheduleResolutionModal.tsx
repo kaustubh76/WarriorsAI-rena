@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, AlertCircle, CheckCircle, Sparkles } from 'lucide-react';
+import { X, Calendar, Clock, AlertCircle, CheckCircle, Sparkles, Wallet } from 'lucide-react';
 import { ExternalMarketSelector } from './ExternalMarketSelector';
 import { OracleSourceBadge, OutcomeBadge } from './ResolutionStatusBadge';
 
@@ -17,6 +17,8 @@ interface ScheduleResolutionModalProps {
   onClose: () => void;
   onSchedule: (params: ScheduleParams) => Promise<void>;
   isScheduling?: boolean;
+  isFlowConnected?: boolean;
+  onConnectWallet?: () => void;
 }
 
 interface ScheduleParams {
@@ -31,6 +33,8 @@ export const ScheduleResolutionModal: React.FC<ScheduleResolutionModalProps> = (
   onClose,
   onSchedule,
   isScheduling = false,
+  isFlowConnected = true,
+  onConnectWallet,
 }) => {
   const [selectedMarketId, setSelectedMarketId] = useState<string>('');
   const [selectedMarket, setSelectedMarket] = useState<ExternalMarket | null>(null);
@@ -101,6 +105,11 @@ export const ScheduleResolutionModal: React.FC<ScheduleResolutionModalProps> = (
 
   // Form validation
   const isValid = () => {
+    if (!isFlowConnected) {
+      setError('Please connect your Flow Wallet first');
+      return false;
+    }
+
     if (!selectedMarketId || !selectedMarket) {
       setError('Please select an external market');
       return false;
@@ -179,6 +188,25 @@ export const ScheduleResolutionModal: React.FC<ScheduleResolutionModalProps> = (
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Wallet Connection Warning */}
+          {!isFlowConnected && (
+            <div className="flex items-center justify-between p-3 bg-purple-50 border-2 border-purple-300 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-purple-600" />
+                <p className="text-sm font-medium text-purple-700">Flow Wallet not connected</p>
+              </div>
+              {onConnectWallet && (
+                <button
+                  type="button"
+                  onClick={onConnectWallet}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg font-medium transition-colors"
+                >
+                  Connect
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Market Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -368,13 +396,18 @@ export const ScheduleResolutionModal: React.FC<ScheduleResolutionModalProps> = (
             </button>
             <button
               type="submit"
-              disabled={isScheduling || !confirmed}
+              disabled={isScheduling || !confirmed || !isFlowConnected}
               className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2"
             >
               {isScheduling ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Scheduling...
+                </>
+              ) : !isFlowConnected ? (
+                <>
+                  <Wallet className="w-5 h-5" />
+                  Wallet Not Connected
                 </>
               ) : (
                 <>

@@ -12,6 +12,8 @@ interface ScheduleBattleModalProps {
   scheduling?: boolean;
   defaultWarrior1?: number;
   defaultWarrior2?: number;
+  isFlowConnected?: boolean;
+  onConnectWallet?: () => void;
 }
 
 export function ScheduleBattleModal({
@@ -21,6 +23,8 @@ export function ScheduleBattleModal({
   scheduling = false,
   defaultWarrior1,
   defaultWarrior2,
+  isFlowConnected = true,
+  onConnectWallet,
 }: ScheduleBattleModalProps) {
   const [warrior1Id, setWarrior1Id] = useState(defaultWarrior1 || 1);
   const [warrior2Id, setWarrior2Id] = useState(defaultWarrior2 || 2);
@@ -91,6 +95,23 @@ export function ScheduleBattleModal({
         </div>
 
         <div className="space-y-4">
+          {/* Wallet Connection Warning */}
+          {!isFlowConnected && (
+            <div className="bg-purple-900/30 border border-purple-500/50 rounded-lg p-4 flex items-center justify-between">
+              <p className="text-sm text-purple-300">Flow Wallet not connected</p>
+              {onConnectWallet && (
+                <Button
+                  onClick={onConnectWallet}
+                  size="sm"
+                  className="bg-purple-500 hover:bg-purple-600"
+                  type="button"
+                >
+                  Connect
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Warrior Selection */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -223,10 +244,10 @@ export function ScheduleBattleModal({
             <Button
               onClick={handleSchedule}
               className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-              disabled={scheduling}
+              disabled={scheduling || !isFlowConnected}
               type="button"
             >
-              {scheduling ? 'Scheduling...' : 'Schedule Battle'}
+              {scheduling ? 'Scheduling...' : !isFlowConnected ? 'Wallet Not Connected' : 'Schedule Battle'}
             </Button>
           </div>
         </div>

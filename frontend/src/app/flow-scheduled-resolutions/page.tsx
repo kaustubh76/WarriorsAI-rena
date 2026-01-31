@@ -336,6 +336,8 @@ export default function FlowScheduledResolutionsPage() {
         onClose={() => setShowScheduleModal(false)}
         onSchedule={handleSchedule}
         isScheduling={scheduling}
+        isFlowConnected={isFlowConnected}
+        onConnectWallet={connectFlowWallet}
       />
 
       {selectedResolutionId && (

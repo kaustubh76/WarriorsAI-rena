@@ -8,9 +8,11 @@ import { ScheduleBattleModal } from '@/components/flow/ScheduleBattleModal';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { RefreshCw, Clock, Swords, TrendingUp, Calendar } from 'lucide-react';
+import { RefreshCw, Clock, Swords, TrendingUp, Calendar, Wallet } from 'lucide-react';
+import { useFlowWallet } from '@/contexts/FlowWalletContext';
 
 export default function FlowScheduledPage() {
+  const { isFlowConnected, connectFlowWallet, flowAddress } = useFlowWallet();
   const {
     pendingBattles,
     readyBattles,
@@ -50,6 +52,29 @@ export default function FlowScheduledPage() {
           </Link>
         </div>
 
+        {/* Flow Wallet Connection Banner */}
+        {!isFlowConnected && (
+          <Card className="mb-8 p-4 bg-purple-900/30 border-purple-500/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Wallet className="h-6 w-6 text-purple-400" />
+                <div>
+                  <p className="font-semibold text-white">Connect Flow Wallet</p>
+                  <p className="text-sm text-slate-400">
+                    Connect your Flow Wallet to schedule and execute on-chain battles
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={connectFlowWallet}
+                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+              >
+                Connect Flow Wallet
+              </Button>
+            </div>
+          </Card>
+        )}
+
         {/* Hero Section */}
         <div className="text-center mb-12">
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4 animate-fade-in">
@@ -58,6 +83,11 @@ export default function FlowScheduledPage() {
           <p className="text-lg text-slate-400 mb-8 animate-fade-in" style={{ animationDelay: '100ms' }}>
             Trustless, automated battle execution on Flow testnet
           </p>
+          {isFlowConnected && flowAddress && (
+            <p className="text-xs text-purple-400 font-mono animate-fade-in" style={{ animationDelay: '150ms' }}>
+              Flow Wallet: {flowAddress}
+            </p>
+          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -151,6 +181,8 @@ export default function FlowScheduledPage() {
             <Button
               onClick={() => setShowScheduleModal(true)}
               className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+              disabled={!isFlowConnected}
+              title={!isFlowConnected ? 'Connect Flow Wallet first' : undefined}
             >
               <Clock className="h-4 w-4 mr-2" />
               Schedule Battle
@@ -317,6 +349,8 @@ export default function FlowScheduledPage() {
         onClose={() => setShowScheduleModal(false)}
         onSchedule={scheduleBattle}
         scheduling={scheduling}
+        isFlowConnected={isFlowConnected}
+        onConnectWallet={connectFlowWallet}
       />
     </div>
   );
