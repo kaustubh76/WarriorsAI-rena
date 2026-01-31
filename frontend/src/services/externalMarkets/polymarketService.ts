@@ -110,6 +110,7 @@ class PolymarketService {
 
   /**
    * Get a single market by condition ID
+   * Uses the CLOB API which properly supports condition ID lookups
    */
   async getMarket(conditionId: string): Promise<PolymarketMarket | null> {
     return monitoredCall(
@@ -120,7 +121,7 @@ class PolymarketService {
           await polymarketAdaptiveRateLimiter.acquire();
 
           const response = await withRetry(() =>
-            fetch(`${GAMMA_API_BASE}/markets/${conditionId}`)
+            fetch(`${CLOB_API_BASE}/markets/${conditionId}`)
           );
 
           polymarketAdaptiveRateLimiter.updateFromHeaders(response.headers);
@@ -134,7 +135,35 @@ class PolymarketService {
           }
 
           const data = await response.json();
-          return safeValidatePolymarket(data, PolymarketMarketSchema, 'getMarket') || data;
+
+          // Map CLOB API response to PolymarketMarket shape
+          const mapped = {
+            id: data.condition_id || conditionId,
+            conditionId: data.condition_id || conditionId,
+            question: data.question || '',
+            description: data.description || '',
+            slug: data.market_slug || '',
+            outcomes: data.tokens?.map((t: any) => t.outcome) || ['Yes', 'No'],
+            outcomePrices: data.tokens?.map((t: any) => String(t.price ?? '0')) || ['0', '0'],
+            clobTokenIds: data.tokens?.map((t: any) => t.token_id) || [],
+            active: data.active ?? false,
+            closed: data.closed ?? false,
+            resolved: data.closed === true && data.tokens?.some((t: any) => t.winner === true),
+            volume: '0',
+            volumeNum: 0,
+            liquidity: '0',
+            liquidityNum: 0,
+            startDate: '',
+            endDate: data.end_date_iso || '',
+            image: data.image || '',
+            icon: data.icon || '',
+            category: data.tags?.[0] || '',
+            tags: data.tags || [],
+            // Carry CLOB tokens for outcome resolution
+            _clobTokens: data.tokens,
+          } as PolymarketMarket & { _clobTokens?: any[] };
+
+          return mapped;
         });
       },
       { conditionId }
@@ -165,22 +194,27 @@ class PolymarketService {
             return { resolved: false };
           }
 
-          // Determine which outcome won based on outcomes array
-          // Polymarket outcomes array indicates winning outcome
+          // Determine outcome using CLOB token winner field if available
           let outcome: 'yes' | 'no' | undefined;
 
-          if (market.outcomes && market.outcomes.length >= 2) {
-            // Check outcomePrices - winning outcome should be near 1.0
+          const clobTokens = (market as any)._clobTokens;
+          if (clobTokens && Array.isArray(clobTokens)) {
+            const winnerToken = clobTokens.find((t: any) => t.winner === true);
+            if (winnerToken) {
+              outcome = winnerToken.outcome?.toLowerCase() === 'yes' ? 'yes' : 'no';
+            }
+          }
+
+          // Fallback: infer from outcome prices
+          if (!outcome && market.outcomes && market.outcomes.length >= 2) {
             const yesPriceStr = market.outcomePrices?.[0] || '0';
             const noPriceStr = market.outcomePrices?.[1] || '0';
             let yesPrice = parseFloat(yesPriceStr);
             let noPrice = parseFloat(noPriceStr);
 
-            // Handle NaN cases
             if (isNaN(yesPrice)) yesPrice = 0;
             if (isNaN(noPrice)) noPrice = 0;
 
-            // Final price near 1.0 indicates winning outcome
             if (yesPrice > 0.9) {
               outcome = 'yes';
             } else if (noPrice > 0.9) {
@@ -192,7 +226,6 @@ class PolymarketService {
             }
           }
 
-          // Use end date as resolution time (Polymarket doesn't expose exact resolution time)
           const resolvedAt = market.endDate ? new Date(market.endDate) : undefined;
 
           return {
