@@ -539,6 +539,60 @@ function parseResolutions(data: any[]): ScheduledResolution[] {
 }
 
 /**
+ * Resolve a scheduled market using server-side authorization.
+ * Used by cron jobs and automated routes where no user wallet is available.
+ *
+ * Requires FLOW_TESTNET_ADDRESS and FLOW_TESTNET_PRIVATE_KEY env vars.
+ */
+export async function resolveMarketServerSide(
+  resolutionId: number,
+  outcome: boolean
+): Promise<string> {
+  // Import server auth lazily to avoid circular deps and client-side imports
+  const { createServerAuthorization, configureServerFCL, getContractAddress, getServerAddress } =
+    await import('./serverAuth');
+
+  configureServerFCL();
+
+  const serverAuthz = createServerAuthorization();
+  const contractAddress = getContractAddress();
+  const serverAddress = getServerAddress();
+
+  const transactionCode = `
+    import ScheduledMarketResolver from ${contractAddress}
+
+    transaction(resolutionId: UInt64, outcome: Bool, resolverAddress: Address) {
+      prepare(signer: &Account) {}
+
+      execute {
+        ScheduledMarketResolver.resolveMarket(
+          resolutionId: resolutionId,
+          outcome: outcome,
+          resolver: resolverAddress
+        )
+
+        log("Resolved market with ID: ".concat(resolutionId.toString()))
+      }
+    }
+  `;
+
+  const transactionId = await fcl.mutate({
+    cadence: transactionCode,
+    args: (arg: any, t: any) => [
+      arg(resolutionId.toString(), t.UInt64),
+      arg(outcome, t.Bool),
+      arg(serverAddress, t.Address),
+    ],
+    proposer: serverAuthz,
+    payer: serverAuthz,
+    authorizations: [serverAuthz],
+    limit: 9999,
+  });
+
+  return transactionId;
+}
+
+/**
  * Wait for transaction to be sealed
  */
 export async function waitForSealed(transactionId: string): Promise<any> {
