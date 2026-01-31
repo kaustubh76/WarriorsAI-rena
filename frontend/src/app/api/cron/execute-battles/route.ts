@@ -4,53 +4,17 @@ import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
 import { alertHighQueueDepth, sendAlert } from '@/lib/monitoring/alerts';
 import * as fcl from '@onflow/fcl';
 import * as types from '@onflow/types';
+import {
+  createServerAuthorization,
+  configureServerFCL,
+  isServerFlowConfigured,
+} from '@/lib/flow/serverAuth';
 
-// Configure FCL
-fcl.config({
-  'flow.network': 'testnet',
-  'accessNode.api': process.env.FLOW_RPC_URL || 'https://rest-testnet.onflow.org',
-});
+// Configure FCL for server-side
+configureServerFCL();
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
-const PRIVATE_KEY = process.env.FLOW_TESTNET_PRIVATE_KEY;
-const SERVER_ADDRESS = process.env.FLOW_TESTNET_ADDRESS;
 const CRON_SECRET = process.env.CRON_SECRET;
-
-/**
- * Server-side authorization function for cron-based battle execution
- */
-function serverAuthorizationFunction(account: any) {
-  return {
-    ...account,
-    tempId: `${SERVER_ADDRESS}-0`,
-    addr: fcl.sansPrefix(SERVER_ADDRESS!),
-    keyId: 0,
-    signingFunction: async (signable: any) => {
-      const { SHA3 } = await import('sha3');
-      // @ts-ignore - elliptic has no bundled types
-      const { ec: EC } = await import('elliptic');
-      const ec = new EC('p256');
-
-      const sha3 = new SHA3(256);
-      sha3.update(Buffer.from(signable.message, 'hex'));
-      const digest = sha3.digest();
-
-      const key = ec.keyFromPrivate(Buffer.from(PRIVATE_KEY!, 'hex'));
-      const sig = key.sign(digest);
-
-      const n = 32;
-      const r = sig.r.toArrayLike(Buffer, 'be', n);
-      const s = sig.s.toArrayLike(Buffer, 'be', n);
-      const signature = Buffer.concat([r, s]).toString('hex');
-
-      return {
-        addr: fcl.sansPrefix(SERVER_ADDRESS!),
-        keyId: 0,
-        signature,
-      };
-    },
-  };
-}
 
 // Validate required config at module load time (skip during build)
 const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
@@ -60,11 +24,10 @@ if (!isBuildTime && (!CRON_SECRET || CRON_SECRET.length < 32)) {
     'Generate a secure secret with: openssl rand -base64 32'
   );
 }
-if (!isBuildTime && (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS)) {
+if (!isBuildTime && !isServerFlowConfigured()) {
   console.warn(
-    '[Execute Battles Cron] Missing Flow config: ' +
-    `CONTRACT_ADDRESS=${!!CONTRACT_ADDRESS}, PRIVATE_KEY=${!!PRIVATE_KEY}, SERVER_ADDRESS=${!!SERVER_ADDRESS}. ` +
-    'Cron job will reject requests until these are configured.'
+    '[Execute Battles Cron] Missing Flow config. ' +
+    'Cron job will reject requests until FLOW_TESTNET_ADDRESS, FLOW_TESTNET_PRIVATE_KEY, and NEXT_PUBLIC_FLOW_TESTNET_ADDRESS are configured.'
   );
 }
 
@@ -101,12 +64,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
+    if (!isServerFlowConfigured() || !CONTRACT_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
       );
     }
+
+    // Create server authorization for transaction signing
+    const serverAuthz = createServerAuthorization();
 
     console.log('[Execute Battles Cron] Starting execution check...');
 
@@ -180,9 +146,9 @@ export async function POST(request: NextRequest) {
             }
           `,
           args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
-          proposer: serverAuthorizationFunction,
-          payer: serverAuthorizationFunction,
-          authorizations: [serverAuthorizationFunction],
+          proposer: serverAuthz,
+          payer: serverAuthz,
+          authorizations: [serverAuthz],
           limit: 1000,
         });
 
@@ -194,7 +160,7 @@ export async function POST(request: NextRequest) {
           ),
         ]);
 
-        console.log(`[Execute Battles Cron] ✅ Battle ${battleId} executed successfully`, {
+        console.log(`[Execute Battles Cron] Battle ${battleId} executed successfully`, {
           transactionId,
           status: (txResult as any).status,
         });
@@ -213,7 +179,7 @@ export async function POST(request: NextRequest) {
 
         successCount++;
       } catch (error: any) {
-        console.error(`[Execute Battles Cron] ❌ Failed to execute battle ${battle.id}:`, error);
+        console.error(`[Execute Battles Cron] Failed to execute battle ${battle.id}:`, error);
 
         // Record failure in monitor
         await monitor.recordFailure(error.message, parseInt(battle.id));
@@ -254,7 +220,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error('[Execute Battles Cron] Failed to send failure alert:', error);
       }
-      console.warn(`[Execute Battles Cron] ⚠️ ${failureCount} battles failed to execute`);
+      console.warn(`[Execute Battles Cron] ${failureCount} battles failed to execute`);
     }
 
     return NextResponse.json({
@@ -286,7 +252,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     message: 'Execute Battles Cron is healthy',
-    configured: !!(CONTRACT_ADDRESS && PRIVATE_KEY),
+    configured: isServerFlowConfigured(),
     timestamp: new Date().toISOString(),
   });
 }

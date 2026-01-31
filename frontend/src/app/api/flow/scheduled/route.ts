@@ -5,6 +5,11 @@ import * as types from '@onflow/types';
 import { withTimeout } from '@/lib/flow/cadenceClient';
 import { prisma } from '@/lib/prisma';
 import { verifyToken, extractAddressFromHeader } from '@/lib/auth';
+import {
+  createServerAuthorization,
+  configureServerFCL,
+  isServerFlowConfigured,
+} from '@/lib/flow/serverAuth';
 
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'fallback-dev-secret';
 
@@ -46,60 +51,17 @@ async function verifyAuth(request: NextRequest): Promise<string | null> {
 }
 
 // Configure FCL for server-side operations
-fcl.config({
-  'flow.network': 'testnet',
-  'accessNode.api': process.env.FLOW_RPC_URL || 'https://rest-testnet.onflow.org',
-});
+configureServerFCL();
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
-const PRIVATE_KEY = process.env.FLOW_TESTNET_PRIVATE_KEY;
-const SERVER_ADDRESS = process.env.FLOW_TESTNET_ADDRESS;
 
 // Warn at module load if Flow config is missing (skip during build)
 const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
-if (!isBuildTime && (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS)) {
+if (!isBuildTime && !isServerFlowConfigured()) {
   console.warn(
-    '[Flow Scheduled API] Missing Flow config: ' +
-    `CONTRACT_ADDRESS=${!!CONTRACT_ADDRESS}, PRIVATE_KEY=${!!PRIVATE_KEY}, SERVER_ADDRESS=${!!SERVER_ADDRESS}. ` +
-    'Server-side Flow operations will fail until these are configured.'
+    '[Flow Scheduled API] Missing Flow config. ' +
+    'Server-side Flow operations will fail until FLOW_TESTNET_ADDRESS, FLOW_TESTNET_PRIVATE_KEY, and NEXT_PUBLIC_FLOW_TESTNET_ADDRESS are configured.'
   );
-}
-
-/**
- * Server-side authorization function using private key
- * Required for automated battle scheduling/execution without user wallet
- */
-function serverAuthorizationFunction(account: any) {
-  return {
-    ...account,
-    tempId: `${SERVER_ADDRESS}-0`,
-    addr: fcl.sansPrefix(SERVER_ADDRESS!),
-    keyId: 0,
-    signingFunction: async (signable: any) => {
-      const { SHA3 } = await import('sha3');
-      // @ts-ignore - elliptic has no bundled types
-      const { ec: EC } = await import('elliptic');
-      const ec = new EC('p256');
-
-      const sha3 = new SHA3(256);
-      sha3.update(Buffer.from(signable.message, 'hex'));
-      const digest = sha3.digest();
-
-      const key = ec.keyFromPrivate(Buffer.from(PRIVATE_KEY!, 'hex'));
-      const sig = key.sign(digest);
-
-      const n = 32;
-      const r = sig.r.toArrayLike(Buffer, 'be', n);
-      const s = sig.s.toArrayLike(Buffer, 'be', n);
-      const signature = Buffer.concat([r, s]).toString('hex');
-
-      return {
-        addr: fcl.sansPrefix(SERVER_ADDRESS!),
-        keyId: 0,
-        signature,
-      };
-    },
-  };
 }
 
 /**
@@ -225,12 +187,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
+    if (!isServerFlowConfigured() || !CONTRACT_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
       );
     }
+
+    const serverAuthz = createServerAuthorization();
 
     const body = await request.json();
     warrior1Id = body.warrior1Id;
@@ -304,9 +268,9 @@ export async function POST(request: NextRequest) {
           arg(betAmount.toFixed(1), types.UFix64),
           arg((scheduledTime as number).toFixed(1), types.UFix64),
         ],
-        proposer: serverAuthorizationFunction,
-        payer: serverAuthorizationFunction,
-        authorizations: [serverAuthorizationFunction],
+        proposer: serverAuthz,
+        payer: serverAuthz,
+        authorizations: [serverAuthz],
         limit: 1000,
       }),
       30000,
@@ -409,12 +373,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
+    if (!isServerFlowConfigured() || !CONTRACT_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
       );
     }
+
+    const serverAuthz = createServerAuthorization();
 
     const body = await request.json();
     battleId = body.battleId;
@@ -521,9 +487,9 @@ export async function PUT(request: NextRequest) {
           }
         `,
         args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
-        proposer: serverAuthorizationFunction,
-        payer: serverAuthorizationFunction,
-        authorizations: [serverAuthorizationFunction],
+        proposer: serverAuthz,
+        payer: serverAuthz,
+        authorizations: [serverAuthz],
         limit: 1000,
       }),
       30000,
@@ -638,12 +604,14 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
+    if (!isServerFlowConfigured() || !CONTRACT_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
       );
     }
+
+    const serverAuthz = createServerAuthorization();
 
     const body = await request.json();
     battleId = body.battleId;
@@ -703,9 +671,9 @@ export async function DELETE(request: NextRequest) {
           }
         `,
         args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
-        proposer: serverAuthorizationFunction,
-        payer: serverAuthorizationFunction,
-        authorizations: [serverAuthorizationFunction],
+        proposer: serverAuthz,
+        payer: serverAuthz,
+        authorizations: [serverAuthz],
         limit: 1000,
       }),
       30000,

@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { resolveMarket, waitForSealed } from '@/lib/flow/marketResolutionClient';
+import { resolveMarketServerSide, waitForSealed } from '@/lib/flow/marketResolutionClient';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { verifyCronAuth, cronAuthErrorResponse, cronConfig } from '@/lib/api/cronAuth';
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
         if (resolution.flowResolutionId) {
           console.log(`[Cron: Execute Resolutions] Executing resolution ${resolution.id} on-chain with outcome: ${outcome}`);
 
-          txId = await resolveMarket(
+          txId = await resolveMarketServerSide(
             Number(resolution.flowResolutionId),
             outcome
           );
