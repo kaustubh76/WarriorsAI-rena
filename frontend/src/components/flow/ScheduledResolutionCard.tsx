@@ -133,7 +133,7 @@ export const ScheduledResolutionCard: React.FC<ScheduledResolutionCardProps> = (
           <div className="flex items-center gap-2 text-gray-600">
             <ExternalLink className="w-4 h-4 flex-shrink-0" />
             <span className="truncate">
-              Market: {resolution.externalMarket?.marketId || resolution.externalMarketId}
+              Market: {resolution.externalMarket?.externalId || resolution.externalMarketId}
             </span>
           </div>
 
@@ -216,7 +216,7 @@ export const ScheduledResolutionCard: React.FC<ScheduledResolutionCardProps> = (
           <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
             <div>
               <span className="font-medium">Resolution ID:</span>{' '}
-              <span className="font-mono">#{resolution.flowResolutionId.toString()}</span>
+              <span className="font-mono">#{resolution.flowResolutionId?.toString() || 'N/A'}</span>
             </div>
             <div className="truncate">
               <span className="font-medium">Creator:</span>{' '}

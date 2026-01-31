@@ -155,7 +155,7 @@ export const ExternalMarketSelector: React.FC<ExternalMarketSelectorProps> = ({
                   size="sm"
                 />
               )}
-              <span className="text-xs text-gray-500">ID: {selectedMarket.marketId}</span>
+              <span className="text-xs text-gray-500">ID: {selectedMarket.externalId}</span>
             </div>
           </div>
         ) : (

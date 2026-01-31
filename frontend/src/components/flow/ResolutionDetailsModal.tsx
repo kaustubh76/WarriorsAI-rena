@@ -98,7 +98,7 @@ export const ResolutionDetailsModal: React.FC<ResolutionDetailsModalProps> = ({
                     <div>
                       <div className="text-sm font-medium text-gray-500 mb-1">External Market ID</div>
                       <div className="text-sm font-mono text-gray-900 break-all">
-                        {resolution.externalMarket?.marketId || resolution.externalMarketId}
+                        {resolution.externalMarket?.externalId || resolution.externalMarketId}
                       </div>
                     </div>
                     <div>
@@ -143,7 +143,7 @@ export const ResolutionDetailsModal: React.FC<ResolutionDetailsModalProps> = ({
                     <div>
                       <div className="text-sm font-medium text-gray-500 mb-1">Flow Resolution ID</div>
                       <div className="text-sm font-mono text-gray-900">
-                        #{resolution.flowResolutionId.toString()}
+                        #{resolution.flowResolutionId?.toString() || 'N/A'}
                       </div>
                     </div>
                     <div>

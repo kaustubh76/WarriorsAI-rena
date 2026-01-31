@@ -5,11 +5,16 @@ import { OracleSourceBadge, OutcomeBadge } from './ResolutionStatusBadge';
 
 interface ExternalMarket {
   id: string;
-  marketId: string;
+  externalId: string;
   question: string;
   source: string;
   outcome?: string;
   resolvedAt?: string;
+  endTime?: string;
+  status: string;
+  volume?: number;
+  yesPrice?: number;
+  noPrice?: number;
 }
 
 interface ScheduleResolutionModalProps {

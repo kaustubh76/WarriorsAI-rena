@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ScheduledBattle } from '@/lib/flow/cadenceClient';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,9 +24,14 @@ export function ScheduledTransactionCard({
 }: ScheduledTransactionCardProps) {
   const [timeUntilExecution, setTimeUntilExecution] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
+  const initialRemainingRef = useRef<number | null>(null);
 
   // Update countdown every second
   useEffect(() => {
+    // Capture initial remaining time on mount for accurate progress
+    const initialDiff = battle.scheduledTime.getTime() - Date.now();
+    initialRemainingRef.current = Math.max(initialDiff, 1);
+
     const updateCountdown = () => {
       const now = new Date();
       const scheduled = battle.scheduledTime;
@@ -55,11 +60,10 @@ export function ScheduledTransactionCard({
         setTimeUntilExecution(`${seconds}s`);
       }
 
-      // Calculate progress (assuming 24 hours max for progress bar)
-      const createdTime = scheduled.getTime() - 24 * 60 * 60 * 1000; // Assume created 24h before
-      const totalTime = scheduled.getTime() - createdTime;
-      const elapsed = now.getTime() - createdTime;
-      setProgressPercent(Math.min(Math.max((elapsed / totalTime) * 100, 0), 100));
+      // Calculate progress based on time elapsed since component mounted
+      const totalWindow = initialRemainingRef.current || diff;
+      const elapsed = totalWindow - diff;
+      setProgressPercent(Math.min(Math.max((elapsed / totalWindow) * 100, 0), 100));
     };
 
     updateCountdown();
@@ -90,7 +94,7 @@ export function ScheduledTransactionCard({
 
   const badgeColor =
     status === 'executed'
-      ? 'bg-gold-500 text-black'
+      ? 'bg-yellow-500 text-black'
       : status === 'ready'
       ? 'bg-green-500 text-white'
       : status === 'cancelled'
