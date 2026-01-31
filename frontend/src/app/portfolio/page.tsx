@@ -39,6 +39,18 @@ export default function PortfolioPage() {
 
   const [activeTab, setActiveTab] = useState<PositionTab>('active');
 
+  // Get markets where user has positions
+  const userMarkets = markets.filter(
+    (m) => positions.has(m.id.toString())
+  );
+
+  // Get market IDs for portfolio history (memoized)
+  const userMarketIds = useMemo(() =>
+    userMarkets.map(m => m.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userMarkets.length, userMarkets.map(m => m.id.toString()).join(',')]
+  );
+
   if (!isConnected) {
     return (
       <main className="container-arcade py-12 md:py-20">
@@ -53,17 +65,6 @@ export default function PortfolioPage() {
       </main>
     );
   }
-
-  // Get markets where user has positions
-  const userMarkets = markets.filter(
-    (m) => positions.has(m.id.toString())
-  );
-
-  // Get market IDs for portfolio history (memoized)
-  const userMarketIds = useMemo(() =>
-    userMarkets.map(m => m.id),
-    [userMarkets]
-  );
 
   // Separate by status
   const activePositions = userMarkets.filter(

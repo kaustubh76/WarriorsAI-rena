@@ -29,11 +29,6 @@ type NavLink = {
 
 const NAV_LINKS: NavLink[] = [
   { href: "/arena", label: "Arena", hoverColor: "hover:text-red-400" },
-  { href: "/markets", label: "Markets", hoverColor: "hover:text-red-400" },
-  { href: "/ai-agents", label: "AI Agents", hoverColor: "hover:text-purple-400" },
-  { href: "/leaderboard", label: "Leaderboard", hoverColor: "hover:text-red-400" },
-  { href: "/social/copy-trading", label: "Copy Trade", hoverColor: "hover:text-purple-400" },
-  { href: "/portfolio", label: "Portfolio", hoverColor: "hover:text-blue-400" },
   {
     href: "/external",
     label: "External",
@@ -56,9 +51,9 @@ const NAV_LINKS: NavLink[] = [
       { href: "/flow-scheduled?filter=executed", label: "History", icon: "📜" },
     ]
   },
-  { href: "/creator-dashboard", label: "Creator", hoverColor: "hover:text-green-400" },
-  { href: "/external/arbitrage", label: "Arbitrage", hoverColor: "hover:text-green-400" },
-  { href: "/warriorsMinter", label: "Mint", hoverColor: "hover:text-red-400" },
+  { href: "/whale-tracker", label: "Whale", hoverColor: "hover:text-blue-400" },
+  { href: "/social/copy-trading", label: "Copy Trading", hoverColor: "hover:text-purple-400" },
+  { href: "/portfolio", label: "Wallets", hoverColor: "hover:text-green-400" },
 ];
 
 // Hamburger icon component

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { RefreshCw, Plus, Search, Filter, Clock, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp, Zap, Shield, Wallet } from 'lucide-react';
 import { useScheduledResolutions } from '@/hooks/useScheduledResolutions';
 import { ScheduledResolutionCard } from '@/components/flow/ScheduledResolutionCard';
@@ -104,6 +105,11 @@ export default function FlowScheduledResolutionsPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 shadow-sm">
         <div className="container mx-auto px-4 py-6">
+          <div className="mb-4">
+            <Link href="/flow-scheduled" className="text-purple-600 hover:text-purple-500 transition-colors text-sm">
+              &larr; Back to Scheduled Battles
+            </Link>
+          </div>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">

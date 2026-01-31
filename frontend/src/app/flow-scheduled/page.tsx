@@ -112,7 +112,7 @@ export default function FlowScheduledPage() {
             <Card className="p-6 bg-gradient-to-br from-gray-900 to-gray-800 border-gray-700 animate-slide-up" style={{ animationDelay: '100ms' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-slate-400">Total Executed</span>
-                <Calendar className="h-5 w-5 text-gold-400" />
+                <Calendar className="h-5 w-5 text-yellow-400" />
               </div>
               <div className="text-3xl font-bold text-white">{executedCount}</div>
               <p className="text-xs text-slate-500 mt-1">Battles completed</p>
