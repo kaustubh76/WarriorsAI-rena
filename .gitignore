@@ -25,3 +25,4 @@ package-lock.json
 # Screenshots and temporary files
 *.png
 .DS_Store
+testnet-account.pkey
