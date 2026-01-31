@@ -93,43 +93,44 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // If outcome not available, mark as failed
+        // If outcome not available, revert to pending for retry
         if (outcome === null) {
           await prisma.scheduledResolution.update({
             where: { id: resolution.id },
             data: {
-              status: 'failed',
-              lastError: 'Outcome not available from external market',
+              status: 'pending',
+              lastError: 'Outcome not yet available from external market',
               attempts: resolution.attempts + 1,
             },
           });
 
           results.push({
             id: resolution.id,
-            status: 'failed',
-            error: 'Outcome not available',
+            status: 'pending',
+            error: 'Outcome not yet available - will retry',
             duration: Date.now() - resolutionStartTime,
           });
 
           continue;
         }
 
-        // Execute resolution on Flow blockchain
-        if (!resolution.flowResolutionId) {
-          throw new Error('Flow resolution ID not found');
+        // Execute resolution on Flow blockchain (if on-chain ID exists)
+        let txId: string | null = null;
+
+        if (resolution.flowResolutionId) {
+          console.log(`[Cron: Execute Resolutions] Executing resolution ${resolution.id} on-chain with outcome: ${outcome}`);
+
+          txId = await resolveMarket(
+            Number(resolution.flowResolutionId),
+            outcome
+          );
+
+          // Wait for transaction to be sealed
+          await waitForSealed(txId);
+          console.log(`[Cron: Execute Resolutions] Transaction sealed: ${txId}`);
+        } else {
+          console.log(`[Cron: Execute Resolutions] Resolution ${resolution.id} is DB-only (no flowResolutionId), updating directly`);
         }
-
-        console.log(`[Cron: Execute Resolutions] Executing resolution ${resolution.id} with outcome: ${outcome}`);
-
-        const txId = await resolveMarket(
-          Number(resolution.flowResolutionId),
-          outcome
-        );
-
-        // Wait for transaction to be sealed
-        await waitForSealed(txId);
-
-        console.log(`[Cron: Execute Resolutions] Transaction sealed: ${txId}`);
 
         // Update database
         await prisma.scheduledResolution.update({
@@ -138,7 +139,16 @@ export async function POST(request: NextRequest) {
             status: 'completed',
             outcome,
             executedAt: new Date(),
-            executeTransactionHash: txId,
+            ...(txId && { executeTransactionHash: txId }),
+          },
+        });
+
+        // Update the external market status
+        await prisma.externalMarket.update({
+          where: { id: resolution.externalMarketId },
+          data: {
+            status: 'resolved',
+            outcome: outcome ? 'yes' : 'no',
           },
         });
 

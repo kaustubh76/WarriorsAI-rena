@@ -7,19 +7,64 @@ import * as types from '@onflow/types';
 
 // Configure FCL
 fcl.config({
-  'accessNode.api': process.env.FLOW_RPC_URL || 'https://access-testnet.onflow.org',
+  'flow.network': 'testnet',
+  'accessNode.api': process.env.FLOW_RPC_URL || 'https://rest-testnet.onflow.org',
 });
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
 const PRIVATE_KEY = process.env.FLOW_TESTNET_PRIVATE_KEY;
+const SERVER_ADDRESS = process.env.FLOW_TESTNET_ADDRESS;
 const CRON_SECRET = process.env.CRON_SECRET;
 
-// Validate CRON_SECRET at module load time (skip during build)
+/**
+ * Server-side authorization function for cron-based battle execution
+ */
+function serverAuthorizationFunction(account: any) {
+  return {
+    ...account,
+    tempId: `${SERVER_ADDRESS}-0`,
+    addr: fcl.sansPrefix(SERVER_ADDRESS!),
+    keyId: 0,
+    signingFunction: async (signable: any) => {
+      const { SHA3 } = await import('sha3');
+      // @ts-ignore - elliptic has no bundled types
+      const { ec: EC } = await import('elliptic');
+      const ec = new EC('p256');
+
+      const sha3 = new SHA3(256);
+      sha3.update(Buffer.from(signable.message, 'hex'));
+      const digest = sha3.digest();
+
+      const key = ec.keyFromPrivate(Buffer.from(PRIVATE_KEY!, 'hex'));
+      const sig = key.sign(digest);
+
+      const n = 32;
+      const r = sig.r.toArrayLike(Buffer, 'be', n);
+      const s = sig.s.toArrayLike(Buffer, 'be', n);
+      const signature = Buffer.concat([r, s]).toString('hex');
+
+      return {
+        addr: fcl.sansPrefix(SERVER_ADDRESS!),
+        keyId: 0,
+        signature,
+      };
+    },
+  };
+}
+
+// Validate required config at module load time (skip during build)
 const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
 if (!isBuildTime && (!CRON_SECRET || CRON_SECRET.length < 32)) {
   throw new Error(
     'CRON_SECRET must be set in environment variables and be at least 32 characters long. ' +
     'Generate a secure secret with: openssl rand -base64 32'
+  );
+}
+if (!isBuildTime && (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS)) {
+  console.warn(
+    '[Execute Battles Cron] Missing Flow config: ' +
+    `CONTRACT_ADDRESS=${!!CONTRACT_ADDRESS}, PRIVATE_KEY=${!!PRIVATE_KEY}, SERVER_ADDRESS=${!!SERVER_ADDRESS}. ` +
+    'Cron job will reject requests until these are configured.'
   );
 }
 
@@ -56,7 +101,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY) {
+    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
@@ -113,27 +158,31 @@ export async function POST(request: NextRequest) {
         const battleId = parseInt(battle.id);
         console.log(`[Execute Battles Cron] Executing battle ${battleId}...`);
 
-        // Execute battle transaction
+        // Execute battle transaction with server-side auth
         const transactionId = await fcl.mutate({
           cadence: `
             import ScheduledBattle from ${CONTRACT_ADDRESS}
 
             transaction(battleId: UInt64) {
-              prepare(signer: auth(Storage) &Account) {}
+              let executorAddress: Address
+
+              prepare(signer: auth(Storage) &Account) {
+                self.executorAddress = signer.address
+              }
 
               execute {
                 let winner = ScheduledBattle.executeBattle(
                   transactionId: battleId,
-                  executor: signer.address
+                  executor: self.executorAddress
                 )
                 log("Battle executed, winner: ".concat(winner.toString()))
               }
             }
           `,
-          args: (arg, t) => [arg(String(battleId), types.UInt64)],
-          proposer: fcl.authz,
-          payer: fcl.authz,
-          authorizations: [fcl.authz],
+          args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
+          proposer: serverAuthorizationFunction,
+          payer: serverAuthorizationFunction,
+          authorizations: [serverAuthorizationFunction],
           limit: 1000,
         });
 

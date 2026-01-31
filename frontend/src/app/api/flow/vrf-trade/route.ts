@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
     const publicClient = getPublicClient();
     const fallbackClient = getFallbackPublicClient();
     const walletClient = getWalletClient(privateKey);
-    const account = walletClient.account;
+    const account = walletClient.account!;
 
     // Verify mirror market exists and is active (wrapped with circuit breaker)
     try {
@@ -416,7 +416,7 @@ export async function POST(request: NextRequest) {
     if (useVRF && agentId) {
       FlowMetrics.recordVRFTradeExecuted(mirrorKey, agentId, amount);
     } else {
-      FlowMetrics.recordTradeExecuted(mirrorKey, isYes, amount);
+      FlowMetrics.recordTradeExecuted(mirrorKey, isYes ? 'yes' : 'no');
       FlowMetrics.recordTradeVolume(amount);
     }
 

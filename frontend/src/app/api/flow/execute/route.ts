@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
     const publicClient = getPublicClient();
     const fallbackClient = getFallbackPublicClient();
     const walletClient = getWalletClient(privateKey);
-    const account = walletClient.account;
+    const account = walletClient.account!;
 
     switch (body.action) {
       // ========================================
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
 
           // Record success metrics
           timer.end({ status: 'success' });
-          FlowMetrics.recordMarketCreated(source, externalId);
+          FlowMetrics.recordMarketCreated(source);
 
           return NextResponse.json({
             success: true,
@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
 
           // Record success metrics
           timer.end({ status: 'success' });
-          FlowMetrics.recordTradeExecuted(mirrorKey, isYes, amount);
+          FlowMetrics.recordTradeExecuted(mirrorKey, isYes ? 'yes' : 'no');
           FlowMetrics.recordTradeVolume(amount);
 
           return NextResponse.json({

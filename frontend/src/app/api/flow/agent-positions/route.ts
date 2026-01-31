@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
 
     // Get contract addresses
     const contracts = chainsToContracts[545];
-    const predictionMarketAddress = contracts?.predictionMarket as `0x${string}`;
+    const predictionMarketAddress = contracts?.predictionMarketAMM as `0x${string}`;
     const externalMarketMirrorAddress = contracts?.externalMarketMirror as `0x${string}`;
 
     // Group by market
@@ -235,11 +235,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Count pending trades (unconfirmed)
+    // Count pending trades (unconfirmed / not completed)
     const pendingCount = await prisma.mirrorTrade.count({
       where: {
         agentId: agentId,
-        txHash: null,
+        completed: false,
       },
     });
 

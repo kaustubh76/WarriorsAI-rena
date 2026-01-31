@@ -5,6 +5,7 @@ import * as types from '@onflow/types';
 import { withTimeout } from '@/lib/flow/cadenceClient';
 import { prisma } from '@/lib/prisma';
 import { verifyToken, extractAddressFromHeader } from '@/lib/auth';
+
 const AUTH_SECRET = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'fallback-dev-secret';
 
 /**
@@ -46,15 +47,60 @@ async function verifyAuth(request: NextRequest): Promise<string | null> {
 
 // Configure FCL for server-side operations
 fcl.config({
-  'accessNode.api': process.env.FLOW_RPC_URL || 'https://access-testnet.onflow.org',
-  'discovery.wallet': 'https://fcl-discovery.onflow.org/testnet/authn',
+  'flow.network': 'testnet',
+  'accessNode.api': process.env.FLOW_RPC_URL || 'https://rest-testnet.onflow.org',
 });
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
 const PRIVATE_KEY = process.env.FLOW_TESTNET_PRIVATE_KEY;
+const SERVER_ADDRESS = process.env.FLOW_TESTNET_ADDRESS;
 
-// Server-side authorization for automated execution
-const serverAuth = fcl.authz;
+// Warn at module load if Flow config is missing (skip during build)
+const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
+if (!isBuildTime && (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS)) {
+  console.warn(
+    '[Flow Scheduled API] Missing Flow config: ' +
+    `CONTRACT_ADDRESS=${!!CONTRACT_ADDRESS}, PRIVATE_KEY=${!!PRIVATE_KEY}, SERVER_ADDRESS=${!!SERVER_ADDRESS}. ` +
+    'Server-side Flow operations will fail until these are configured.'
+  );
+}
+
+/**
+ * Server-side authorization function using private key
+ * Required for automated battle scheduling/execution without user wallet
+ */
+function serverAuthorizationFunction(account: any) {
+  return {
+    ...account,
+    tempId: `${SERVER_ADDRESS}-0`,
+    addr: fcl.sansPrefix(SERVER_ADDRESS!),
+    keyId: 0,
+    signingFunction: async (signable: any) => {
+      const { SHA3 } = await import('sha3');
+      // @ts-ignore - elliptic has no bundled types
+      const { ec: EC } = await import('elliptic');
+      const ec = new EC('p256');
+
+      const sha3 = new SHA3(256);
+      sha3.update(Buffer.from(signable.message, 'hex'));
+      const digest = sha3.digest();
+
+      const key = ec.keyFromPrivate(Buffer.from(PRIVATE_KEY!, 'hex'));
+      const sig = key.sign(digest);
+
+      const n = 32;
+      const r = sig.r.toArrayLike(Buffer, 'be', n);
+      const s = sig.s.toArrayLike(Buffer, 'be', n);
+      const signature = Buffer.concat([r, s]).toString('hex');
+
+      return {
+        addr: fcl.sansPrefix(SERVER_ADDRESS!),
+        keyId: 0,
+        signature,
+      };
+    },
+  };
+}
 
 /**
  * Extract battle ID from transaction events
@@ -165,6 +211,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
 
+  let warrior1Id: number | undefined;
+  let warrior2Id: number | undefined;
+  let scheduledTime: number | undefined;
+
   try {
     // Verify authentication
     const userId = await verifyAuth(request);
@@ -175,7 +225,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY) {
+    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
@@ -183,7 +233,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { warrior1Id, warrior2Id, betAmount, scheduledTime } = body;
+    warrior1Id = body.warrior1Id;
+    warrior2Id = body.warrior2Id;
+    const betAmount = body.betAmount;
+    scheduledTime = body.scheduledTime;
 
     // Validation
     if (!warrior1Id || !warrior2Id || !betAmount || !scheduledTime) {
@@ -215,16 +268,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Schedule battle on-chain with timeout
+    // Uses Scheduler resource — must borrow from signer's storage
     const transactionId = await withTimeout(
       fcl.mutate({
         cadence: `
           import ScheduledBattle from ${CONTRACT_ADDRESS}
 
           transaction(warrior1Id: UInt64, warrior2Id: UInt64, betAmount: UFix64, scheduledTime: UFix64) {
-            prepare(signer: auth(Storage) &Account) {}
+            let scheduler: &ScheduledBattle.Scheduler
+
+            prepare(signer: auth(Storage, SaveValue, LoadValue, BorrowValue) &Account) {
+              // Create Scheduler resource if it doesn't exist
+              if signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath) == nil {
+                let newScheduler <- ScheduledBattle.createScheduler()
+                signer.storage.save(<-newScheduler, to: ScheduledBattle.SchedulerStoragePath)
+              }
+              self.scheduler = signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath)
+                ?? panic("Could not borrow Scheduler")
+            }
 
             execute {
-              let battleId = ScheduledBattle.scheduleBattle(
+              let battleId = self.scheduler.scheduleBattle(
                 warrior1Id: warrior1Id,
                 warrior2Id: warrior2Id,
                 betAmount: betAmount,
@@ -234,15 +298,15 @@ export async function POST(request: NextRequest) {
             }
           }
         `,
-        args: (arg, t) => [
+        args: (arg: any, t: any) => [
           arg(String(warrior1Id), types.UInt64),
           arg(String(warrior2Id), types.UInt64),
           arg(betAmount.toFixed(1), types.UFix64),
-          arg(scheduledTime.toFixed(1), types.UFix64),
+          arg((scheduledTime as number).toFixed(1), types.UFix64),
         ],
-        proposer: serverAuth,
-        payer: serverAuth,
-        authorizations: [serverAuth],
+        proposer: serverAuthorizationFunction,
+        payer: serverAuthorizationFunction,
+        authorizations: [serverAuthorizationFunction],
         limit: 1000,
       }),
       30000,
@@ -265,7 +329,7 @@ export async function POST(request: NextRequest) {
       status: txResult.status,
       warrior1Id,
       warrior2Id,
-      scheduledTime: new Date(scheduledTime * 1000).toISOString(),
+      scheduledTime: new Date((scheduledTime as number) * 1000).toISOString(),
     });
 
     // Save to database for tracking and history
@@ -273,10 +337,10 @@ export async function POST(request: NextRequest) {
       await prisma.scheduledTransaction.create({
         data: {
           battleId,
-          warrior1Id,
-          warrior2Id,
+          warrior1Id: warrior1Id as number,
+          warrior2Id: warrior2Id as number,
           betAmount,
-          scheduledTime: new Date(scheduledTime * 1000),
+          scheduledTime: new Date((scheduledTime as number) * 1000),
           status: 'pending',
           scheduleTransactionId: transactionId,
           creator: userId,
@@ -332,6 +396,9 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
 
+  let battleId: number | undefined;
+  let dbBattle: any = null;
+
   try {
     // Verify authentication
     const userId = await verifyAuth(request);
@@ -342,7 +409,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY) {
+    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
@@ -350,7 +417,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { battleId } = body;
+    battleId = body.battleId;
 
     if (typeof battleId !== 'number') {
       return NextResponse.json(
@@ -360,13 +427,12 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check database for battle status
-    const dbBattle = await prisma.scheduledTransaction.findFirst({
+    dbBattle = await prisma.scheduledTransaction.findFirst({
       where: { battleId },
     });
 
     if (dbBattle) {
       // Check ownership - only creator can execute their battles (unless they're an admin)
-      // For now, we'll allow execution if userId matches creator or if userId contains 'admin'
       const isOwner = dbBattle.creator === userId;
       const isAdmin = userId.toLowerCase().includes('admin') || userId === 'server';
 
@@ -404,10 +470,10 @@ export async function PUT(request: NextRequest) {
 
           access(all) fun main(battleId: UInt64): Bool {
             let battle = ScheduledBattle.scheduledTransactions[battleId]
-            return battle != nil && !battle.executed
+            return battle != nil && !battle!.executed
           }
         `,
-        args: (arg, t) => [arg(String(battleId), types.UInt64)],
+        args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
       }),
       30000,
       'On-chain status check timed out'
@@ -431,27 +497,33 @@ export async function PUT(request: NextRequest) {
     }
 
     // Execute battle on-chain with timeout
+    // Note: `signer` is only available in the `prepare` block in Cadence,
+    // so we capture the address there and use it in `execute`
     const transactionId = await withTimeout(
       fcl.mutate({
         cadence: `
           import ScheduledBattle from ${CONTRACT_ADDRESS}
 
           transaction(battleId: UInt64) {
-            prepare(signer: auth(Storage) &Account) {}
+            let executorAddress: Address
+
+            prepare(signer: auth(Storage) &Account) {
+              self.executorAddress = signer.address
+            }
 
             execute {
               let winner = ScheduledBattle.executeBattle(
                 transactionId: battleId,
-                executor: signer.address
+                executor: self.executorAddress
               )
               log("Battle executed, winner: ".concat(winner.toString()))
             }
           }
         `,
-        args: (arg, t) => [arg(String(battleId), types.UInt64)],
-        proposer: serverAuth,
-        payer: serverAuth,
-        authorizations: [serverAuth],
+        args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
+        proposer: serverAuthorizationFunction,
+        payer: serverAuthorizationFunction,
+        authorizations: [serverAuthorizationFunction],
         limit: 1000,
       }),
       30000,
@@ -553,6 +625,9 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
 
+  let battleId: number | undefined;
+  let dbBattle: any = null;
+
   try {
     // Verify authentication
     const userId = await verifyAuth(request);
@@ -563,7 +638,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    if (!CONTRACT_ADDRESS || !PRIVATE_KEY) {
+    if (!CONTRACT_ADDRESS || !PRIVATE_KEY || !SERVER_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
         { status: 503 }
@@ -571,7 +646,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { battleId } = body;
+    battleId = body.battleId;
 
     if (typeof battleId !== 'number') {
       return NextResponse.json(
@@ -581,7 +656,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check database for battle status
-    const dbBattle = await prisma.scheduledTransaction.findFirst({
+    dbBattle = await prisma.scheduledTransaction.findFirst({
       where: { battleId },
     });
 
@@ -607,24 +682,30 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Cancel battle on-chain with timeout
+    // Uses Scheduler resource — must borrow from signer's storage
     const transactionId = await withTimeout(
       fcl.mutate({
         cadence: `
           import ScheduledBattle from ${CONTRACT_ADDRESS}
 
           transaction(battleId: UInt64) {
-            prepare(signer: auth(Storage) &Account) {}
+            let scheduler: &ScheduledBattle.Scheduler
+
+            prepare(signer: auth(Storage, BorrowValue) &Account) {
+              self.scheduler = signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath)
+                ?? panic("Scheduler not found")
+            }
 
             execute {
-              ScheduledBattle.cancelBattle(transactionId: battleId)
+              self.scheduler.cancelBattle(transactionId: battleId)
               log("Battle cancelled: ".concat(battleId.toString()))
             }
           }
         `,
-        args: (arg, t) => [arg(String(battleId), types.UInt64)],
-        proposer: serverAuth,
-        payer: serverAuth,
-        authorizations: [serverAuth],
+        args: (arg: any, t: any) => [arg(String(battleId), types.UInt64)],
+        proposer: serverAuthorizationFunction,
+        payer: serverAuthorizationFunction,
+        authorizations: [serverAuthorizationFunction],
         limit: 1000,
       }),
       30000,
