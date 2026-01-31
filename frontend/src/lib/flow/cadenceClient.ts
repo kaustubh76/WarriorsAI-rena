@@ -22,9 +22,12 @@ export async function withTimeout<T>(
 }
 
 // Configure FCL for Flow testnet with Flow Wallet (Blocto shut down Dec 2025)
+// IMPORTANT: accessNode.api must be the Cadence REST access node, NOT the EVM RPC URL.
+// NEXT_PUBLIC_FLOW_ACCESS_NODE = Cadence REST endpoint (rest-testnet.onflow.org)
+// NEXT_PUBLIC_FLOW_RPC_URL = EVM endpoint (testnet.evm.nodes.onflow.org) — NOT for FCL
 fcl.config({
   'flow.network': 'testnet',
-  'accessNode.api': process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://rest-testnet.onflow.org',
+  'accessNode.api': process.env.NEXT_PUBLIC_FLOW_ACCESS_NODE || 'https://rest-testnet.onflow.org',
   'discovery.wallet': 'https://fcl-discovery.onflow.org/testnet/authn',
   'discovery.authn.endpoint': 'https://fcl-discovery.onflow.org/api/testnet/authn',
   'discovery.authn.exclude': ['0x55ad22f01ef568a1'], // Exclude defunct Blocto
@@ -92,10 +95,20 @@ export const cadenceClient = {
             import ScheduledBattle from ${CONTRACT_ADDRESS}
 
             transaction(warrior1Id: UInt64, warrior2Id: UInt64, betAmount: UFix64, scheduledTime: UFix64) {
-              prepare(signer: auth(Storage) &Account) {}
+              let scheduler: &ScheduledBattle.Scheduler
+
+              prepare(signer: auth(Storage, SaveValue, LoadValue, BorrowValue) &Account) {
+                // Create Scheduler resource if it doesn't exist
+                if signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath) == nil {
+                  let newScheduler <- ScheduledBattle.createScheduler()
+                  signer.storage.save(<-newScheduler, to: ScheduledBattle.SchedulerStoragePath)
+                }
+                self.scheduler = signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath)
+                  ?? panic("Could not borrow Scheduler")
+              }
 
               execute {
-                let battleId = ScheduledBattle.scheduleBattle(
+                let battleId = self.scheduler.scheduleBattle(
                   warrior1Id: warrior1Id,
                   warrior2Id: warrior2Id,
                   betAmount: betAmount,
@@ -111,9 +124,9 @@ export const cadenceClient = {
             arg(params.betAmount.toFixed(1), types.UFix64),
             arg(params.scheduledTime.toFixed(1), types.UFix64),
           ],
-          proposer: fcl.authz,
-          payer: fcl.authz,
-          authorizations: [fcl.authz],
+          proposer: fcl.authz as any,
+          payer: fcl.authz as any,
+          authorizations: [fcl.authz as any],
           limit: 1000,
         }),
         30000,
@@ -212,21 +225,25 @@ export const cadenceClient = {
             import ScheduledBattle from ${CONTRACT_ADDRESS}
 
             transaction(battleId: UInt64) {
-              prepare(signer: auth(Storage) &Account) {}
+              let executorAddress: Address
+
+              prepare(signer: auth(Storage) &Account) {
+                self.executorAddress = signer.address
+              }
 
               execute {
                 let winner = ScheduledBattle.executeBattle(
                   transactionId: battleId,
-                  executor: signer.address
+                  executor: self.executorAddress
                 )
                 log("Battle executed, winner: ".concat(winner.toString()))
               }
             }
           `,
           args: (arg, t) => [arg(String(battleId), types.UInt64)],
-          proposer: fcl.authz,
-          payer: fcl.authz,
-          authorizations: [fcl.authz],
+          proposer: fcl.authz as any,
+          payer: fcl.authz as any,
+          authorizations: [fcl.authz as any],
           limit: 1000,
         }),
         30000,
@@ -262,18 +279,23 @@ export const cadenceClient = {
             import ScheduledBattle from ${CONTRACT_ADDRESS}
 
             transaction(battleId: UInt64) {
-              prepare(signer: auth(Storage) &Account) {}
+              let scheduler: &ScheduledBattle.Scheduler
+
+              prepare(signer: auth(Storage, BorrowValue) &Account) {
+                self.scheduler = signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath)
+                  ?? panic("Scheduler not found - you must schedule a battle first")
+              }
 
               execute {
-                ScheduledBattle.cancelBattle(transactionId: battleId)
+                self.scheduler.cancelBattle(transactionId: battleId)
                 log("Battle cancelled: ".concat(battleId.toString()))
               }
             }
           `,
           args: (arg, t) => [arg(String(battleId), types.UInt64)],
-          proposer: fcl.authz,
-          payer: fcl.authz,
-          authorizations: [fcl.authz],
+          proposer: fcl.authz as any,
+          payer: fcl.authz as any,
+          authorizations: [fcl.authz as any],
           limit: 1000,
         }),
         30000,

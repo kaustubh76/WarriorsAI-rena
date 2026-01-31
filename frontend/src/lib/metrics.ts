@@ -423,6 +423,35 @@ export class FlowMetrics {
     });
   }
 
+  // ========== Convenience Aliases ==========
+
+  /**
+   * Record an operation failure (alias for recordFailedOperation with default severity)
+   */
+  static recordOperationFailed(operation: string, severity: string = 'error'): void {
+    this.recordFailedOperation(operation, severity);
+  }
+
+  /**
+   * Record VRF trade execution
+   */
+  static recordVRFTradeExecuted(mirrorKey: string, agentId: string, amount: string): void {
+    this.registry.incrementCounter('flow_vrf_trades_executed_total', 1, {
+      mirror_key: mirrorKey,
+      agent_id: agentId,
+    });
+    this.recordTradeVolume(amount);
+  }
+
+  /**
+   * Record 0G verification result
+   */
+  static recordZeroGVerification(success: boolean): void {
+    this.registry.incrementCounter('flow_zerog_verifications_total', 1, {
+      status: success ? 'success' : 'error',
+    });
+  }
+
   // ========== Export Methods ==========
 
   static exportPrometheus(): string {

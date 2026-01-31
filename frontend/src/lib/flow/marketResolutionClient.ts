@@ -6,11 +6,11 @@
 import * as fcl from '@onflow/fcl';
 import * as types from '@onflow/types';
 
-// Contract addresses
-const SCHEDULED_MARKET_RESOLVER_ADDRESS = process.env.NEXT_PUBLIC_SCHEDULED_MARKET_RESOLVER_ADDRESS || '0xf8d6e0586b0a20c7';
+// Contract addresses — all 3 contracts deployed to same account on testnet
+const SCHEDULED_MARKET_RESOLVER_ADDRESS = process.env.NEXT_PUBLIC_SCHEDULED_MARKET_RESOLVER_ADDRESS || '0xb4f445e1abc955a8';
 
 // Flow native FlowTransactionScheduler (Forte upgrade)
-// Testnet: 0x8c5303eaa26202d6, Emulator: 0xf8d6e0586b0a20c7
+// Testnet: 0x8c5303eaa26202d6
 const FLOW_TX_SCHEDULER_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TX_SCHEDULER_ADDRESS || '0x8c5303eaa26202d6';
 
 // ============================================
@@ -308,13 +308,17 @@ export async function resolveMarket(
     import ScheduledMarketResolver from ${SCHEDULED_MARKET_RESOLVER_ADDRESS}
 
     transaction(resolutionId: UInt64, outcome: Bool) {
-      prepare(signer: &Account) {}
+      let resolverAddress: Address
+
+      prepare(signer: &Account) {
+        self.resolverAddress = signer.address
+      }
 
       execute {
         ScheduledMarketResolver.resolveMarket(
           resolutionId: resolutionId,
           outcome: outcome,
-          resolver: signer.address
+          resolver: self.resolverAddress
         )
 
         log("Resolved market with ID: ".concat(resolutionId.toString()))

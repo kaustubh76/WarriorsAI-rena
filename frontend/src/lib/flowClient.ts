@@ -7,7 +7,7 @@
  * - Retry support with exponential backoff
  */
 
-import { createPublicClient, createWalletClient, http, type PublicClient, type WalletClient, type Account, type Chain } from 'viem';
+import { createPublicClient, createWalletClient, http, type PublicClient, type WalletClient, type Account, type Chain, type Transport } from 'viem';
 import { flowTestnet, flowMainnet } from 'viem/chains';
 import { getFlowRpcUrl, getFlowFallbackRpcUrl, getChainId } from '@/constants';
 
@@ -55,7 +55,7 @@ export function createFlowFallbackClient(): PublicClient {
 /**
  * Create a Flow wallet client with proper timeout configuration
  */
-export function createFlowWalletClient(account: Account): WalletClient {
+export function createFlowWalletClient(account: Account) {
   return createWalletClient({
     account,
     chain: getFlowChain(),
@@ -70,7 +70,7 @@ export function createFlowWalletClient(account: Account): WalletClient {
 /**
  * Create a Flow fallback wallet client using Tatum RPC
  */
-export function createFlowFallbackWalletClient(account: Account): WalletClient {
+export function createFlowFallbackWalletClient(account: Account) {
   return createWalletClient({
     account,
     chain: getFlowChain(),
