@@ -1,7 +1,7 @@
 import ScheduledBattle from "../contracts/ScheduledBattle.cdc"
 
 /**
- * Schedule a battle for future execution
+ * Schedule a battle for future execution (Cadence 1.0)
  *
  * @param warrior1Id - ID of the first warrior NFT
  * @param warrior2Id - ID of the second warrior NFT
@@ -16,15 +16,15 @@ transaction(
 ) {
     let scheduler: &ScheduledBattle.Scheduler
 
-    prepare(signer: AuthAccount) {
+    prepare(signer: auth(Storage, SaveValue, BorrowValue) &Account) {
         // Check if scheduler exists, create if not
-        if signer.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath) == nil {
+        if signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath) == nil {
             let newScheduler <- ScheduledBattle.createScheduler()
-            signer.save(<-newScheduler, to: ScheduledBattle.SchedulerStoragePath)
+            signer.storage.save(<-newScheduler, to: ScheduledBattle.SchedulerStoragePath)
         }
 
         // Borrow scheduler reference
-        self.scheduler = signer.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath)
+        self.scheduler = signer.storage.borrow<&ScheduledBattle.Scheduler>(from: ScheduledBattle.SchedulerStoragePath)
             ?? panic("Could not borrow scheduler reference")
     }
 

@@ -1,7 +1,7 @@
 import ScheduledMarketResolver from "../contracts/ScheduledMarketResolver.cdc"
 
 /**
- * Schedule a market resolution for future execution
+ * Schedule a market resolution for future execution (Cadence 1.0)
  *
  * @param marketId - ID of the prediction market
  * @param scheduledTime - Unix timestamp when market should be resolved
@@ -14,15 +14,15 @@ transaction(
 ) {
     let resolver: &ScheduledMarketResolver.Resolver
 
-    prepare(signer: AuthAccount) {
+    prepare(signer: auth(Storage, SaveValue, BorrowValue) &Account) {
         // Check if resolver exists, create if not
-        if signer.borrow<&ScheduledMarketResolver.Resolver>(from: ScheduledMarketResolver.ResolverStoragePath) == nil {
+        if signer.storage.borrow<&ScheduledMarketResolver.Resolver>(from: ScheduledMarketResolver.ResolverStoragePath) == nil {
             let newResolver <- ScheduledMarketResolver.createResolver()
-            signer.save(<-newResolver, to: ScheduledMarketResolver.ResolverStoragePath)
+            signer.storage.save(<-newResolver, to: ScheduledMarketResolver.ResolverStoragePath)
         }
 
         // Borrow resolver reference
-        self.resolver = signer.borrow<&ScheduledMarketResolver.Resolver>(from: ScheduledMarketResolver.ResolverStoragePath)
+        self.resolver = signer.storage.borrow<&ScheduledMarketResolver.Resolver>(from: ScheduledMarketResolver.ResolverStoragePath)
             ?? panic("Could not borrow resolver reference")
     }
 

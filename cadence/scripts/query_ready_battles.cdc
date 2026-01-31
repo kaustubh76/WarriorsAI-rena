@@ -5,6 +5,6 @@ import ScheduledBattle from "../contracts/ScheduledBattle.cdc"
  *
  * Returns array of battles whose scheduled time has arrived
  */
-pub fun main(): [ScheduledBattle.ScheduledTransaction] {
+access(all) fun main(): [ScheduledBattle.ScheduledTransaction] {
     return ScheduledBattle.getReadyTransactions()
 }

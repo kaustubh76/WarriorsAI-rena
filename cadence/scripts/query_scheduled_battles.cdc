@@ -5,6 +5,6 @@ import ScheduledBattle from "../contracts/ScheduledBattle.cdc"
  *
  * Returns array of all battles that are scheduled but not yet executed or cancelled
  */
-pub fun main(): [ScheduledBattle.ScheduledTransaction] {
+access(all) fun main(): [ScheduledBattle.ScheduledTransaction] {
     return ScheduledBattle.getPendingTransactions()
 }
