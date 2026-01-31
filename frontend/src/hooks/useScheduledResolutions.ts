@@ -274,6 +274,46 @@ export function useScheduledResolutions(
     }
   }, [fetchResolutions]);
 
+  // Get single resolution
+  const getResolution = useCallback(async (id: string): Promise<ScheduledResolution | null> => {
+    try {
+      const response = await fetch(`/api/flow/scheduled-resolutions?id=${id}`);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch resolution');
+      }
+
+      const data = await response.json();
+
+      if (!data.resolution) return null;
+
+      // Parse dates and bigints
+      return {
+        ...data.resolution,
+        flowResolutionId: data.resolution.flowResolutionId ? BigInt(data.resolution.flowResolutionId) : null,
+        scheduledTime: new Date(data.resolution.scheduledTime),
+        executedAt: data.resolution.executedAt ? new Date(data.resolution.executedAt) : undefined,
+        createdAt: new Date(data.resolution.createdAt),
+        updatedAt: new Date(data.resolution.updatedAt),
+        externalMarket: {
+          ...data.resolution.externalMarket,
+          resolvedAt: data.resolution.externalMarket?.resolvedAt
+            ? new Date(data.resolution.externalMarket.resolvedAt)
+            : undefined,
+        },
+        mirrorMarket: data.resolution.mirrorMarket ? {
+          ...data.resolution.mirrorMarket,
+          endTime: new Date(data.resolution.mirrorMarket.endTime),
+        } : undefined,
+      };
+    } catch (err: any) {
+      console.error('Error fetching resolution:', err);
+      toast.error(`Failed to fetch resolution: ${err.message}`);
+      return null;
+    }
+  }, []);
+
   // Cancel resolution: updates DB then cancels on-chain via Flow Wallet
   const cancelResolution = useCallback(async (id: string): Promise<void> => {
     try {
@@ -317,46 +357,6 @@ export function useScheduledResolutions(
       setCancelling(false);
     }
   }, [fetchResolutions, getResolution]);
-
-  // Get single resolution
-  const getResolution = useCallback(async (id: string): Promise<ScheduledResolution | null> => {
-    try {
-      const response = await fetch(`/api/flow/scheduled-resolutions?id=${id}`);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch resolution');
-      }
-
-      const data = await response.json();
-
-      if (!data.resolution) return null;
-
-      // Parse dates and bigints
-      return {
-        ...data.resolution,
-        flowResolutionId: data.resolution.flowResolutionId ? BigInt(data.resolution.flowResolutionId) : null,
-        scheduledTime: new Date(data.resolution.scheduledTime),
-        executedAt: data.resolution.executedAt ? new Date(data.resolution.executedAt) : undefined,
-        createdAt: new Date(data.resolution.createdAt),
-        updatedAt: new Date(data.resolution.updatedAt),
-        externalMarket: {
-          ...data.resolution.externalMarket,
-          resolvedAt: data.resolution.externalMarket?.resolvedAt
-            ? new Date(data.resolution.externalMarket.resolvedAt)
-            : undefined,
-        },
-        mirrorMarket: data.resolution.mirrorMarket ? {
-          ...data.resolution.mirrorMarket,
-          endTime: new Date(data.resolution.mirrorMarket.endTime),
-        } : undefined,
-      };
-    } catch (err: any) {
-      console.error('Error fetching resolution:', err);
-      toast.error(`Failed to fetch resolution: ${err.message}`);
-      return null;
-    }
-  }, []);
 
   // Manual refresh
   const refresh = useCallback(async () => {
