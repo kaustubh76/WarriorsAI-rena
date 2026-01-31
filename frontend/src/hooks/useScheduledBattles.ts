@@ -21,6 +21,24 @@ export interface UseScheduledBattlesReturn {
   refresh: () => Promise<void>;
 }
 
+/**
+ * Parse on-chain battle data into ScheduledBattle format.
+ * The API returns raw Cadence struct fields as strings.
+ */
+function parseOnChainBattle(raw: any): ScheduledBattle {
+  return {
+    id: parseInt(raw.id || '0'),
+    warrior1Id: parseInt(raw.warrior1Id || raw.warrior1_id || '0'),
+    warrior2Id: parseInt(raw.warrior2Id || raw.warrior2_id || '0'),
+    betAmount: parseFloat(raw.betAmount || raw.bet_amount || '0'),
+    scheduledTime: new Date(parseFloat(raw.scheduledTime || raw.scheduled_time || '0') * 1000),
+    creator: raw.creator || '',
+    executed: raw.executed === true || raw.executed === 'true',
+    cancelled: raw.cancelled === true || raw.cancelled === 'true',
+    transactionId: raw.transactionId,
+  };
+}
+
 export function useScheduledBattles(): UseScheduledBattlesReturn {
   const [pendingBattles, setPendingBattles] = useState<ScheduledBattle[]>([]);
   const [readyBattles, setReadyBattles] = useState<ScheduledBattle[]>([]);
@@ -32,31 +50,34 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
 
   const mountedRef = useRef(true);
 
-  // Fetch pending battles
-  const fetchPendingBattles = useCallback(async () => {
+  /**
+   * Fetch battles via the API route, which queries the blockchain
+   * and provides database-tracked status information.
+   */
+  const fetchBattles = useCallback(async () => {
     try {
-      const battles = await cadenceClient.getPendingBattles();
-      if (mountedRef.current) {
-        setPendingBattles(battles);
-      }
-    } catch (error: any) {
-      console.error('[useScheduledBattles] Failed to fetch pending battles:', error);
-      if (mountedRef.current) {
-        setError(error.message || 'Failed to load pending battles');
-      }
-    }
-  }, []);
+      const response = await fetch('/api/flow/scheduled');
 
-  // Fetch ready battles
-  const fetchReadyBattles = useCallback(async () => {
-    try {
-      const battles = await cadenceClient.getReadyBattles();
-      if (mountedRef.current) {
-        setReadyBattles(battles);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
+
+      const data = await response.json();
+
+      if (!mountedRef.current) return;
+
+      const pending = (data.data?.pending || []).map(parseOnChainBattle);
+      const ready = (data.data?.ready || []).map(parseOnChainBattle);
+
+      setPendingBattles(pending);
+      setReadyBattles(ready);
+      setError(null);
     } catch (error: any) {
-      console.error('[useScheduledBattles] Failed to fetch ready battles:', error);
-      // Don't set error state for ready battles fetch failure
+      console.error('[useScheduledBattles] Failed to fetch battles:', error);
+      if (mountedRef.current) {
+        setError(error.message || 'Failed to load battles');
+      }
     }
   }, []);
 
@@ -65,13 +86,13 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
     setLoading(true);
     setError(null);
     try {
-      await Promise.all([fetchPendingBattles(), fetchReadyBattles()]);
+      await fetchBattles();
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
     }
-  }, [fetchPendingBattles, fetchReadyBattles]);
+  }, [fetchBattles]);
 
   // Initial load
   useEffect(() => {
@@ -81,31 +102,29 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
   // Poll for updates every 15 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchPendingBattles();
-      fetchReadyBattles();
+      fetchBattles();
     }, 15000);
 
     return () => clearInterval(interval);
-  }, [fetchPendingBattles, fetchReadyBattles]);
+  }, [fetchBattles]);
 
-  // Subscribe to events
+  // Subscribe to on-chain events for real-time updates
   useEffect(() => {
     const unsubscribe = cadenceClient.subscribeToEvents((event) => {
       if (event.type.includes('BattleScheduled')) {
         toast.success('New battle scheduled!');
-        fetchPendingBattles();
+        fetchBattles();
       } else if (event.type.includes('BattleExecuted')) {
         toast.success('Battle executed!');
-        fetchPendingBattles();
-        fetchReadyBattles();
+        fetchBattles();
       } else if (event.type.includes('BattleCancelled')) {
         toast.info('Battle cancelled');
-        fetchPendingBattles();
+        fetchBattles();
       }
     });
 
     return unsubscribe;
-  }, [fetchPendingBattles, fetchReadyBattles]);
+  }, [fetchBattles]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -114,16 +133,38 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
     };
   }, []);
 
-  // Schedule a new battle
+  /**
+   * Schedule a new battle.
+   * Uses the client-side Flow wallet for the user to sign the transaction,
+   * then persists to the database via the API route.
+   */
   const scheduleBattle = useCallback(
     async (params: ScheduleBattleParams): Promise<string> => {
       setScheduling(true);
       try {
+        // Step 1: User signs the on-chain schedule transaction via Flow wallet
         const txId = await cadenceClient.scheduleBattle(params);
-        toast.success(`Battle scheduled! TX: ${txId.slice(0, 8)}...`);
+        toast.success(`Battle scheduled on-chain! TX: ${txId.slice(0, 8)}...`);
 
-        // Refresh data after scheduling
-        await fetchPendingBattles();
+        // Step 2: Persist to database via API for tracking
+        try {
+          await fetch('/api/flow/scheduled', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              warrior1Id: params.warrior1Id,
+              warrior2Id: params.warrior2Id,
+              betAmount: params.betAmount,
+              scheduledTime: params.scheduledTime,
+            }),
+          });
+        } catch (dbError: any) {
+          // Don't fail the user-facing operation if DB sync fails
+          console.warn('[useScheduledBattles] DB sync failed (on-chain tx succeeded):', dbError.message);
+        }
+
+        // Step 3: Refresh data to include the new battle
+        await fetchBattles();
         return txId;
       } catch (error: any) {
         console.error('[useScheduledBattles] Failed to schedule battle:', error);
@@ -136,19 +177,34 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
         }
       }
     },
-    [fetchPendingBattles]
+    [fetchBattles]
   );
 
-  // Execute a ready battle
+  /**
+   * Execute a ready battle via server-side API.
+   * The API route uses server-side authorization (no user wallet needed).
+   */
   const executeBattle = useCallback(
     async (battleId: number): Promise<string> => {
       setExecuting(battleId);
       try {
-        const txId = await cadenceClient.executeBattle(battleId);
+        const response = await fetch('/api/flow/scheduled', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ battleId }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `Execution failed (HTTP ${response.status})`);
+        }
+
+        const txId = data.data?.transactionId || '';
         toast.success(`Battle executed! TX: ${txId.slice(0, 8)}...`);
 
         // Refresh data after execution
-        await Promise.all([fetchPendingBattles(), fetchReadyBattles()]);
+        await fetchBattles();
         return txId;
       } catch (error: any) {
         console.error('[useScheduledBattles] Failed to execute battle:', error);
@@ -161,19 +217,34 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
         }
       }
     },
-    [fetchPendingBattles, fetchReadyBattles]
+    [fetchBattles]
   );
 
-  // Cancel a pending battle
+  /**
+   * Cancel a pending battle via server-side API.
+   * The API route uses server-side authorization.
+   */
   const cancelBattle = useCallback(
     async (battleId: number): Promise<string> => {
       setCancelling(battleId);
       try {
-        const txId = await cadenceClient.cancelBattle(battleId);
+        const response = await fetch('/api/flow/scheduled', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ battleId }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `Cancellation failed (HTTP ${response.status})`);
+        }
+
+        const txId = data.data?.transactionId || '';
         toast.success(`Battle cancelled! TX: ${txId.slice(0, 8)}...`);
 
         // Refresh data after cancellation
-        await fetchPendingBattles();
+        await fetchBattles();
         return txId;
       } catch (error: any) {
         console.error('[useScheduledBattles] Failed to cancel battle:', error);
@@ -186,7 +257,7 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
         }
       }
     },
-    [fetchPendingBattles]
+    [fetchBattles]
   );
 
   // Combine all battles

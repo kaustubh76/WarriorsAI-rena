@@ -19,13 +19,13 @@ export interface ScheduledResolution {
     source: string;
     outcome?: string;
     resolvedAt?: Date;
-    marketId: string;
+    externalId: string;
   };
   mirrorKey?: string;
   mirrorMarket?: {
-    marketKey: string;
+    mirrorKey: string;
     question: string;
-    endTime: Date;
+    resolvedAt?: Date;
   };
   oracleSource: string;
   status: string;
@@ -136,7 +136,7 @@ export function useScheduledResolutions(
         },
         mirrorMarket: r.mirrorMarket ? {
           ...r.mirrorMarket,
-          endTime: new Date(r.mirrorMarket.endTime),
+          resolvedAt: r.mirrorMarket.resolvedAt ? new Date(r.mirrorMarket.resolvedAt) : undefined,
         } : undefined,
       }));
 
@@ -187,7 +187,7 @@ export function useScheduledResolutions(
         };
 
         const txId = await scheduleNativeResolution({
-          marketId: parseInt(data.resolution?.externalMarket?.marketId || '0') || Date.now(),
+          marketId: parseInt(data.resolution?.externalMarket?.externalId || '0') || Date.now(),
           scheduledTime: Math.floor(params.scheduledTime.getTime() / 1000),
           oracleSource: oracleSourceMap[params.oracleSource] || OracleSource.INTERNAL,
         });
@@ -232,19 +232,24 @@ export function useScheduledResolutions(
       setExecuting(true);
       setError(null);
 
-      // Step 1: Update DB status
+      // Step 1: Update DB status and fetch outcome from oracle
       const response = await fetch('/api/flow/scheduled-resolutions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resolutionId: id }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to execute resolution');
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        // Market not yet resolved — retryable, not a fatal error
+        if (data.canRetry) {
+          toast.warning(data.error || 'Market not yet resolved. Try again later.');
+          await fetchResolutions();
+          return;
+        }
+        throw new Error(data.error || 'Failed to execute resolution');
+      }
 
       // Step 2: Submit resolve transaction on-chain via Flow Wallet
       try {
@@ -304,7 +309,7 @@ export function useScheduledResolutions(
         },
         mirrorMarket: data.resolution.mirrorMarket ? {
           ...data.resolution.mirrorMarket,
-          endTime: new Date(data.resolution.mirrorMarket.endTime),
+          resolvedAt: data.resolution.mirrorMarket.resolvedAt ? new Date(data.resolution.mirrorMarket.resolvedAt) : undefined,
         } : undefined,
       };
     } catch (err: any) {
