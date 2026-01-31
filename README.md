@@ -199,7 +199,7 @@ graph TB
         MC2 --> MC3[PredictionMarketAMM.createMarket]
         MC3 --> MC4[Deploy OutcomeTokens YES + NO]
         MC4 --> MC5[Initialize AMM Pool - x * y = k]
-        MC3 --> MC6[CreatorRevenueShare - 2% creator fee]
+        MC3 --> MC6["CreatorRevenueShare - 2% creator fee"]
     end
 
     subgraph "Trading"
@@ -279,14 +279,14 @@ sequenceDiagram
 ```mermaid
 flowchart TB
     subgraph "Detection - Cron Every 10 min"
-        D1[/api/cron/detect-arbitrage] --> D2[ArbitrageMarketMatcher]
+        D1["api/cron/detect-arbitrage"] --> D2[ArbitrageMarketMatcher]
         D2 --> D3[Fetch Polymarket Markets]
         D2 --> D4[Fetch Kalshi Markets]
         D3 & D4 --> D5[Jaccard Similarity Matching - Threshold 0.7]
-        D5 --> D6{Spread >= 5%?}
+        D5 --> D6{"Spread >= 5% ?"}
         D6 -->|Yes| D7[Calculate Arbitrage - cost = price1_yes + price2_no]
         D6 -->|No| D8[Skip]
-        D7 --> D9{cost < 1.0?}
+        D7 --> D9{"cost < 1.0 ?"}
         D9 -->|Yes| D10[Upsert MatchedMarketPair]
         D9 -->|No| D8
         D10 --> D11[Deactivate Stale Pairs]
@@ -302,7 +302,7 @@ flowchart TB
     end
 
     subgraph "Settlement - Cron Every 5 min"
-        S1[/api/cron/settle-arbitrage-battles] --> S2[ArbitrageBattleSettlement]
+        S1["api/cron/settle-arbitrage-battles"] --> S2[ArbitrageBattleSettlement]
         S2 --> S3[Find completed battles with resolved markets]
         S3 --> S4[Calculate actual P and L]
         S4 --> S5[Create SettlementTransaction]
@@ -434,7 +434,7 @@ flowchart LR
     subgraph "settle-arbitrage - 5 min"
         SA1[Verify CRON_SECRET] --> SA2[ArbitrageBattleSettlement]
         SA2 --> SA3[Find settled battles]
-        SA3 --> SA4[Calculate P&L + release escrow]
+        SA3 --> SA4["Calculate PnL + release escrow"]
     end
 ```
 
@@ -581,7 +581,7 @@ flowchart TB
     subgraph "Whale Detection"
         W1[WhaleTrackerService] --> W2[Monitor Polymarket trades]
         W1 --> W3[Monitor Kalshi trades]
-        W2 & W3 --> W4{Trade > threshold?}
+        W2 & W3 --> W4{"Trade > threshold ?"}
         W4 -->|Yes| W5[Create WhaleTrade record]
         W5 --> W6[Update TrackedTrader stats]
         W6 --> W7[Check WhaleFollow subscriptions]
@@ -597,7 +597,7 @@ flowchart TB
     end
 
     subgraph "Performance Tracking"
-        P1[/api/copy-trade/pnl] --> P2[Calculate P&L per whale]
+        P1["api/copy-trade/pnl"] --> P2["Calculate PnL per whale"]
         P1 --> P3[Win rate tracking]
         P1 --> P4[ROI calculation]
         P2 & P3 & P4 --> P5[Leaderboard update]
@@ -632,10 +632,10 @@ flowchart LR
     end
 
     subgraph "API Routes"
-        A1[/api/0g/inference]
-        A2[/api/0g/store]
-        A3[/api/0g/query]
-        A4[/api/0g/upload]
+        A1["api/0g/inference"]
+        A2["api/0g/store"]
+        A3["api/0g/query"]
+        A4["api/0g/upload"]
     end
 
     A1 --> AI1 & AI2 & AI3
@@ -894,14 +894,14 @@ graph TD
     B --> E[Defluence Opponents]
     B --> F[Market Trading]
 
-    C --> G[Battle Rewards - 95%]
+    C --> G["Battle Rewards - 95%"]
     D --> H[Token Burn]
     E --> H
     F --> I[AMM Fees]
 
     G --> J[Player Rewards]
     H --> K[Deflationary Pressure]
-    I --> L[Creator Revenue - 2%]
+    I --> L["Creator Revenue - 2%"]
 
     J --> M[Reinvestment]
     K --> N[Token Value Appreciation]
