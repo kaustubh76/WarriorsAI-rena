@@ -61,10 +61,41 @@ flow accounts add-contract EVMBridge \
 echo "✅ EVMBridge deployed"
 
 echo ""
-echo "🎉 All contracts deployed successfully!"
+echo "All contracts deployed successfully!"
 echo ""
-echo "📝 Next steps:"
-echo "   1. Test the contracts: npm run test:cadence"
-echo "   2. Schedule a test battle: npm run schedule:battle"
-echo "   3. Monitor events: npm run monitor:events"
+
+# Register server account as executor/resolver/operator
+# If FLOW_TESTNET_ADDRESS differs from the deployer, the server account
+# needs explicit authorization to execute battles and resolve markets.
+
+SERVER_ADDR="${FLOW_TESTNET_ADDRESS}"
+
+echo "4. Registering server account as authorized executor..."
+flow transactions send \
+  ./cadence/transactions/admin_add_executor.cdc \
+  --arg "Address:$SERVER_ADDR" \
+  --network=testnet \
+  --signer=testnet-account || echo "  (May already be registered or deployer == server)"
+
+echo "5. Registering server account as authorized resolver..."
+flow transactions send \
+  ./cadence/transactions/admin_add_resolver.cdc \
+  --arg "Address:$SERVER_ADDR" \
+  --network=testnet \
+  --signer=testnet-account || echo "  (May already be registered or deployer == server)"
+
+echo "6. Registering server account as authorized bridge operator..."
+flow transactions send \
+  ./cadence/transactions/admin_add_bridge_operator.cdc \
+  --arg "Address:$SERVER_ADDR" \
+  --network=testnet \
+  --signer=testnet-account || echo "  (May already be registered or deployer == server)"
+
+echo ""
+echo "All contracts deployed and server account authorized!"
+echo ""
+echo "Next steps:"
+echo "   1. Verify deployment: ./scripts/verify-flow-deployment.sh"
+echo "   2. Run the app: cd frontend && npm run dev"
+echo "   3. Test scheduled battles: visit /flow-scheduled"
 echo ""
