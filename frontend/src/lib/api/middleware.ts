@@ -4,6 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { applyRateLimit, getRateLimitHeaders, checkRateLimit, getRateLimitKey } from './rateLimit';
+import { APIError } from './errorHandler';
 
 /**
  * Middleware handler function type
@@ -384,6 +386,58 @@ export function createHandler<T = unknown>(handlers: {
 }
 
 /**
+ * Middleware: Rate Limiting
+ *
+ * Wraps the rate limiting module as a composable middleware.
+ * Automatically returns 429 responses with proper headers.
+ *
+ * @example
+ * const handler = composeMiddleware([
+ *   withRateLimit({ prefix: 'my-route', maxRequests: 10, windowMs: 60000 }),
+ *   async (req) => NextResponse.json({ data: 'ok' }),
+ * ]);
+ */
+export function withRateLimit(options: {
+  prefix: string;
+  maxRequests?: number;
+  windowMs?: number;
+  algorithm?: 'sliding-window' | 'token-bucket';
+  refillRate?: number;
+  maxTokens?: number;
+}): MiddlewareHandler {
+  return async (request) => {
+    try {
+      applyRateLimit(request, options);
+    } catch (error) {
+      if (error instanceof APIError && error.statusCode === 429) {
+        // Extract rate limit info for headers
+        const key = getRateLimitKey(request, options.prefix);
+        const maxRequests = options.maxTokens || options.maxRequests || 10;
+        const result = checkRateLimit(key, maxRequests, options.windowMs || 60000, {
+          algorithm: options.algorithm,
+          refillRate: options.refillRate,
+        });
+        const headers = getRateLimitHeaders({
+          limit: result.limit,
+          remaining: result.remaining,
+          resetIn: result.resetIn,
+        });
+
+        return NextResponse.json(
+          {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          },
+          { status: 429, headers }
+        );
+      }
+      throw error;
+    }
+  };
+}
+
+/**
  * Middleware presets for common patterns
  */
 export const presets = {
@@ -413,6 +467,16 @@ export const presets = {
     withRequestId(),
     onlyMethods(['GET']),
     withCache({ maxAge: 60, staleWhileRevalidate: 120 }),
+    withLogging(),
+    withErrorHandler(),
+  ],
+
+  /**
+   * Rate-limited API route with logging and error handling
+   */
+  rateLimitedApi: (prefix: string, maxRequests: number = 60, windowMs: number = 60000) => [
+    withRequestId(),
+    withRateLimit({ prefix, maxRequests, windowMs }),
     withLogging(),
     withErrorHandler(),
   ],
