@@ -5,23 +5,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { isAddress, createPublicClient, http } from 'viem';
-import { chainsToContracts, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { isAddress } from 'viem';
+import { chainsToContracts } from '@/constants';
+import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { MarketSource } from '@/types/externalMarket';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
-
-const RPC_TIMEOUT = 60000;
-
-const FLOW_CHAIN = {
-  id: 545,
-  name: 'Flow Testnet',
-  network: 'flow-testnet',
-  nativeCurrency: { decimals: 18, name: 'Flow', symbol: 'FLOW' },
-  rpcUrls: {
-    default: { http: [getFlowRpcUrl()] },
-    public: { http: [getFlowRpcUrl()] },
-  },
-} as const;
 
 // Simplified ABI for PredictionMarketAMM
 const predictionMarketAbi = [
@@ -46,30 +34,6 @@ const predictionMarketAbi = [
     stateMutability: 'view',
   },
 ] as const;
-
-const flowClient = createPublicClient({
-  chain: FLOW_CHAIN,
-  transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT }),
-});
-
-const flowFallbackClient = createPublicClient({
-  chain: FLOW_CHAIN,
-  transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT }),
-});
-
-async function executeWithFallback<T>(
-  operation: (client: typeof flowClient) => Promise<T>
-): Promise<T> {
-  try {
-    return await operation(flowClient);
-  } catch (error) {
-    const errMsg = (error as Error).message || '';
-    if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
-      return await operation(flowFallbackClient);
-    }
-    throw error;
-  }
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -143,7 +107,7 @@ export async function GET(request: NextRequest) {
       let marketData = null;
       try {
         if (predictionMarketAddress) {
-          marketData = await executeWithFallback((client) =>
+          marketData = await executeWithFlowFallbackForKey(pos.marketId, (client) =>
             client.readContract({
               address: predictionMarketAddress,
               abi: predictionMarketAbi,

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
 import { applyRateLimit, handleAPIError, ErrorResponses } from '@/lib/api';
+import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Valid status values for filtering
 const VALID_STATUSES = ['pending', 'partial', 'completed', 'settled', 'failed', 'stale'];
@@ -50,7 +51,12 @@ export async function GET(request: NextRequest) {
       filters.limit = limit;
     }
 
-    const trades = await arbitrageTradingService.getUserTrades(userId.trim(), filters);
+    // Cache user trades (10min TTL via userDataCache)
+    const cacheKey = `arb-trades:${userId.trim()}:${status || ''}:${settledStr || ''}:${limitStr || ''}`;
+    const trades = await userDataCache.getOrSet(
+      cacheKey,
+      () => arbitrageTradingService.getUserTrades(userId.trim(), filters)
+    ) as Awaited<ReturnType<typeof arbitrageTradingService.getUserTrades>>;
 
     // Convert BigInt to string for JSON serialization
     const serializedTrades = trades.map((trade) => ({

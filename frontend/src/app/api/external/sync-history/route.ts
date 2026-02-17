@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 const prisma = new PrismaClient();
 
@@ -13,6 +14,8 @@ const prisma = new PrismaClient();
  */
 export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'external-sync-history', ...RateLimitPresets.readOperations });
+
     const searchParams = request.nextUrl.searchParams;
     const mirrorKey = searchParams.get('mirrorKey');
     const limit = parseInt(searchParams.get('limit') || '100');

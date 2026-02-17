@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
 import { getBattleQueue } from '@/lib/queue/battleExecutionQueue';
 import { ErrorResponses } from '@/lib/api/errorHandler';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 import { checkThresholds, getHealthReport } from '@/lib/monitoring/metrics';
 import type { MetricsSnapshot } from '@/lib/monitoring/metrics';
 
@@ -13,6 +14,8 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET || 'change-me-in-production';
  */
 export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'admin-monitor', ...RateLimitPresets.readOperations });
+
     // Verify admin secret
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${ADMIN_SECRET}`) {
@@ -117,6 +120,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'admin-monitor-post', ...RateLimitPresets.agentOperations });
+
     // Verify admin secret
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${ADMIN_SECRET}`) {
@@ -171,6 +176,8 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'admin-monitor-delete', ...RateLimitPresets.agentOperations });
+
     // Verify admin secret
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${ADMIN_SECRET}`) {

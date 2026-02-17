@@ -7,30 +7,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http, defineChain } from 'viem';
-import { flowTestnet } from 'viem/chains';
 import { agentINFTService } from '@/services/agentINFTService';
-import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
-import { handleAPIError, createAPILogger } from '@/lib/api';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  isTimeoutError,
+} from '@/lib/flowClient';
+import { createZeroGPublicClient } from '@/lib/zeroGClient';
+import { handleAPIError, createAPILogger, applyRateLimit } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { rpcResponseCache } from '@/lib/cache/hashedCache';
 
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
-
-// 0G Galileo chain definition
-const zeroGGalileo = defineChain({
-  id: 16602,
-  name: '0G Galileo Testnet',
-  nativeCurrency: { name: '0G', symbol: '0G', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['https://evmrpc-testnet.0g.ai'] },
-  },
-  blockExplorers: {
-    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
-  },
-});
 
 interface ServiceStatus {
   status: 'up' | 'down';
@@ -41,18 +30,23 @@ interface ServiceStatus {
   address?: string;
 }
 
+// Short TTL for health checks — fresh enough for monitoring, avoids hammering RPC
+const HEALTH_CACHE_TTL = 10_000; // 10 seconds
+
 /**
  * Check 0G Galileo chain connectivity
  */
 async function checkZeroGChain(): Promise<ServiceStatus> {
   const start = Date.now();
   try {
-    const publicClient = createPublicClient({
-      chain: zeroGGalileo,
-      transport: http(),
-    });
-
-    const blockNumber = await publicClient.getBlockNumber();
+    const blockNumber = await rpcResponseCache.getOrSet(
+      'health:0g-block',
+      async () => {
+        const publicClient = createZeroGPublicClient();
+        return await publicClient.getBlockNumber();
+      },
+      HEALTH_CACHE_TTL
+    ) as bigint;
     const latency = Date.now() - start;
 
     return {
@@ -75,45 +69,32 @@ async function checkZeroGChain(): Promise<ServiceStatus> {
 async function checkFlowChain(): Promise<ServiceStatus> {
   const start = Date.now();
   try {
-    const publicClient = createPublicClient({
-      chain: flowTestnet,
-      transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT }),
-    });
-
-    const blockNumber = await publicClient.getBlockNumber();
+    const blockNumber = await rpcResponseCache.getOrSet(
+      'health:flow-block',
+      async () => {
+        try {
+          const publicClient = createFlowPublicClient();
+          return await publicClient.getBlockNumber();
+        } catch (primaryError) {
+          // Try fallback RPC if primary times out
+          if (isTimeoutError(primaryError)) {
+            console.warn('[Health Check] Flow primary RPC timed out, trying fallback...');
+            const fallbackClient = createFlowFallbackClient();
+            return await fallbackClient.getBlockNumber();
+          }
+          throw primaryError;
+        }
+      },
+      HEALTH_CACHE_TTL
+    ) as bigint;
     const latency = Date.now() - start;
 
     return {
       status: 'up',
       latency,
-      chainId: flowTestnet.id,
       blockNumber: blockNumber.toString(),
     };
   } catch (error) {
-    // Try fallback RPC if primary times out
-    const errMsg = (error as Error).message || '';
-    if (errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('took too long')) {
-      console.warn('[Health Check] Flow primary RPC timed out, trying fallback...');
-      try {
-        const fallbackClient = createPublicClient({
-          chain: flowTestnet,
-          transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT }),
-        });
-        const blockNumber = await fallbackClient.getBlockNumber();
-        const latency = Date.now() - start;
-        return {
-          status: 'up',
-          latency,
-          chainId: flowTestnet.id,
-          blockNumber: blockNumber.toString(),
-        };
-      } catch (fallbackError) {
-        return {
-          status: 'down',
-          error: `Primary and fallback failed: ${(error as Error).message}`,
-        };
-      }
-    }
     return {
       status: 'down',
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -158,6 +139,8 @@ export async function GET(request: NextRequest) {
   logger.start();
 
   try {
+    applyRateLimit(request, { prefix: 'health', ...RateLimitPresets.readOperations });
+
     const { searchParams } = new URL(request.url);
     const isQuickCheck = searchParams.get('quick') === 'true';
 

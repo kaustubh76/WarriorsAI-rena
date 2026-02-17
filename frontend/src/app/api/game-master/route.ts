@@ -5,7 +5,8 @@ import {
   createFlowPublicClient,
   createFlowFallbackClient,
   createFlowWalletClient,
-  executeWithFlowFallback,
+  executeWithFlowFallbackForKey,
+  isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
@@ -126,15 +127,6 @@ function getFallbackClient() {
   return _fallbackClient;
 }
 
-// Helper to check if error is timeout
-function isTimeoutError(error: unknown): boolean {
-  const errMsg = (error as Error).message || '';
-  return errMsg.includes('timeout') ||
-         errMsg.includes('timed out') ||
-         errMsg.includes('took too long') ||
-         errMsg.includes('TimeoutError');
-}
-
 // Wait for receipt with fallback
 async function waitForReceiptWithFallback(hash: `0x${string}`) {
   const primaryClient = getPublicClient();
@@ -176,47 +168,47 @@ async function getArenaState(arenaAddress: string): Promise<ArenaState | null> {
       playerOneBetAddresses,
       playerTwoBetAddresses
     ] = await Promise.all([
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getInitializationStatus',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getCurrentRound',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getIsBettingPeriodGoingOn',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getGameInitializedAt',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getLastRoundEndedAt',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getMinYodhaBettingPeriod',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getMinBattleRoundsInterval',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getPlayerOneBetAddresses',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getPlayerTwoBetAddresses',
@@ -269,27 +261,27 @@ async function generateAIMoves(arenaAddress: string): Promise<{ agent_1: { move:
   try {
     // Get current battle data from contract
     const [currentRound, damageOnYodhaOne, damageOnYodhaTwo, warriorsOneNFTId, warriorsTwoNFTId] = await Promise.all([
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getCurrentRound',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getDamageOnYodhaOne',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getDamageOnYodhaTwo',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getYodhaOneNFTId',
       })),
-      executeWithFlowFallback((client) => client.readContract({
+      executeWithFlowFallbackForKey(arenaAddress, (client) => client.readContract({
         address: arenaAddress as `0x${string}`,
         abi: ArenaAbi,
         functionName: 'getYodhaTwoNFTId',
