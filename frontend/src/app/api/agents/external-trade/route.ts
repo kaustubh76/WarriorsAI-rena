@@ -12,47 +12,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  createPublicClient,
-  createWalletClient,
-  http,
   parseEther,
   encodePacked,
   keccak256,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { chainsToContracts, getZeroGChainId } from '@/constants';
+import {
+  createFlowWalletClient,
+  executeWithFlowFallbackForKey,
+} from '@/lib/flowClient';
+import { createZeroGPublicClient } from '@/lib/zeroGClient';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 import { prisma } from '@/lib/prisma';
 
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
-
-// ============================================
-// CHAIN DEFINITIONS
-// ============================================
-
-const ZEROG_CHAIN = {
-  id: 16602,
-  name: '0G Galileo Testnet',
-  network: '0g-galileo',
-  nativeCurrency: { decimals: 18, name: '0G Token', symbol: '0G' },
-  rpcUrls: {
-    default: { http: [getZeroGComputeRpc()] },
-    public: { http: [getZeroGComputeRpc()] },
-  },
-} as const;
-
-const FLOW_CHAIN = {
-  id: 545,
-  name: 'Flow Testnet',
-  network: 'flow-testnet',
-  nativeCurrency: { decimals: 18, name: 'Flow', symbol: 'FLOW' },
-  rpcUrls: {
-    default: { http: [getFlowRpcUrl()] },
-    public: { http: [getFlowRpcUrl()] },
-  },
-} as const;
+const FLOW_CHAIN_ID = 545;
 
 // ============================================
 // TYPES
@@ -143,44 +118,8 @@ function getOracleAccount() {
   return privateKeyToAccount(privateKey as `0x${string}`);
 }
 
-const zeroGPublicClient = createPublicClient({
-  chain: ZEROG_CHAIN,
-  transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
-});
+const zeroGPublicClient = createZeroGPublicClient();
 
-const flowPublicClient = createPublicClient({
-  chain: FLOW_CHAIN,
-  transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-});
-
-const flowFallbackClient = createPublicClient({
-  chain: FLOW_CHAIN,
-  transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-});
-
-// Helper to check if error is timeout
-function isTimeoutError(error: unknown): boolean {
-  const errMsg = (error as Error).message || '';
-  return errMsg.includes('timeout') ||
-         errMsg.includes('timed out') ||
-         errMsg.includes('took too long') ||
-         errMsg.includes('TimeoutError');
-}
-
-// Execute Flow operation with fallback
-async function executeFlowWithFallback<T>(
-  operation: (client: typeof flowPublicClient) => Promise<T>
-): Promise<T> {
-  try {
-    return await operation(flowPublicClient);
-  } catch (error) {
-    if (isTimeoutError(error)) {
-      console.warn('[External Trade] Flow primary RPC timed out, trying fallback...');
-      return await operation(flowFallbackClient);
-    }
-    throw error;
-  }
-}
 
 // ============================================
 // ROUTE HANDLER
@@ -241,13 +180,15 @@ export async function POST(request: NextRequest) {
       throw ErrorResponses.forbidden('Agent is not active');
     }
 
-    // Get mirror market info to determine source
-    const mirrorMarket = await flowPublicClient.readContract({
-      address: externalMarketMirrorAddress,
-      abi: externalMarketMirrorAbi,
-      functionName: 'getMirrorMarket',
-      args: [mirrorKey],
-    });
+    // Get mirror market info to determine source (hash-ring routed)
+    const mirrorMarket = await executeWithFlowFallbackForKey(body.mirrorKey, (client) =>
+      client.readContract({
+        address: externalMarketMirrorAddress,
+        abi: externalMarketMirrorAbi,
+        functionName: 'getMirrorMarket',
+        args: [mirrorKey],
+      })
+    );
 
     if (!mirrorMarket.externalLink.isActive) {
       throw ErrorResponses.badRequest('Mirror market is not active');
@@ -279,7 +220,7 @@ export async function POST(request: NextRequest) {
           body.prediction.outputHash,
           body.prediction.providerAddress,
           isPolymarket,
-          BigInt(FLOW_CHAIN.id),
+          BigInt(FLOW_CHAIN_ID),
         ]
       )
     );
@@ -288,12 +229,8 @@ export async function POST(request: NextRequest) {
       message: { raw: messageHash },
     });
 
-    // Step 3: Create wallet client for Flow
-    const flowWalletClient = createWalletClient({
-      chain: FLOW_CHAIN,
-      transport: http(),
-      account: oracleAccount,
-    });
+    // Step 3: Create wallet client for Flow using shared infrastructure
+    const flowWalletClient = createFlowWalletClient(oracleAccount);
 
     // Step 4: Execute trade on Flow mirror market
     const txHash = await flowWalletClient.writeContract({
@@ -316,10 +253,10 @@ export async function POST(request: NextRequest) {
       ],
     });
 
-    // Wait for confirmation
-    const receipt = await flowPublicClient.waitForTransactionReceipt({
-      hash: txHash,
-    });
+    // Wait for confirmation via hash-ring routed client
+    const receipt = await executeWithFlowFallbackForKey(body.mirrorKey, (client) =>
+      client.waitForTransactionReceipt({ hash: txHash })
+    );
 
     // Step 5: Return success response
     return NextResponse.json({

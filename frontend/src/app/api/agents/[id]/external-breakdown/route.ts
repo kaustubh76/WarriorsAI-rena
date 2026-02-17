@@ -4,29 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http } from 'viem';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc } from '@/constants';
+import { chainsToContracts, getZeroGChainId } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
 import { prisma } from '@/lib/prisma';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { createZeroGPublicClient } from '@/lib/zeroGClient';
 
-const RPC_TIMEOUT = 60000;
-
-const ZEROG_CHAIN = {
-  id: 16602,
-  name: '0G Galileo Testnet',
-  network: '0g-galileo',
-  nativeCurrency: { decimals: 18, name: '0G Token', symbol: '0G' },
-  rpcUrls: {
-    default: { http: [getZeroGComputeRpc()] },
-    public: { http: [getZeroGComputeRpc()] },
-  },
-} as const;
-
-const zeroGClient = createPublicClient({
-  chain: ZEROG_CHAIN,
-  transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
-});
+const zeroGClient = createZeroGPublicClient();
 
 export async function GET(
   request: NextRequest,

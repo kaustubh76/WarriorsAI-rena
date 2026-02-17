@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
 import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { rpcResponseCache } from '@/lib/cache/hashedCache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,6 +34,15 @@ export async function GET(request: NextRequest) {
         agents: [],
         totalSupply: 0,
       });
+    }
+
+    // Check cache for non-refresh requests (30-second TTL for RPC data)
+    const cacheKey = 'agents:active-list';
+    if (!forceRefresh) {
+      const cached = rpcResponseCache.get(cacheKey);
+      if (cached) {
+        return NextResponse.json(cached);
+      }
     }
 
     const totalSupply = await agentINFTService.getTotalSupply();
@@ -62,11 +72,16 @@ export async function GET(request: NextRequest) {
       },
     }));
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       agents,
       totalSupply: totalSupply.toString(),
-    });
+    };
+
+    // Cache for 30 seconds (RPC data)
+    rpcResponseCache.set(cacheKey, responseData);
+
+    return NextResponse.json(responseData);
   } catch (error) {
     return handleAPIError(error, 'API:Agents:GET');
   }

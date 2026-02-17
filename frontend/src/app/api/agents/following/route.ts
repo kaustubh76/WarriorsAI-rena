@@ -6,10 +6,12 @@
 import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, validateAddress } from '@/lib/api';
+import { handleAPIError, validateAddress, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'agents-following', ...RateLimitPresets.readOperations });
+
     const { searchParams } = new URL(request.url);
     const addressParam = searchParams.get('address');
 
