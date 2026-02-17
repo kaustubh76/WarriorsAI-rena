@@ -16,7 +16,7 @@
  * ```
  */
 
-import { createFlowPublicClient, executeWithFlowFallback } from './flowClient';
+import { createFlowPublicClient, executeWithFlowFallbackForKey } from './flowClient';
 import { EXTERNAL_MARKET_MIRROR_ABI } from '@/constants/abis';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -29,7 +29,7 @@ import { privateKeyToAccount } from 'viem/accounts';
  */
 export async function getOracleAddress(contractAddress: Address): Promise<Address> {
   try {
-    const oracleAddress = await executeWithFlowFallback((client) =>
+    const oracleAddress = await executeWithFlowFallbackForKey(contractAddress, (client) =>
       client.readContract({
         address: contractAddress,
         abi: EXTERNAL_MARKET_MIRROR_ABI,

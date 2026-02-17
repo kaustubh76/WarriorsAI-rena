@@ -3,8 +3,8 @@
  * Tracks ScheduledMarketResolver contract events
  */
 
-import { createPublicClient, http, decodeEventLog, type Log } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { decodeEventLog, type Log, type PublicClient } from 'viem';
+import { createFlowPublicClient } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
 
 const SCHEDULED_MARKET_RESOLVER_ADDRESS = process.env.NEXT_PUBLIC_SCHEDULED_MARKET_RESOLVER_ADDRESS as `0x${string}`;
@@ -77,20 +77,13 @@ export interface ResolutionCancelledEvent {
  * Scheduled Resolution Event Listener
  */
 export class ScheduledResolutionEventListener {
-  private client: ReturnType<typeof createPublicClient>;
+  private client: PublicClient;
   private isListening = false;
   private lastProcessedBlock: bigint = 0n;
   private pollInterval?: ReturnType<typeof setInterval>;
 
-  constructor(rpcUrl?: string) {
-    this.client = createPublicClient({
-      chain: flowTestnet,
-      transport: http(
-        rpcUrl ||
-          process.env.FLOW_TESTNET_RPC_URL ||
-          'https://testnet.evm.nodes.onflow.org'
-      ),
-    });
+  constructor() {
+    this.client = createFlowPublicClient();
   }
 
   /**

@@ -1,74 +1,33 @@
 // API endpoints for arena automation
 import { NextApiRequest, NextApiResponse } from 'next';
-import { createWalletClient, http, createPublicClient, keccak256, encodePacked } from 'viem';
+import { keccak256, encodePacked } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { defineChain } from 'viem';
-import { ArenaAbi, chainsToContracts, getFlowRpcUrl, getFlowFallbackRpcUrl } from '../../../constants';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
-
-// Define Flow EVM chains
-const flowTestnet = defineChain({
-  id: 545,
-  name: 'Flow Testnet',
-  network: 'flow-testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Flow',
-    symbol: 'FLOW',
-  },
-  rpcUrls: {
-    default: {
-      http: [process.env.FLOW_TESTNET_RPC || 'https://testnet.evm.nodes.onflow.org'],
-    },
-    public: {
-      http: [process.env.FLOW_TESTNET_RPC || 'https://testnet.evm.nodes.onflow.org'],
-    },
-  },
-  blockExplorers: {
-    default: { name: 'Flow Testnet Explorer', url: 'https://evm-testnet.flowscan.org' },
-  },
-});
+import { ArenaAbi, chainsToContracts } from '../../../constants';
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  createFlowWalletClient,
+  isTimeoutError,
+  RPC_TIMEOUT,
+} from '@/lib/flowClient';
 
 // Create a simplified in-memory game state for development
 const gameStates = new Map<string, any>();
 const activeTimers = new Map<string, NodeJS.Timeout>();
 const lastTransactionHashes = new Map<string, string>();
 
-// Initialize viem clients for blockchain interaction
+// Initialize viem clients for blockchain interaction using shared flowClient
 let walletClient: any = null;
 let publicClient: any = null;
 let fallbackClient: any = null;
 
-// Helper to check if error is timeout
-function isTimeoutError(error: unknown): boolean {
-  const errMsg = (error as Error).message || '';
-  return errMsg.includes('timeout') ||
-         errMsg.includes('timed out') ||
-         errMsg.includes('took too long') ||
-         errMsg.includes('TimeoutError');
-}
-
-// Initialize blockchain clients
+// Initialize blockchain clients using shared infrastructure
 function initializeClients() {
   if (walletClient && publicClient && fallbackClient) return { walletClient, publicClient, fallbackClient };
 
   try {
-    // Use Flow testnet
-    const chain = flowTestnet;
-    const rpcUrl = getFlowRpcUrl();
-    const fallbackRpcUrl = getFlowFallbackRpcUrl();
-
-    publicClient = createPublicClient({
-      chain,
-      transport: http(rpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
-    });
-
-    fallbackClient = createPublicClient({
-      chain,
-      transport: http(fallbackRpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
-    });
+    publicClient = createFlowPublicClient();
+    fallbackClient = createFlowFallbackClient();
 
     const gameMasterPrivateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY;
     if (!gameMasterPrivateKey) {
@@ -82,11 +41,7 @@ function initializeClients() {
         : `0x${gameMasterPrivateKey}` as `0x${string}`
     );
 
-    walletClient = createWalletClient({
-      account: gameMasterAccount,
-      chain,
-      transport: http(rpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
-    });
+    walletClient = createFlowWalletClient(gameMasterAccount);
 
     console.log('✅ Blockchain clients initialized successfully for Flow');
     return { walletClient, publicClient, fallbackClient };

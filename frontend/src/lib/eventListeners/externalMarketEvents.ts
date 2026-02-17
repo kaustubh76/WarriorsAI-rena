@@ -5,8 +5,8 @@
  * Based on test report recommendations - tracks all 11 contract events
  */
 
-import { createPublicClient, http, parseAbiItem, type Log, decodeEventLog } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { parseAbiItem, type Log, decodeEventLog, type PublicClient } from 'viem';
+import { createFlowPublicClient } from '@/lib/flowClient';
 import { EXTERNAL_MARKET_MIRROR_ABI } from '@/constants/abis';
 import { prisma } from '@/lib/prisma';
 import { FlowMetrics } from '@/lib/metrics';
@@ -105,7 +105,7 @@ export interface PriceSyncedEvent {
  * External Market Event Listener
  */
 export class ExternalMarketEventListener {
-  private client: ReturnType<typeof createPublicClient>;
+  private client: PublicClient;
   private isListening = false;
   private lastProcessedBlock: bigint = 0n;
   private pollInterval?: ReturnType<typeof setInterval>;
@@ -130,11 +130,8 @@ export class ExternalMarketEventListener {
     onPriceSynced: [],
   };
 
-  constructor(rpcUrl?: string) {
-    this.client = createPublicClient({
-      chain: flowTestnet,
-      transport: http(rpcUrl || process.env.FLOW_TESTNET_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
-    });
+  constructor() {
+    this.client = createFlowPublicClient();
   }
 
   /**
@@ -728,10 +725,7 @@ export async function backfillEvents(fromBlock: bigint): Promise<void> {
   console.log(`[backfillEvents] Backfilling from block ${fromBlock}`);
 
   const listener = getEventListener();
-  const client = createPublicClient({
-    chain: flowTestnet,
-    transport: http(process.env.FLOW_TESTNET_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
-  });
+  const client = createFlowPublicClient();
 
   try {
     const currentBlock = await client.getBlockNumber();
@@ -777,10 +771,7 @@ export async function startEventListener(fromBlock?: bigint | 'latest'): Promise
   const listener = getEventListener();
 
   if (fromBlock === 'latest' || !fromBlock) {
-    const client = createPublicClient({
-      chain: flowTestnet,
-      transport: http(process.env.FLOW_TESTNET_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
-    });
+    const client = createFlowPublicClient();
     const currentBlock = await client.getBlockNumber();
     await listener.start(currentBlock);
   } else {
