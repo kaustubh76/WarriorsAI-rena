@@ -3,36 +3,24 @@
  * Handles on-chain market creation with CRwN token approval workflow
  */
 
-import { createPublicClient, createWalletClient, http, parseEther, formatEther, type Address, type WalletClient } from 'viem';
+import { parseEther, formatEther, type Address, type WalletClient } from 'viem';
 import { flowTestnet } from 'viem/chains';
-import { chainsToContracts, crownTokenAbi, CreatorRevenueShareAbi, MicroMarketFactoryAbi, getFlowRpcUrl, getFlowFallbackRpcUrl } from '../constants';
+import { chainsToContracts, crownTokenAbi, CreatorRevenueShareAbi, MicroMarketFactoryAbi } from '../constants';
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  isTimeoutError,
+} from '@/lib/flowClient';
 
 // Flow Testnet configuration
 const FLOW_CHAIN_ID = 545;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
 
-// RPC timeout - increased to handle slow endpoints
-const RPC_TIMEOUT = 60000;
-
 // Public client for read operations with fallback support
-const publicClient = createPublicClient({
-  chain: flowTestnet,
-  transport: http(getFlowRpcUrl(), {
-    timeout: RPC_TIMEOUT,
-    retryCount: 2,
-    retryDelay: 1000,
-  }),
-});
+const publicClient = createFlowPublicClient();
 
 // Fallback client for when primary times out
-const fallbackClient = createPublicClient({
-  chain: flowTestnet,
-  transport: http(getFlowFallbackRpcUrl(), {
-    timeout: RPC_TIMEOUT,
-    retryCount: 2,
-    retryDelay: 1000,
-  }),
-});
+const fallbackClient = createFlowFallbackClient();
 
 // Helper to execute with fallback
 async function executeWithFallback<T>(
@@ -41,8 +29,7 @@ async function executeWithFallback<T>(
   try {
     return await operation(publicClient);
   } catch (error) {
-    const errMsg = (error as Error).message || '';
-    if (errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('took too long')) {
+    if (isTimeoutError(error)) {
       console.warn('[MarketCreation] Primary RPC timed out, trying fallback...');
       return await operation(fallbackClient);
     }

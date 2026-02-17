@@ -11,13 +11,11 @@ import {
   type WalletClient,
   type PublicClient,
   toHex,
-  createPublicClient,
-  http,
-  defineChain,
 } from 'viem';
 import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
 import { chainsToContracts, crownTokenAbi, getChainId, getZeroGChainId, getZeroGComputeRpc } from '../constants';
 import { AIAgentINFTAbi } from '../constants/aiAgentINFTAbi';
+import { createZeroGPublicClient, zeroGGalileo } from '../lib/zeroGClient';
 import type {
   AIAgentINFT,
   AIAgentINFTDisplay,
@@ -62,28 +60,8 @@ const CACHE_TTL = {
 const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602
 const ZEROG_RPC_URL = getZeroGComputeRpc();
 
-// 0G Galileo Testnet chain definition for wallet transactions
-const zeroGGalileo = defineChain({
-  id: ZEROG_CHAIN_ID,
-  name: '0G Galileo Testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'A0GI',
-    symbol: 'A0GI',
-  },
-  rpcUrls: {
-    default: { http: [ZEROG_RPC_URL] },
-  },
-  blockExplorers: {
-    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
-  },
-  testnet: true,
-});
-
 // Create a dedicated 0G public client for iNFT reads
-const zeroGPublicClient = createPublicClient({
-  transport: http(ZEROG_RPC_URL),
-});
+const zeroGPublicClient = createZeroGPublicClient();
 
 // Helper function to read from 0G chain
 async function readContractOnZeroG<T>(params: {

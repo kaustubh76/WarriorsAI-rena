@@ -6,47 +6,19 @@
  * for verified AI-powered trading on external prediction market data.
  */
 
-import { createPublicClient, createWalletClient, http, parseEther, custom } from 'viem';
+import { createWalletClient, parseEther, keccak256, toHex } from 'viem';
 import { MarketSource, UnifiedMarket } from '@/types/externalMarket';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { chainsToContracts, getZeroGChainId } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
-
-// ============================================
-// CHAIN DEFINITIONS
-// ============================================
-
-const ZEROG_CHAIN = {
-  id: 16602,
-  name: '0G Galileo Testnet',
-  network: '0g-galileo',
-  nativeCurrency: {
-    decimals: 18,
-    name: '0G Token',
-    symbol: '0G',
-  },
-  rpcUrls: {
-    default: { http: [getZeroGComputeRpc()] },
-    public: { http: [getZeroGComputeRpc()] },
-  },
-} as const;
-
-const FLOW_CHAIN = {
-  id: 545,
-  name: 'Flow Testnet',
-  network: 'flow-testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Flow',
-    symbol: 'FLOW',
-  },
-  rpcUrls: {
-    default: { http: [getFlowRpcUrl()] },
-    public: { http: [getFlowRpcUrl()] },
-  },
-} as const;
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  isTimeoutError,
+} from '@/lib/flowClient';
+import {
+  createZeroGPublicClient,
+  zeroGGalileo,
+} from '@/lib/zeroGClient';
 
 // ============================================
 // TYPES
@@ -104,29 +76,11 @@ export interface ExternalTradeHistory {
 // ============================================
 
 class ExternalMarketAgentService {
-  private zeroGPublicClient = createPublicClient({
-    chain: ZEROG_CHAIN,
-    transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
-  });
+  private zeroGPublicClient = createZeroGPublicClient();
 
-  private flowPublicClient = createPublicClient({
-    chain: FLOW_CHAIN,
-    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-  });
+  private flowPublicClient = createFlowPublicClient();
 
-  private flowFallbackClient = createPublicClient({
-    chain: FLOW_CHAIN,
-    transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-  });
-
-  // Helper to check if error is timeout
-  private isTimeoutError(error: unknown): boolean {
-    const errMsg = (error as Error).message || '';
-    return errMsg.includes('timeout') ||
-           errMsg.includes('timed out') ||
-           errMsg.includes('took too long') ||
-           errMsg.includes('TimeoutError');
-  }
+  private flowFallbackClient = createFlowFallbackClient();
 
   // Execute Flow operation with fallback
   private async executeFlowWithFallback<T>(
@@ -135,7 +89,7 @@ class ExternalMarketAgentService {
     try {
       return await operation(this.flowPublicClient);
     } catch (error) {
-      if (this.isTimeoutError(error)) {
+      if (isTimeoutError(error)) {
         console.warn('[ExternalMarketAgent] Flow primary RPC timed out, trying fallback...');
         return await operation(this.flowFallbackClient);
       }
@@ -349,7 +303,7 @@ class ExternalMarketAgentService {
       functionName: 'enableExternalTrading',
       args: [agentId, polymarket, kalshi],
       account: address,
-      chain: ZEROG_CHAIN,
+      chain: zeroGGalileo,
     });
 
     return hash;
@@ -368,8 +322,6 @@ class ExternalMarketAgentService {
     combined.set(sourceBytes);
     combined.set(idBytes, sourceBytes.length);
 
-    // Use viem's keccak256
-    const { keccak256, toHex } = require('viem');
     return keccak256(toHex(combined));
   }
 

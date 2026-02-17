@@ -7,39 +7,19 @@
  * - Flow Testnet (545): Trading transactions, VRF randomness, market execution
  */
 
-import { createPublicClient, createWalletClient, http, parseEther, formatEther } from 'viem';
+import { formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { chainsToContracts, getZeroGChainId } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
-
-// ============================================
-// CHAIN DEFINITIONS
-// ============================================
-
-const ZEROG_CHAIN = {
-  id: 16602,
-  name: '0G Galileo Testnet',
-  network: '0g-galileo',
-  nativeCurrency: { decimals: 18, name: '0G Token', symbol: '0G' },
-  rpcUrls: {
-    default: { http: [getZeroGComputeRpc()] },
-    public: { http: [getZeroGComputeRpc()] },
-  },
-} as const;
-
-const FLOW_CHAIN = {
-  id: 545,
-  name: 'Flow Testnet',
-  network: 'flow-testnet',
-  nativeCurrency: { decimals: 18, name: 'Flow', symbol: 'FLOW' },
-  rpcUrls: {
-    default: { http: [getFlowRpcUrl()] },
-    public: { http: [getFlowRpcUrl()] },
-  },
-} as const;
+import {
+  createFlowPublicClient,
+  createFlowFallbackClient,
+  isTimeoutError,
+} from '@/lib/flowClient';
+import {
+  createZeroGPublicClient,
+  createZeroGWalletClient,
+} from '@/lib/zeroGClient';
 
 // ============================================
 // TYPES
@@ -134,29 +114,11 @@ const externalMarketMirrorAbi = [
 // ============================================
 
 class CrossChainService {
-  private zeroGClient = createPublicClient({
-    chain: ZEROG_CHAIN,
-    transport: http(getZeroGComputeRpc(), { timeout: RPC_TIMEOUT }),
-  });
+  private zeroGClient = createZeroGPublicClient();
 
-  private flowClient = createPublicClient({
-    chain: FLOW_CHAIN,
-    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-  });
+  private flowClient = createFlowPublicClient();
 
-  private flowFallbackClient = createPublicClient({
-    chain: FLOW_CHAIN,
-    transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-  });
-
-  // Helper to check if error is timeout
-  private isTimeoutError(error: unknown): boolean {
-    const errMsg = (error as Error).message || '';
-    return errMsg.includes('timeout') ||
-           errMsg.includes('timed out') ||
-           errMsg.includes('took too long') ||
-           errMsg.includes('TimeoutError');
-  }
+  private flowFallbackClient = createFlowFallbackClient();
 
   // Execute Flow operation with fallback
   private async executeFlowWithFallback<T>(
@@ -165,7 +127,7 @@ class CrossChainService {
     try {
       return await operation(this.flowClient);
     } catch (error) {
-      if (this.isTimeoutError(error)) {
+      if (isTimeoutError(error)) {
         console.warn('[CrossChain] Flow primary RPC timed out, trying fallback...');
         return await operation(this.flowFallbackClient);
       }
@@ -278,11 +240,7 @@ class CrossChainService {
     }
 
     const oracleAccount = privateKeyToAccount(privateKey as `0x${string}`);
-    const zeroGWalletClient = createWalletClient({
-      chain: ZEROG_CHAIN,
-      transport: http(),
-      account: oracleAccount,
-    });
+    const zeroGWalletClient = createZeroGWalletClient(oracleAccount);
 
     // Record on 0G chain
     const txHash = await zeroGWalletClient.writeContract({
