@@ -5,7 +5,8 @@
 
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, createAPILogger, createResponse, ResponsePresets } from '@/lib/api';
+import { handleAPIError, applyRateLimit, createAPILogger, createResponse, ResponsePresets, RateLimitPresets } from '@/lib/api';
+import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Time range options
 type TimeRange = 'daily' | 'weekly' | 'monthly' | 'all';
@@ -78,8 +79,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting (60 requests per minute)
     applyRateLimit(request, {
       prefix: 'leaderboard-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);
@@ -121,12 +121,17 @@ export async function GET(request: NextRequest) {
         });
       }
     } else {
-      // No user lookup needed - just fetch leaderboard
-      scores = await prisma.aIPredictionScore.findMany({
-        where: whereClause,
-        orderBy: getSortOrder(sortBy),
-        take: limit,
-      });
+      // No user lookup needed - just fetch leaderboard (cache 60s)
+      const cacheKey = `leaderboard:${timeRange}:${sortBy}:${limit}`;
+      scores = await userDataCache.getOrSet(
+        cacheKey,
+        () => prisma.aIPredictionScore.findMany({
+          where: whereClause,
+          orderBy: getSortOrder(sortBy),
+          take: limit,
+        }),
+        60_000 // 60s TTL — leaderboard data is semi-stale-tolerant
+      ) as Awaited<ReturnType<typeof prisma.aIPredictionScore.findMany>>;
     }
 
     // Transform to leaderboard entries
@@ -172,27 +177,29 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // Get summary stats using a single optimized query
-    // Use raw query for volume sum since totalStaked is stored as string
-    const [statsResult, volumeResult] = await Promise.allSettled([
-      prisma.aIPredictionScore.aggregate({
-        _count: true,
-        _sum: {
-          totalPredictions: true,
-          correctPredictions: true,
-        },
-        _avg: {
-          accuracy: true,
-          roi: true,
-        },
-      }),
-      // Use raw SQL to efficiently sum volume without fetching all records
-      // This is much more efficient than findMany + reduce for large datasets
-      prisma.$queryRaw<[{ total: bigint | null }]>`
-        SELECT COALESCE(SUM(CAST("totalStaked" AS DECIMAL)), 0) as total
-        FROM "AIPredictionScore"
-      `.catch(() => [{ total: BigInt(0) }]),
-    ]);
+    // Get summary stats (cache 60s via userDataCache)
+    const [statsResult, volumeResult] = await userDataCache.getOrSet(
+      'leaderboard:stats',
+      () => Promise.allSettled([
+        prisma.aIPredictionScore.aggregate({
+          _count: true,
+          _sum: {
+            totalPredictions: true,
+            correctPredictions: true,
+          },
+          _avg: {
+            accuracy: true,
+            roi: true,
+          },
+        }),
+        // Use raw SQL to efficiently sum volume without fetching all records
+        prisma.$queryRaw<[{ total: bigint | null }]>`
+          SELECT COALESCE(SUM(CAST("totalStaked" AS DECIMAL)), 0) as total
+          FROM "AIPredictionScore"
+        `.catch(() => [{ total: BigInt(0) }]),
+      ]),
+      60_000
+    ) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
 
     // Extract results with fallbacks
     const stats = statsResult.status === 'fulfilled' ? statsResult.value : {

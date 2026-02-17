@@ -7,7 +7,7 @@ import {
   RPC_TIMEOUT,
 } from '@/lib/flowClient';
 import { zeroGGalileo } from '@/lib/zeroGClient';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // Define supported chains
 const SUPPORTED_CHAINS: Record<number, Chain> = {
@@ -22,8 +22,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'contract-read',
-      maxRequests: 120,
-      windowMs: 60000,
+      ...RateLimitPresets.readOperations,
     });
 
     const { contractAddress, abi, functionName, args, chainId } = await request.json();

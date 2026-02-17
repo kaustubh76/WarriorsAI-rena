@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   handleAPIError,
   applyRateLimit,
+  RateLimitPresets,
   apiMetrics,
   circuitBreakers,
   createAPILogger,
@@ -23,8 +24,7 @@ export async function GET(request: NextRequest) {
     // Rate limit to prevent abuse
     applyRateLimit(request, {
       prefix: 'internal-metrics',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     // Check for internal access (basic protection)

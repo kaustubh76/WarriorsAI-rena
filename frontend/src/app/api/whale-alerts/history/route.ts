@@ -6,15 +6,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'whale-history',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

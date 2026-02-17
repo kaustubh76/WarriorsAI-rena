@@ -21,7 +21,7 @@ import {
   isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { EXTERNAL_MARKET_MIRROR_ABI, CRWN_TOKEN_ABI } from '@/constants/abis';
 import { assertOracleAuthorized } from '@/lib/oracleVerification';
 import { getChainId } from '@/constants';
@@ -148,8 +148,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'flow-execute',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.flowExecution,
     });
 
     const body: ExecuteRequest = await request.json();
@@ -545,8 +544,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'flow-execute-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     if (EXTERNAL_MARKET_MIRROR === '0x0000000000000000000000000000000000000000') {

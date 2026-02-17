@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
@@ -15,8 +15,7 @@ export async function GET(
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'external-markets-id',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { id } = await params;

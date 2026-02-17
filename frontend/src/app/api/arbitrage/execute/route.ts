@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
-import { applyRateLimit, handleAPIError, ErrorResponses } from '@/lib/api';
+import { applyRateLimit, handleAPIError, ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { tradingConfig } from '@/services/config';
 
 // Constants for validation
@@ -17,8 +17,7 @@ export async function POST(request: NextRequest) {
     // 1. Apply rate limiting - max 10 executions per minute per IP
     applyRateLimit(request, {
       prefix: 'arbitrage-execute',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body = await request.json();

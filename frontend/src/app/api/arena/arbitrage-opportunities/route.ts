@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 import { handleAPIError } from '@/lib/api/errorHandler';
+import { marketDataCache } from '@/lib/cache/hashedCache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,11 +32,16 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const matchedPairs = await prisma.matchedMarketPair.findMany({
-      where,
-      orderBy: { priceDifference: 'desc' },
-      take: limit,
-    });
+    const cacheKey = `arena-arb-opps:${search}:${minSpread}:${limit}`;
+    const matchedPairs = await marketDataCache.getOrSet(
+      cacheKey,
+      () => prisma.matchedMarketPair.findMany({
+        where,
+        orderBy: { priceDifference: 'desc' },
+        take: limit,
+      }),
+      30_000 // 30s TTL
+    ) as Awaited<ReturnType<typeof prisma.matchedMarketPair.findMany>>;
 
     // Calculate profit details for each opportunity
     const opportunities = matchedPairs.map((pair) => {

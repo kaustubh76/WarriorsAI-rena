@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
 import { validateInteger, validateAddress, validateBigIntString, validateEnum } from '@/lib/api/validation';
 import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { marketDataCache } from '@/lib/cache/hashedCache';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
 import { readContract } from '@wagmi/core';
 import { getConfig } from '@/rainbowKitConfig';
@@ -76,20 +77,25 @@ export async function GET(request: NextRequest) {
       where.source = source;
     }
 
-    const [battles, total] = await Promise.all([
-      prisma.predictionBattle.findMany({
-        where,
-        include: {
-          rounds: {
-            orderBy: { roundNumber: 'asc' },
+    const cacheKey = `arena-battles:${status || ''}:${warriorId || ''}:${marketId || ''}:${source || ''}:${limit}:${offset}`;
+    const [battles, total] = await marketDataCache.getOrSet(
+      cacheKey,
+      () => Promise.all([
+        prisma.predictionBattle.findMany({
+          where,
+          include: {
+            rounds: {
+              orderBy: { roundNumber: 'asc' },
+            },
           },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      prisma.predictionBattle.count({ where }),
-    ]);
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          skip: offset,
+        }),
+        prisma.predictionBattle.count({ where }),
+      ]),
+      30_000 // 30s TTL — battles update during rounds
+    ) as [Awaited<ReturnType<typeof prisma.predictionBattle.findMany>>, number];
 
     const response = NextResponse.json({
       battles,

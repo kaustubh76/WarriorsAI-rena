@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 // Constants
 const MIN_DURATION_DAYS = 1;
@@ -32,8 +32,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting for authorization operations
     applyRateLimit(request, {
       prefix: 'agents-authorize',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body = await request.json();
@@ -120,8 +119,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting for authorization status checks
     applyRateLimit(request, {
       prefix: 'agents-authorize-status',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);
@@ -193,8 +191,7 @@ export async function DELETE(request: NextRequest) {
     // Apply rate limiting for revoke operations
     applyRateLimit(request, {
       prefix: 'agents-authorize-revoke',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body = await request.json();

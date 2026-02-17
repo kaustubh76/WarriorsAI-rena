@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
-import { handleAPIError, ErrorResponses, applyRateLimit } from '@/lib/api';
+import { handleAPIError, ErrorResponses, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 const ZERO_G_CONFIG = {
   computeRpc: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
@@ -16,8 +16,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting (5 deposits per minute)
     applyRateLimit(request, {
       prefix: '0g-deposit',
-      maxRequests: 5,
-      windowMs: 60000,
+      ...RateLimitPresets.copyTrade,
     });
 
     const body = await request.json();
@@ -80,7 +79,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    applyRateLimit(request, { prefix: '0g-deposit-get', maxRequests: 60, windowMs: 60000 });
+    applyRateLimit(request, { prefix: '0g-deposit-get', ...RateLimitPresets.apiQueries });
 
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {

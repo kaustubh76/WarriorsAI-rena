@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import type { Address } from 'viem';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // ============================================================================
 // Types
@@ -203,8 +203,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: '0g-market-inference',
-      maxRequests: 15,
-      windowMs: 60000,
+      ...RateLimitPresets.marketInference,
     });
 
     const body: MarketAnalysisRequest = await request.json();

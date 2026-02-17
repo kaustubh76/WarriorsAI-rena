@@ -273,8 +273,7 @@ export async function PUT(request: NextRequest) {
     // Apply rate limiting for write operations
     applyRateLimit(request, {
       prefix: '0g-query-index',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const body = await request.json();

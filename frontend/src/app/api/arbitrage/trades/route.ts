@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
-import { applyRateLimit, handleAPIError, ErrorResponses } from '@/lib/api';
+import { applyRateLimit, handleAPIError, RateLimitPresets, ErrorResponses } from '@/lib/api';
 import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Valid status values for filtering
@@ -16,8 +16,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'arbitrage-trades',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const searchParams = request.nextUrl.searchParams;

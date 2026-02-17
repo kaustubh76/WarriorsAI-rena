@@ -596,21 +596,30 @@ export const RateLimitPresets = {
     windowMs: 60000,
   } as SlidingWindowPreset,
 
-  // --- Token Bucket presets (burst-friendly reads) ---
+  /** Storage/moderate writes: 20 per minute (arena-storage, 0g-store, sign-traits, etc.) */
+  storageWrite: {
+    maxRequests: 20,
+    windowMs: 60000,
+  } as SlidingWindowPreset,
 
-  /** Market data reads: burst of 30, refill 2/sec */
-  marketReads: {
-    maxTokens: 30,
-    refillRate: 2,
-    algorithm: 'token-bucket' as const,
-  } as TokenBucketPreset,
+  /** Moderate reads: 30 per minute (portfolio, rpc-health, copy-trade-pnl, etc.) */
+  moderateReads: {
+    maxRequests: 30,
+    windowMs: 60000,
+  } as SlidingWindowPreset,
 
-  /** Public endpoint reads: burst of 60, refill 4/sec */
-  publicReads: {
-    maxTokens: 60,
-    refillRate: 4,
-    algorithm: 'token-bucket' as const,
-  } as TokenBucketPreset,
+  /** File uploads: 10 per minute */
+  fileUpload: {
+    maxRequests: 10,
+    windowMs: 60000,
+  } as SlidingWindowPreset,
+
+  /** 0G market inference: 15 per minute */
+  marketInference: {
+    maxRequests: 15,
+    windowMs: 60000,
+  } as SlidingWindowPreset,
+
 } as const;
 
 // ============================================================================

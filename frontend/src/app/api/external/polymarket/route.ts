@@ -9,6 +9,7 @@ import { polymarketService } from '@/services/externalMarkets';
 import {
   handleAPIError,
   applyRateLimit,
+  RateLimitPresets,
   ErrorResponses,
   createAPILogger,
   circuitBreakers,
@@ -32,8 +33,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'external-polymarket',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

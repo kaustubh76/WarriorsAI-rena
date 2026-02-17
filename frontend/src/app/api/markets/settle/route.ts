@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // Flow Testnet Configuration
 const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
@@ -168,8 +168,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting (5 settlements per minute)
     applyRateLimit(request, {
       prefix: 'markets-settle-post',
-      maxRequests: 5,
-      windowMs: 60000,
+      ...RateLimitPresets.copyTrade,
     });
 
     // Get owner private key (AI_SIGNER_PRIVATE_KEY is the contract owner)
@@ -337,8 +336,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'markets-settle-get',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const provider = new ethers.JsonRpcProvider(FLOW_RPC);

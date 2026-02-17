@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { applyRateLimit, ErrorResponses, handleFlowError } from '@/lib/api';
+import { applyRateLimit, ErrorResponses, handleFlowError, RateLimitPresets } from '@/lib/api';
 import * as fcl from '@onflow/fcl';
 import * as types from '@onflow/types';
 import { withTimeout } from '@/lib/flow/cadenceClient';
@@ -95,7 +95,7 @@ interface ScheduledBattle {
  * Query all pending and ready scheduled battles
  */
 export async function GET(request: NextRequest) {
-  applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
+  applyRateLimit(request, { prefix: 'flow-scheduled', ...RateLimitPresets.apiQueries });
 
   try {
     if (!CONTRACT_ADDRESS) {
@@ -171,7 +171,7 @@ export async function GET(request: NextRequest) {
  * Schedule a new battle (server-side with private key)
  */
 export async function POST(request: NextRequest) {
-  applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
+  applyRateLimit(request, { prefix: 'flow-scheduled', ...RateLimitPresets.apiQueries });
 
   let warrior1Id: number | undefined;
   let warrior2Id: number | undefined;
@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
  * Execute a ready battle (automated executor)
  */
 export async function PUT(request: NextRequest) {
-  applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
+  applyRateLimit(request, { prefix: 'flow-scheduled', ...RateLimitPresets.apiQueries });
 
   let battleId: number | undefined;
   let dbBattle: any = null;
@@ -589,7 +589,7 @@ export async function PUT(request: NextRequest) {
  * Cancel a pending battle
  */
 export async function DELETE(request: NextRequest) {
-  applyRateLimit(request, { prefix: 'flow-scheduled', maxRequests: 60, windowMs: 60000 });
+  applyRateLimit(request, { prefix: 'flow-scheduled', ...RateLimitPresets.apiQueries });
 
   let battleId: number | undefined;
   let dbBattle: any = null;

@@ -7,15 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { aiDebateService } from '@/services/aiDebateService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
     // Apply rate limiting (AI debates are resource-intensive)
     applyRateLimit(request, {
       prefix: 'ai-debate-post',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body = await request.json();
@@ -45,8 +44,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'ai-debate-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

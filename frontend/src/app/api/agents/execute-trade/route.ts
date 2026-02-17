@@ -26,7 +26,7 @@ import {
   getApiBaseUrl,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 // Parse trade limits from config
 const MAX_TRADE_AMOUNT = ethers.parseEther(TRADING_LIMITS.maxTradeAmount);
@@ -119,8 +119,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-execute-trade',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     // Parse request body
@@ -325,8 +324,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-execute-trade-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

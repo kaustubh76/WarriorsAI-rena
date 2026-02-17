@@ -9,7 +9,8 @@ import { isAddress } from 'viem';
 import { chainsToContracts } from '@/constants';
 import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Simplified ABI for ExternalMarketMirror
 const externalMarketMirrorAbi = [
@@ -49,8 +50,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'portfolio-mirror',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const { searchParams } = new URL(request.url);
@@ -61,25 +61,37 @@ export async function GET(request: NextRequest) {
       throw ErrorResponses.badRequest('Invalid or missing address parameter');
     }
 
-    // Get mirror trades from database (trades with mirrorKey)
-    const trades = await prisma.mirrorTrade.findMany({
-      where: {
-        traderAddress: address.toLowerCase(),
-        mirrorKey: { not: null },
-        NOT: { mirrorKey: '' },
+    // Get mirror trades + market metadata from DB (cache 30s via userDataCache)
+    const cacheKey = `portfolio-mirror:${address.toLowerCase()}`;
+    const { trades, mirrorMarkets } = await userDataCache.getOrSet(
+      cacheKey,
+      async () => {
+        const t = await prisma.mirrorTrade.findMany({
+          where: {
+            traderAddress: address.toLowerCase(),
+            mirrorKey: { not: null },
+            NOT: { mirrorKey: '' },
+          },
+          orderBy: {
+            timestamp: 'desc',
+          },
+        });
+        const keys = [...new Set(t.map((tr) => tr.mirrorKey).filter(Boolean))];
+        const mm = await prisma.mirrorMarket.findMany({
+          where: {
+            mirrorKey: { in: keys as string[] },
+          },
+        });
+        return { trades: t, mirrorMarkets: mm };
       },
-      orderBy: {
-        timestamp: 'desc',
-      },
-    });
+      30_000 // 30s TTL — portfolio positions change with trades
+    ) as {
+      trades: Awaited<ReturnType<typeof prisma.mirrorTrade.findMany>>;
+      mirrorMarkets: Awaited<ReturnType<typeof prisma.mirrorMarket.findMany>>;
+    };
 
-    // Get mirror market metadata
+    // Get mirror market keys for RPC lookups
     const mirrorKeys = [...new Set(trades.map((t) => t.mirrorKey).filter(Boolean))];
-    const mirrorMarkets = await prisma.mirrorMarket.findMany({
-      where: {
-        mirrorKey: { in: mirrorKeys as string[] },
-      },
-    });
 
     const mirrorMarketMap = new Map(
       mirrorMarkets.map((m) => [m.mirrorKey, m])

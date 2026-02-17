@@ -9,7 +9,8 @@ import { isAddress } from 'viem';
 import { chainsToContracts } from '@/constants';
 import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Simplified ABI for PredictionMarketAMM
 const predictionMarketAbi = [
@@ -40,8 +41,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'portfolio-native',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const { searchParams } = new URL(request.url);
@@ -52,19 +52,24 @@ export async function GET(request: NextRequest) {
       throw ErrorResponses.badRequest('Invalid or missing address parameter');
     }
 
-    // Get native trades from database (trades without mirrorKey or with NATIVE source)
-    const trades = await prisma.mirrorTrade.findMany({
-      where: {
-        traderAddress: address.toLowerCase(),
-        OR: [
-          { mirrorKey: null },
-          { mirrorKey: '' },
-        ],
-      },
-      orderBy: {
-        timestamp: 'desc',
-      },
-    });
+    // Get native trades from database (cache 30s via userDataCache)
+    const cacheKey = `portfolio-native:${address.toLowerCase()}`;
+    const trades = await userDataCache.getOrSet(
+      cacheKey,
+      () => prisma.mirrorTrade.findMany({
+        where: {
+          traderAddress: address.toLowerCase(),
+          OR: [
+            { mirrorKey: null },
+            { mirrorKey: '' },
+          ],
+        },
+        orderBy: {
+          timestamp: 'desc',
+        },
+      }),
+      30_000 // 30s TTL — portfolio positions change with trades
+    ) as Awaited<ReturnType<typeof prisma.mirrorTrade.findMany>>;
 
     // Group trades by market
     const marketPositions = new Map<

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getStorageApiUrl } from '@/constants';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // 0G Storage service URL - configured via environment variable
 const STORAGE_API_URL = getStorageApiUrl();
@@ -10,8 +10,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting (10 file uploads per minute)
     applyRateLimit(request, {
       prefix: 'files-upload',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.fileUpload,
     });
 
     const data = await request.formData();

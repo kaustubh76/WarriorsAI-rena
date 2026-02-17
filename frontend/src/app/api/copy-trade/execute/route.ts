@@ -12,7 +12,7 @@ import {
   getServerPrivateKey,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 // In-memory idempotency cache (for production, use Redis)
 // Maps idempotency key -> { timestamp, result }
@@ -81,8 +81,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting for copy trade execution (5/min - critical operation)
     applyRateLimit(request, {
       prefix: 'copy-trade-execute',
-      maxRequests: 5,
-      windowMs: 60000,
+      ...RateLimitPresets.copyTrade,
     });
 
     const body = await request.json();
@@ -357,8 +356,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting for status checks
     applyRateLimit(request, {
       prefix: 'copy-trade-status',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const searchParams = request.nextUrl.searchParams;

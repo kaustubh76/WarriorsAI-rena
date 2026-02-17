@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { encodePacked, keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // Maximum signature validity period (5 minutes)
 const SIGNATURE_EXPIRY_MS = 5 * 60 * 1000;
@@ -36,8 +36,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting (20 signings per minute)
     applyRateLimit(request, {
       prefix: 'sign-traits-post',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body: SignTraitsRequest = await request.json();
@@ -175,8 +174,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'sign-traits-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const privateKey = process.env.GAME_MASTER_PRIVATE_KEY;

@@ -9,7 +9,7 @@ import {
   isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // Import the contract ABI and helpers
 import { ArenaAbi, getApiBaseUrl } from '../../../constants';
@@ -466,8 +466,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'game-master',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body = await request.json();

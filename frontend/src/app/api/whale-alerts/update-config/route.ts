@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 interface UpdateConfigRequest {
   userAddress: string;
@@ -24,8 +24,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'whale-update-config',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body: UpdateConfigRequest = await request.json();

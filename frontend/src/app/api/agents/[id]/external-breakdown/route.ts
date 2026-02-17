@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chainsToContracts, getZeroGChainId } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 import { createZeroGPublicClient } from '@/lib/zeroGClient';
 
 const zeroGClient = createZeroGPublicClient();
@@ -20,8 +20,7 @@ export async function GET(
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-external-breakdown',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { id } = await params;

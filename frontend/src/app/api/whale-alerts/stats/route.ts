@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 import { marketDataCache } from '@/lib/cache/hashedCache';
 
 export async function GET(request: NextRequest) {
@@ -13,8 +13,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'whale-stats',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     // Check cache first (2-minute TTL for stats that change gradually)

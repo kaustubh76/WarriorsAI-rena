@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { userDataCache } from '@/lib/cache/hashedCache';
 
 /**
  * GET /api/arena/leaderboard
@@ -11,8 +12,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'arena-leaderboard',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);
@@ -34,10 +34,15 @@ export async function GET(request: NextRequest) {
         break;
     }
 
-    const stats = await prisma.warriorArenaStats.findMany({
-      orderBy,
-      take: limit,
-    });
+    const cacheKey = `arena-leaderboard:${sortBy}:${limit}`;
+    const stats = await userDataCache.getOrSet(
+      cacheKey,
+      () => prisma.warriorArenaStats.findMany({
+        orderBy,
+        take: limit,
+      }),
+      60_000 // 60s TTL — leaderboard data is semi-stale-tolerant
+    ) as Awaited<ReturnType<typeof prisma.warriorArenaStats.findMany>>;
 
     // Add rank
     const leaderboard = stats.map((s, index) => ({

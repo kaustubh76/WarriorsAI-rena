@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { UnifiedMarket } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, validateBoolean } from '@/lib/api';
+import { handleAPIError, applyRateLimit, validateBoolean, RateLimitPresets } from '@/lib/api';
 
 // Stop words to filter out for better matching
 const STOP_WORDS = new Set([
@@ -265,8 +265,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting (30/min due to heavy computation)
     applyRateLimit(request, {
       prefix: 'matched-markets',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const { searchParams } = new URL(request.url);

@@ -6,7 +6,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { marketDataCache } from '@/lib/cache/hashedCache';
 
 // Minimum spread percentage to consider an opportunity
 const DEFAULT_MIN_SPREAD = 5;
@@ -150,25 +151,29 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'external-arbitrage-get',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const { searchParams } = new URL(request.url);
     const minSpread = parseFloat(searchParams.get('minSpread') || String(DEFAULT_MIN_SPREAD));
     const includeExpired = searchParams.get('includeExpired') === 'true';
 
-    // Get cached opportunities from database
-    const dbOpportunities = await prisma.arbitrageOpportunity.findMany({
-      where: includeExpired
-        ? {}
-        : {
-            status: 'active',
-            expiresAt: { gt: new Date() },
-          },
-      orderBy: { potentialProfit: 'desc' },
-      take: 50,
-    });
+    // Get cached opportunities from database (cache for 60s)
+    const cacheKey = `ext-arbitrage:${includeExpired}:${minSpread}`;
+    const dbOpportunities = await marketDataCache.getOrSet(
+      cacheKey,
+      () => prisma.arbitrageOpportunity.findMany({
+        where: includeExpired
+          ? {}
+          : {
+              status: 'active',
+              expiresAt: { gt: new Date() },
+            },
+        orderBy: { potentialProfit: 'desc' },
+        take: 50,
+      }),
+      60_000 // 60s TTL
+    ) as Awaited<ReturnType<typeof prisma.arbitrageOpportunity.findMany>>;
 
     // If no recent opportunities, scan for new ones
     if (dbOpportunities.length === 0) {
@@ -297,8 +302,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'external-arbitrage-post',
-      maxRequests: 5,
-      windowMs: 60000,
+      ...RateLimitPresets.copyTrade,
     });
 
     const body = await request.json();

@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 import { FLOW_RPC_URLS } from '@/constants';
 
 interface RPCHealthResult {
@@ -107,8 +107,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'rpc-health',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     // Get RPC URLs

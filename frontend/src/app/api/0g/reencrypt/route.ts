@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // ============================================================================
 // Configuration
@@ -49,8 +49,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: '0g-reencrypt',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     // Validate configuration

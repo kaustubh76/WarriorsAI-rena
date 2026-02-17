@@ -13,7 +13,7 @@ import {
   executeWithFlowFallbackForKey,
   RPC_TIMEOUT,
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 // Resolution outcome type
 type ResolutionOutcome = 'yes' | 'no' | 'draw';
@@ -57,8 +57,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'oracle-resolve',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body: ResolutionRequest = await request.json();
@@ -256,8 +255,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'oracle-resolve-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

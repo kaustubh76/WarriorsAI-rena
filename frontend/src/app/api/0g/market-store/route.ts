@@ -14,7 +14,7 @@ import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // ============================================================================
 // Types
@@ -339,8 +339,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: '0g-market-store-post',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body: StoreRequest = await request.json();
@@ -398,8 +397,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: '0g-market-store-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);
@@ -448,8 +446,7 @@ export async function PUT(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: '0g-market-store-put',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const body = await request.json();

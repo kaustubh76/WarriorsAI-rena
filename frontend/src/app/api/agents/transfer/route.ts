@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 /**
  * POST - Prepare iNFT transfer transaction
@@ -25,8 +25,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting for transfer operations (5/min)
     applyRateLimit(request, {
       prefix: 'agents-transfer',
-      maxRequests: 5,
-      windowMs: 60000,
+      ...RateLimitPresets.copyTrade,
     });
 
     const body = await request.json();
@@ -105,8 +104,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting for status checks
     applyRateLimit(request, {
       prefix: 'agents-transfer-status',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

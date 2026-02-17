@@ -8,15 +8,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'whale-traders-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const traders = await whaleTrackerService.getTrackedTraders();
@@ -38,8 +37,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'whale-traders-post',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body = await request.json();
@@ -69,8 +67,7 @@ export async function DELETE(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'whale-traders-delete',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body = await request.json();

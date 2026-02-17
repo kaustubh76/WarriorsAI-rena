@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ethers } from 'ethers';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 interface TradeWithPnL {
   id: string;
@@ -38,8 +38,7 @@ export async function GET(
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-trades',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { id } = await params;

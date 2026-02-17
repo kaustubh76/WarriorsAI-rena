@@ -7,7 +7,7 @@ import {
   RPC_TIMEOUT,
 } from '@/lib/flowClient';
 import { zeroGGalileo } from '@/lib/zeroGClient';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 const MAX_BATCH_SIZE = 20;
 
 // Define supported chains
@@ -43,8 +43,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'contract-batch-read',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { requests, chainId } = await request.json() as {

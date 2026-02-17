@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { stopAllEventListeners } from '@/lib/eventListeners';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 // Import shared state from start route
 // Note: In production, use Redis or similar for shared state
@@ -19,8 +19,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'events-stop',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     // Check if listeners are running
@@ -63,8 +62,7 @@ export async function GET(request: NextRequest) {
   try {
     applyRateLimit(request, {
       prefix: 'events-stop-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     return NextResponse.json({

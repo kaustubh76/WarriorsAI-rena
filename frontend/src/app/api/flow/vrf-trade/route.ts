@@ -20,7 +20,7 @@ import {
   isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { EXTERNAL_MARKET_MIRROR_ABI, CRWN_TOKEN_ABI } from '@/constants/abis';
 import { globalErrorHandler } from '@/lib/errorRecovery';
 import { FlowMetrics, PerformanceTimer } from '@/lib/metrics';
@@ -203,8 +203,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'flow-vrf-trade',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body: VRFTradeRequest = await request.json();
@@ -461,8 +460,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'flow-vrf-trade-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

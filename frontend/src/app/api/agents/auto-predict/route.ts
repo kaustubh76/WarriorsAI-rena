@@ -28,7 +28,7 @@ import {
   getServerPrivateKey,
   TRADING_LIMITS,
 } from '@/lib/apiConfig';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 // Strategy type mapping
 const STRATEGY_NAMES: Record<number, string> = {
@@ -109,8 +109,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-auto-predict',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body = await request.json();
@@ -378,8 +377,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-auto-predict-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

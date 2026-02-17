@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
 import { prisma } from '@/lib/prisma';
-import { applyRateLimit, handleAPIError, ErrorResponses } from '@/lib/api';
+import { applyRateLimit, handleAPIError, RateLimitPresets, ErrorResponses } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
@@ -17,8 +17,7 @@ export async function GET(
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'arbitrage-trade-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const tradeId = params.id;
@@ -80,8 +79,7 @@ export async function POST(
     // Apply rate limiting - more restrictive for mutations
     applyRateLimit(request, {
       prefix: 'arbitrage-trade-close',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const tradeId = params.id;

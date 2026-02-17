@@ -24,7 +24,7 @@ import {
 } from '@/lib/flowClient';
 import { createZeroGPublicClient } from '@/lib/zeroGClient';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { prisma } from '@/lib/prisma';
 
 const FLOW_CHAIN_ID = 545;
@@ -130,8 +130,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-external-trade',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body: ExternalTradeRequest = await request.json();
@@ -286,8 +285,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-external-trade-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

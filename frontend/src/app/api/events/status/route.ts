@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 import { getLastSyncedBlock } from '@/lib/eventListeners';
 import { createFlowPublicClient } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
@@ -23,8 +23,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'events-status',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const client = createFlowPublicClient();

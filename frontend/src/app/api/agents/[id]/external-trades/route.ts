@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 import { type NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 export async function GET(
   request: NextRequest,
@@ -17,8 +17,7 @@ export async function GET(
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agent-external-trades',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { id } = await params;

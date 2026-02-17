@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 const prisma = new PrismaClient();
 
@@ -72,8 +72,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting for storage operations
     applyRateLimit(request, {
       prefix: 'arena-storage',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const body = await request.json();
@@ -178,8 +177,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting for retrieval operations
     applyRateLimit(request, {
       prefix: 'arena-storage-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.flowExecution,
     });
 
     const { searchParams } = new URL(request.url);

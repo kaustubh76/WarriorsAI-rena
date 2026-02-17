@@ -4,15 +4,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 export async function GET(request: NextRequest) {
   try {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'agents-test',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
     console.log('=== Testing iNFT Service ===');
 

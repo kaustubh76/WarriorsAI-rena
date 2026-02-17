@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { startAllEventListeners } from '@/lib/eventListeners';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 // Global state to track running listeners
 let unwatchFunctions: any = null;
@@ -24,8 +24,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'events-start',
-      maxRequests: 5,
-      windowMs: 60000, // Max 5 starts per minute
+      ...RateLimitPresets.copyTrade,
     });
 
     // Check if already running
@@ -80,8 +79,7 @@ export async function GET(request: NextRequest) {
   try {
     applyRateLimit(request, {
       prefix: 'events-start-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     return NextResponse.json({

@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chainsToContracts } from '@/constants';
 import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // Simplified ABIs
 const predictionMarketAbi = [
@@ -70,8 +70,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'flow-agent-positions',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

@@ -11,7 +11,7 @@ import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 // Dynamic import for 0G SDK (works better with Next.js)
 let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
@@ -185,8 +185,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting for upload operations
     applyRateLimit(request, {
       prefix: '0g-upload',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.fileUpload,
     });
 
     // Parse form data
@@ -237,8 +236,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting for download operations
     applyRateLimit(request, {
       prefix: '0g-upload-download',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const { searchParams } = new URL(request.url);

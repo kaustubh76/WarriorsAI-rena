@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: warriors-arena-backend
+    runtime: node
+    rootDir: arena-backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://frontend-one-sandy-18.vercel.app

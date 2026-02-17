@@ -7,15 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
     // Apply rate limiting (sync is expensive)
     applyRateLimit(request, {
       prefix: 'external-sync-post',
-      maxRequests: 5,
-      windowMs: 60000,
+      ...RateLimitPresets.copyTrade,
     });
 
     const { searchParams } = new URL(request.url);
@@ -58,8 +57,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'external-sync-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);

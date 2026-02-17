@@ -6,7 +6,7 @@ import {
   AI_AGENT_INFT_ABI,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses, validateAddress } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, validateAddress, RateLimitPresets } from '@/lib/api';
 
 // Extended ABI for PnL calculations
 const EXTENDED_ABI = [
@@ -74,8 +74,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'copy-trade-pnl',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const searchParams = request.nextUrl.searchParams;

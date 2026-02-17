@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { isAddress } from 'viem';
 
 /**
@@ -48,8 +48,7 @@ export async function POST(request: NextRequest) {
     // Apply rate limiting (10 market creations per minute)
     applyRateLimit(request, {
       prefix: 'markets-user-create-post',
-      maxRequests: 10,
-      windowMs: 60000,
+      ...RateLimitPresets.agentOperations,
     });
 
     const body = await request.json();
@@ -163,8 +162,7 @@ export async function GET(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'markets-user-create-get',
-      maxRequests: 60,
-      windowMs: 60000,
+      ...RateLimitPresets.apiQueries,
     });
 
     const { searchParams } = new URL(request.url);
@@ -220,8 +218,7 @@ export async function PATCH(request: NextRequest) {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'markets-user-create-patch',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const body = await request.json();

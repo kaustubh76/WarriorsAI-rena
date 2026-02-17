@@ -7,15 +7,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: '0g-market-context',
-      maxRequests: 30,
-      windowMs: 60000,
+      ...RateLimitPresets.moderateReads,
     });
 
     const body = await request.json();

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { executeDebateRound, executeFullBattle } from '../../../../../../services/arena/debateService';
 import { WarriorTraits, MarketSource, PredictionRound } from '../../../../../../types/predictionArena';
-import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
+import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
 
 const prisma = new PrismaClient();
 
@@ -98,8 +98,7 @@ export async function POST(
     // Apply rate limiting
     applyRateLimit(request, {
       prefix: 'arena-battles-execute',
-      maxRequests: 20,
-      windowMs: 60000,
+      ...RateLimitPresets.storageWrite,
     });
 
     const { id: battleId } = await params;
