@@ -16,7 +16,7 @@ WarriorsAI-rena is an AI-powered blockchain battle arena and integrated predicti
 - Whale tracking, copy trading, cross-platform arbitrage execution
 - Automated market resolution via Cadence scheduling
 
-**Funding Request:** 50,000–150,000 FLOW
+**Funding Request:** 50,000 FLOW. See Section 7.3 for milestone-based allocation.
 
 **Team:** Seeers (ETH Global Cannes hackathon builders)
 
@@ -289,39 +289,124 @@ Player                          Protocol
 
 ### 7.1 Revenue Forecast
 
-| Metric | Month 6 | Month 12 | Month 18 |
-|--------|---------|----------|----------|
-| Daily Active Wallets | 2,000 | 10,000 | 50,000 |
-| Daily Battles | 500 | 2,000 | 10,000 |
-| Monthly Arena Revenue | 37,500 CRwN | 300,000 CRwN | 3,000,000 CRwN |
-| Active Mirror Markets | 200 | 1,000 | 5,000 |
-| Monthly Market Fees | 2,500 CRwN | 25,000 CRwN | 250,000 CRwN |
-| Monthly Copy Trade Fees | 1,000 CRwN | 10,000 CRwN | 100,000 CRwN |
-| Monthly Arbitrage Revenue | 500 CRwN | 5,000 CRwN | 50,000 CRwN |
-| Monthly NFT Revenue | 5,000 CRwN | 25,000 CRwN | 100,000 CRwN |
-| Active TVL (FLOW locked) | 25,000 | 200,000 | 2,000,000 |
-| **Total Monthly Revenue** | **46,500 CRwN** | **365,000 CRwN** | **3,500,000 CRwN** |
+| Metric | Month 3 | Month 6 | Month 12 | Month 18 |
+|--------|---------|---------|----------|----------|
+| **Battle Arena** | | | | |
+| Daily Active Wallets | 500 | 2,000 | 10,000 | 50,000 |
+| Daily Battles | 100 | 500 | 2,000 | 10,000 |
+| Avg Bet Pool (CRwN) | 30 | 50 | 100 | 200 |
+| Monthly Arena Revenue (5%) | 4,500 CRwN | 37,500 CRwN | 300,000 CRwN | 3,000,000 CRwN |
+| **Prediction Markets** | | | | |
+| Active Mirror Markets | 50 | 200 | 1,000 | 5,000 |
+| Monthly Market Volume | 5,000 CRwN | 50,000 CRwN | 500,000 CRwN | 5,000,000 CRwN |
+| Monthly Market Fees | 250 CRwN | 2,500 CRwN | 25,000 CRwN | 250,000 CRwN |
+| **Whale & Copy Trading** | | | | |
+| Active Copy Traders | 20 | 100 | 500 | 2,500 |
+| Monthly Copy Trade Fees | 200 CRwN | 1,000 CRwN | 10,000 CRwN | 100,000 CRwN |
+| **Arbitrage & NFT** | | | | |
+| Monthly Arbitrage Revenue | 100 CRwN | 500 CRwN | 5,000 CRwN | 50,000 CRwN |
+| Monthly NFT Mint Revenue | 2,000 CRwN | 5,000 CRwN | 25,000 CRwN | 100,000 CRwN |
+| **Totals** | | | | |
+| Active TVL (FLOW locked) | 5,000 | 25,000 | 200,000 | 2,000,000 |
+| **Total Monthly Revenue** | **7,050 CRwN** | **46,500 CRwN** | **365,000 CRwN** | **3,500,000 CRwN** |
+
+**Path to Self-Sustainability:**
+
+| Metric | Value |
+|--------|-------|
+| Monthly operating cost (USD) | ~$20,000-$29,000 (see Section 7.2) |
+| Break-even monthly revenue | ~40,000 CRwN (at $0.60/FLOW) |
+| **Projected break-even** | **Month 6** — protocol revenue covers operating costs |
+| Revenue per active user (Month 12) | 36.5 CRwN/user/month |
+| Revenue growth rate (Month 6→12) | ~7.8x |
+
+At Month 6 projections (46,500 CRwN = 46,500 FLOW = ~$27,900 at $0.60/FLOW), the protocol approaches full cost coverage from protocol fees alone. By Month 12, revenue significantly exceeds costs, enabling reinvestment into feature development without further grant funding. **The grant is a bridge to self-sustainability, not an ongoing dependency.**
 
 ### 7.2 Cost Structure
 
-| Category | Monthly Cost | Notes |
-|----------|-------------|-------|
-| AI Compute (0G) | $2,000-5,000 | Scales with battles |
-| Infrastructure | $500-1,500 | Frontend, backend, bots |
-| Security Audit | $15,000-30,000 (one-time) | Pre-mainnet |
-| Team | $15,000-30,000 | Core team of 5 |
-| Marketing | $3,000-5,000 | Tournaments, partnerships |
-| **Monthly Burn Rate** | **$20,500-$41,500** | Excluding audit |
+**Phase 1: Pre-Mainnet One-Time Costs**
 
-### 7.3 Grant Allocation
+| Item | Cost (USD) | Details |
+|------|-----------|---------|
+| Smart contract security audit | $25,000-40,000 | Professional audit of 32 Solidity + 3 Cadence contracts by a reputable firm (Halborn, CertiK, or equivalent). Includes initial audit + fix verification. |
+| 0G Network mainnet setup | $3,000-5,000 | AI agent node provisioning, model deployment, encrypted storage allocation, compute budget deposit |
+| Flow EVM mainnet deployment | $1,000-2,000 | Gas costs for deploying 32+ Solidity contracts + Cadence transactions + contract verification |
+| Production infrastructure setup | $2,000-3,000 | Cloud hosting provisioning, managed database setup, CDN configuration, monitoring stack, CI/CD pipeline |
+| Genesis NFT mint event | $1,000-2,000 | Gas subsidization for 1,000 free warrior mints + marketing materials |
+| **Total Phase 1** | **$32,000-$52,000** | |
 
-| Category | % | Purpose |
-|----------|---|---------|
-| Security Audit | 25% | Contract audit |
-| AI Infrastructure | 20% | 0G mainnet deployment |
-| Development | 30% | Mainnet features, mobile, SDK |
-| Community | 15% | Genesis mint, tournaments |
-| Operations | 10% | Hosting, tooling |
+**Monthly Operating Costs (Post-Mainnet)**
+
+| Item | Monthly Cost | Details |
+|------|-------------|---------|
+| Cloud hosting (Vercel/AWS) | $800-1,200 | Frontend hosting, API servers, cron job execution, WebSocket servers for real-time streaming |
+| Managed database (PostgreSQL) | $200-400 | 40+ Prisma models, real-time market data ingestion from 3 platforms, whale trade history |
+| 0G Network compute | $1,500-3,000 | AI inference for battle decisions, scales linearly with battle volume (~$3/battle at scale) |
+| Flow RPC node access | $200-500 | Dedicated or premium shared Flow RPC for contract interactions, event listeners |
+| External API costs | $300-600 | Polymarket/Kalshi API access, OpenAI for Twitter bot content generation, IPFS pinning via Pinata |
+| Domain, SSL, monitoring | $100-200 | Domain registration, SSL certificates, uptime monitoring, error tracking |
+| **Total Monthly Infrastructure** | **$3,100-$5,900** | |
+
+**Team (5 Core Members)**
+
+| Role | Monthly Cost | Responsibility |
+|------|-------------|---------------|
+| Smart Contract Engineer | $4,000-6,000 | Solidity + Cadence contract maintenance, upgrades, new contract development |
+| AI/Backend Engineer | $4,000-6,000 | 0G agent management, battle logic, resolution orchestrator, API development |
+| Frontend Engineer | $3,000-5,000 | Next.js application, real-time UI, wallet integrations, new feature pages |
+| Game Designer / Product | $2,000-3,000 | Battle mechanics tuning, tokenomics monitoring, user experience, feature specs |
+| DevOps / Community Manager | $2,000-3,000 | Multi-chain deployment, CI/CD, Discord/Twitter bot operations, community engagement |
+| **Total Monthly Team** | **$15,000-$23,000** | |
+
+**Marketing & Community**
+
+| Item | Monthly Cost | Details |
+|------|-------------|---------|
+| Tournament prize pools | $1,000-2,000 | Weekly AI Battle tournaments with CRwN prizes to drive engagement |
+| Community rewards | $500-1,000 | Early adopter airdrops, quest rewards, streak bonuses |
+| Content & partnerships | $500-1,000 | Cross-promotion with Flow ecosystem projects, content creation |
+| **Total Monthly Marketing** | **$2,000-$4,000** | |
+
+**Monthly Burn Rate Summary**
+
+| Category | Low Estimate | High Estimate |
+|----------|-------------|---------------|
+| Infrastructure | $3,100 | $5,900 |
+| Team | $15,000 | $23,000 |
+| Marketing | $2,000 | $4,000 |
+| **Total Monthly Burn** | **$20,100** | **$32,900** |
+
+### 7.3 Grant Allocation (Milestone-Based)
+
+Grant funds are allocated against specific deliverables. Each milestone has clear completion criteria.
+
+**50,000 FLOW (~$30,000 at $0.60/FLOW)**
+
+*Focus: Security audit, mainnet launch, community seeding, and operational runway to self-sustainability.*
+
+| Milestone | % | FLOW | USD Equiv. | Deliverable & Completion Criteria |
+|-----------|---|------|-----------|-----------------------------------|
+| M1: Security Audit | 40% | 20,000 | ~$12,000 | Professional audit of all 32 Solidity + 3 Cadence contracts by a reputable firm (Halborn, CertiK, or equivalent). Published audit report. All critical/high findings remediated and verified. |
+| M2: Mainnet Deployment | 15% | 7,500 | ~$4,500 | All contracts deployed to Flow EVM Mainnet + 0G Mainnet AI agents operational. Genesis Warrior mint executed (1,000 free NFTs). All 18 complete features live on mainnet including mirror markets, whale tracker, copy trading, and arbitrage engine. |
+| M3: 4-Month Operations | 20% | 10,000 | ~$6,000 | Infrastructure, database, 0G compute, RPC access, and external API costs covered for 4 months. Continuous uptime of all platform services including real-time market data feeds, automated resolution cron, and Discord/Twitter bot operations. |
+| M4: Community Growth | 15% | 7,500 | ~$4,500 | Genesis mint gas subsidies for 1,000 minters. First 8 weekly tournament prize pools funded. Early adopter CRwN reward campaigns. Discord and X community activation with bot-driven engagement. |
+| M5: Team (3-Month Sprint) | 10% | 5,000 | ~$3,000 | Partial team compensation for the 3-month mainnet launch sprint. Covers critical engineering hours for deployment, integration testing, launch support, and post-launch stabilization. |
+| **Total** | **100%** | **50,000** | **~$30,000** | |
+
+**What 50,000 FLOW enables:** Full mainnet launch of all 18 complete features with professional security audit, a 4-month operational runway bridging the platform to break-even (Month 6 projected revenue: 46,500 CRwN), and community seeding through Genesis mint and tournament prize pools. The remaining 2 months to self-sustainability are covered by early protocol revenue from arena fees, prediction market fees, and NFT minting.
+
+---
+
+**Grant ROI for the Flow Ecosystem:**
+
+| Metric | Projected Impact |
+|--------|-----------------|
+| Projected TVL locked (Month 12) | 200,000 FLOW |
+| Daily transactions at maturity | 15,000+ |
+| Unique features launched on Flow | 18 complete features on mainnet |
+| Open-source infrastructure | Cadence↔EVM bridge, oracle resolution template, mirror market reference implementation |
+| New user onboarding | Gaming + prediction market users new to Flow |
+| Time to self-sustainability | ~6 months (grant covers 4 months; protocol revenue bridges the gap)
 
 ---
 

@@ -131,15 +131,15 @@ Built on **Flow EVM + 0G Network** | Seeers Team | DoraHacks Flow Grant DAO
 
 ## The Ask
 
-### Requesting: 50,000 - 150,000 FLOW
+### Requesting: 50,000 FLOW
 
-| Allocation | Share | Purpose |
-|------------|:-----:|---------|
-| Security Audit | **25%** | Professional smart contract audit for 32 Solidity + 3 Cadence contracts before mainnet |
-| AI Infrastructure | **20%** | 0G Network compute for AI battle agents at scale |
-| Development | **30%** | Mainnet deployment, optimization, additional features |
-| Community Growth | **15%** | Player acquisition, tournaments, ambassador program |
-| Operations | **10%** | Hosting, monitoring, ongoing maintenance |
+| Allocation | Share | FLOW | Purpose |
+|------------|:-----:|------|---------|
+| Security Audit | **40%** | 20,000 | Professional audit of 32 Solidity + 3 Cadence contracts before mainnet |
+| Mainnet Deployment | **15%** | 7,500 | Flow EVM + 0G mainnet deployment, Genesis Warrior mint (1,000 NFTs) |
+| Operations (4 months) | **20%** | 10,000 | Infrastructure, database, 0G compute, RPC, API costs to self-sustainability |
+| Community Growth | **15%** | 7,500 | Genesis mint gas subsidies, tournament prizes, early adopter rewards |
+| Team (3-month sprint) | **10%** | 5,000 | Critical engineering for deployment, testing, and launch support |
 
 **All core features are already built.** Grant funds take us from testnet to mainnet, from prototype to product.
 
