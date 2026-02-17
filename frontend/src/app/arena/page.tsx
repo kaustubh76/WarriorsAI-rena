@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useAccount, useWriteContract, useWatchContractEvent } from 'wagmi';
 import { encodePacked, keccak256, decodeEventLog } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { createFlowWalletClient, createFlowPublicClient } from '@/lib/flowClient';
 import '../home-glass.css';
 import { Button } from '../../components/ui/button';
 // Unused UI components removed for lint cleanup
@@ -711,30 +712,7 @@ export default function ArenaPage() {
       console.log('Signature:', signature);
 
       // Create Game Master wallet client for transaction
-      const { createWalletClient, http } = await import('viem');
-      const { defineChain } = await import('viem');
-      
-      const flowTestnet = defineChain({
-        id: getChainId(),
-        name: 'Flow Testnet',
-        network: 'flow-testnet',
-        nativeCurrency: {
-          decimals: 18,
-          name: 'Flow',
-          symbol: 'FLOW',
-        },
-        rpcUrls: {
-          default: {
-            http: ['https://testnet.evm.nodes.onflow.org'],
-          },
-        },
-      });
-
-      const aiSignerWalletClient = createWalletClient({
-        account: aiSignerAccount,
-        chain: flowTestnet,
-        transport: http('https://testnet.evm.nodes.onflow.org'),
-      });
+      const aiSignerWalletClient = createFlowWalletClient(aiSignerAccount);
 
       // Call the battle function using AI signer's wallet client
       const hash = await aiSignerWalletClient.writeContract({
@@ -747,11 +725,7 @@ export default function ArenaPage() {
       console.log('Battle transaction sent:', hash);
 
       // Wait for confirmation
-      const { createPublicClient } = await import('viem');
-      const publicClient = createPublicClient({
-        chain: flowTestnet,
-        transport: http('https://testnet.evm.nodes.onflow.org'),
-      });
+      const publicClient = createFlowPublicClient();
 
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: hash as `0x${string}`,
@@ -883,35 +857,11 @@ export default function ArenaPage() {
       });
 
       // Create AI signer wallet client for transaction (using the same key as API)
-      const { createWalletClient, http } = await import('viem');
-      const { defineChain } = await import('viem');
-      const { privateKeyToAccount } = await import('viem/accounts');
-      
-      const flowTestnet = defineChain({
-        id: getChainId(),
-        name: 'Flow Testnet',
-        network: 'flow-testnet',
-        nativeCurrency: {
-          decimals: 18,
-          name: 'Flow',
-          symbol: 'FLOW',
-        },
-        rpcUrls: {
-          default: {
-            http: ['https://testnet.evm.nodes.onflow.org'],
-          },
-        },
-      });
-
       // Use the same AI signer private key as the API
       const aiSignerPrivateKey = "0x5d9626839c7c44143e962b012eba09d8212cf7e3ab7a393c6c27cc5eb2be8765";
       const aiSignerAccount = privateKeyToAccount(aiSignerPrivateKey as `0x${string}`);
 
-      const aiSignerWalletClient = createWalletClient({
-        account: aiSignerAccount,
-        chain: flowTestnet,
-        transport: http('https://testnet.evm.nodes.onflow.org'),
-      });
+      const aiSignerWalletClient = createFlowWalletClient(aiSignerAccount);
 
       // Call the battle function using AI signer wallet client with the pre-generated signature
       const hash = await aiSignerWalletClient.writeContract({
@@ -924,11 +874,7 @@ export default function ArenaPage() {
       console.log('🔐 Battle transaction sent with API signature:', hash);
 
       // Wait for confirmation
-      const { createPublicClient } = await import('viem');
-      const publicClient = createPublicClient({
-        chain: flowTestnet,
-        transport: http('https://testnet.evm.nodes.onflow.org'),
-      });
+      const publicClient = createFlowPublicClient();
 
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: hash as `0x${string}`,
@@ -1280,30 +1226,7 @@ export default function ArenaPage() {
       // Create Game Master account and wallet client
       const gameStandardAccount = privateKeyToAccount(formattedPrivateKey as `0x${string}`);
       
-      const { createWalletClient, http } = await import('viem');
-      const { defineChain } = await import('viem');
-      
-      const flowTestnet = defineChain({
-        id: getChainId(),
-        name: 'Flow Testnet',
-        network: 'flow-testnet',
-        nativeCurrency: {
-          decimals: 18,
-          name: 'Flow',
-          symbol: 'FLOW',
-        },
-        rpcUrls: {
-          default: {
-            http: ['https://testnet.evm.nodes.onflow.org'],
-          },
-        },
-      });
-
-      const gameMasterWalletClient = createWalletClient({
-        account: gameStandardAccount,
-        chain: flowTestnet,
-        transport: http('https://testnet.evm.nodes.onflow.org'),
-      });
+      const gameMasterWalletClient = createFlowWalletClient(gameStandardAccount);
 
       console.log(`Using Game Master account: ${gameStandardAccount.address}`);
 
@@ -1318,11 +1241,7 @@ export default function ArenaPage() {
       console.log('Start game transaction sent:', hash);
 
       // Wait for confirmation
-      const { createPublicClient } = await import('viem');
-      const publicClient = createPublicClient({
-        chain: flowTestnet,
-        transport: http('https://testnet.evm.nodes.onflow.org'),
-      });
+      const publicClient = createFlowPublicClient();
 
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: hash as `0x${string}`,
