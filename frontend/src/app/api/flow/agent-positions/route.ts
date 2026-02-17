@@ -4,23 +4,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http } from 'viem';
-import { chainsToContracts, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import { chainsToContracts } from '@/constants';
+import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
-
-const RPC_TIMEOUT = 60000;
-
-const FLOW_CHAIN = {
-  id: 545,
-  name: 'Flow Testnet',
-  network: 'flow-testnet',
-  nativeCurrency: { decimals: 18, name: 'Flow', symbol: 'FLOW' },
-  rpcUrls: {
-    default: { http: [getFlowRpcUrl()] },
-    public: { http: [getFlowRpcUrl()] },
-  },
-} as const;
 
 // Simplified ABIs
 const predictionMarketAbi = [
@@ -77,30 +64,6 @@ const externalMarketMirrorAbi = [
     stateMutability: 'view',
   },
 ] as const;
-
-const flowClient = createPublicClient({
-  chain: FLOW_CHAIN,
-  transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT }),
-});
-
-const flowFallbackClient = createPublicClient({
-  chain: FLOW_CHAIN,
-  transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT }),
-});
-
-async function executeWithFallback<T>(
-  operation: (client: typeof flowClient) => Promise<T>
-): Promise<T> {
-  try {
-    return await operation(flowClient);
-  } catch (error) {
-    const errMsg = (error as Error).message || '';
-    if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
-      return await operation(flowFallbackClient);
-    }
-    throw error;
-  }
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -179,8 +142,8 @@ export async function GET(request: NextRequest) {
 
       try {
         if (pos.mirrorKey && externalMarketMirrorAddress) {
-          // Mirror market
-          const mirrorData = await executeWithFallback((client) =>
+          // Mirror market - route by mirrorKey
+          const mirrorData = await executeWithFlowFallbackForKey(pos.mirrorKey, (client) =>
             client.readContract({
               address: externalMarketMirrorAddress,
               abi: externalMarketMirrorAbi,
@@ -195,8 +158,8 @@ export async function GET(request: NextRequest) {
             isActive: mirrorData.externalLink.isActive,
           };
         } else if (pos.marketId && predictionMarketAddress) {
-          // Native market
-          const nativeData = await executeWithFallback((client) =>
+          // Native market - route by marketId
+          const nativeData = await executeWithFlowFallbackForKey(pos.marketId, (client) =>
             client.readContract({
               address: predictionMarketAddress,
               abi: predictionMarketAbi,

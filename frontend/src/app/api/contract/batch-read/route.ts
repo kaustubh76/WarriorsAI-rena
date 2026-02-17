@@ -1,31 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http, defineChain } from 'viem';
+import { createPublicClient, http } from 'viem';
 import { Chain } from 'viem';
 import { anvil, flowTestnet, flowMainnet } from 'viem/chains';
-import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import {
+  executeWithFlowFallbackForKey,
+  RPC_TIMEOUT,
+} from '@/lib/flowClient';
+import { zeroGGalileo } from '@/lib/zeroGClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
 const MAX_BATCH_SIZE = 20;
-
-// 0G Galileo Testnet - Used for AI Agent iNFT operations
-const zeroGGalileo = defineChain({
-  id: 16602,
-  name: '0G Galileo Testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'A0GI',
-    symbol: 'A0GI',
-  },
-  rpcUrls: {
-    default: { http: ['https://evmrpc-testnet.0g.ai'] },
-  },
-  blockExplorers: {
-    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
-  },
-  testnet: true,
-});
 
 // Define supported chains
 const SUPPORTED_CHAINS: Record<number, Chain> = {
@@ -98,30 +81,13 @@ export async function POST(request: NextRequest) {
       throw ErrorResponses.badRequest(`Unsupported chain ID: ${targetChainId}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(', ')}`);
     }
 
-    // Get RPC URL based on chain
     const isFlowChain = targetChainId === 545 || targetChainId === 747;
-    const rpcUrl = isFlowChain ? getFlowRpcUrl() : undefined;
 
-    // Create public client
-    const publicClient = createPublicClient({
+    // Non-Flow client (only created if needed)
+    const nonFlowClient = !isFlowChain ? createPublicClient({
       chain: chain,
-      transport: http(rpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-    });
-
-    // Create fallback client for Flow chains
-    const fallbackClient = isFlowChain ? createPublicClient({
-      chain: chain,
-      transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
+      transport: http(undefined, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
     }) : null;
-
-    // Helper to check if error is timeout
-    const isTimeoutError = (error: unknown): boolean => {
-      const errMsg = (error as Error).message || '';
-      return errMsg.includes('timeout') ||
-             errMsg.includes('timed out') ||
-             errMsg.includes('took too long') ||
-             errMsg.includes('TimeoutError');
-    };
 
     // Process args - convert string numbers to BigInt
     const processArgs = (args?: (string | number | bigint)[]): (string | number | bigint)[] => {
@@ -134,31 +100,29 @@ export async function POST(request: NextRequest) {
       });
     };
 
-    // Execute single read with fallback
+    // Execute single read with hash-ring routing for Flow chains
     const executeRead = async (req: BatchReadRequest): Promise<BatchReadResult> => {
       const processedArgs = processArgs(req.args);
 
       try {
         let result;
-        try {
-          result = await publicClient.readContract({
+        if (isFlowChain) {
+          const routingKey = `${req.contractAddress}-${req.functionName}`;
+          result = await executeWithFlowFallbackForKey(routingKey, (client) =>
+            client.readContract({
+              address: req.contractAddress as `0x${string}`,
+              abi: req.abi as readonly unknown[],
+              functionName: req.functionName,
+              args: processedArgs,
+            })
+          );
+        } else {
+          result = await nonFlowClient!.readContract({
             address: req.contractAddress as `0x${string}`,
             abi: req.abi as readonly unknown[],
             functionName: req.functionName,
             args: processedArgs,
           });
-        } catch (error) {
-          if (isTimeoutError(error) && fallbackClient) {
-            console.warn(`[Batch Read] Primary RPC timed out for ${req.functionName}, trying fallback...`);
-            result = await fallbackClient.readContract({
-              address: req.contractAddress as `0x${string}`,
-              abi: req.abi as readonly unknown[],
-              functionName: req.functionName,
-              args: processedArgs,
-            });
-          } else {
-            throw error;
-          }
         }
 
         // Serialize BigInt values

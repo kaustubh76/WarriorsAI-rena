@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 // ============================================
 // TYPES
@@ -101,6 +102,8 @@ function isValidScheduledTime(scheduledTime: Date): boolean {
 
 export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'scheduled-resolutions-get', ...RateLimitPresets.readOperations });
+
     const searchParams = request.nextUrl.searchParams;
     const status = searchParams.get('status');
     const resolutionId = searchParams.get('id');
@@ -211,6 +214,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'scheduled-resolutions-post', ...RateLimitPresets.marketCreation });
+
     const body: ScheduleRequestBody = await request.json();
     const { externalMarketId, mirrorKey, scheduledTime, oracleSource, creator } = body;
 
@@ -354,6 +359,8 @@ export async function PUT(request: NextRequest) {
   let resolutionId: string | null = null;
 
   try {
+    applyRateLimit(request, { prefix: 'scheduled-resolutions-put', ...RateLimitPresets.oracleOperations });
+
     const body: ExecuteRequestBody = await request.json();
     resolutionId = body.resolutionId;
 
@@ -563,6 +570,8 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'scheduled-resolutions-delete', ...RateLimitPresets.oracleOperations });
+
     const searchParams = request.nextUrl.searchParams;
     const resolutionId = searchParams.get('id');
 

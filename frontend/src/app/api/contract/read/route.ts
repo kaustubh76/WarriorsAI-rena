@@ -1,30 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, http, defineChain } from 'viem';
+import { createPublicClient, http } from 'viem';
 import { Chain } from 'viem';
 import { anvil, flowTestnet, flowMainnet } from 'viem/chains';
-import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import {
+  executeWithFlowFallbackForKey,
+  RPC_TIMEOUT,
+} from '@/lib/flowClient';
+import { zeroGGalileo } from '@/lib/zeroGClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
-
-// 0G Galileo Testnet - Used for AI Agent iNFT operations
-const zeroGGalileo = defineChain({
-  id: 16602,
-  name: '0G Galileo Testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'A0GI',
-    symbol: 'A0GI',
-  },
-  rpcUrls: {
-    default: { http: ['https://evmrpc-testnet.0g.ai'] },
-  },
-  blockExplorers: {
-    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
-  },
-  testnet: true,
-});
 
 // Define supported chains
 const SUPPORTED_CHAINS: Record<number, Chain> = {
@@ -58,30 +41,7 @@ export async function POST(request: NextRequest) {
       throw ErrorResponses.badRequest(`Unsupported chain ID: ${targetChainId}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(', ')}`);
     }
 
-    // Get RPC URL based on chain (Flow chains have fallback support)
     const isFlowChain = targetChainId === 545 || targetChainId === 747;
-    const rpcUrl = isFlowChain ? getFlowRpcUrl() : undefined;
-
-    // Create a public client for reading contract data
-    const publicClient = createPublicClient({
-      chain: chain,
-      transport: http(rpcUrl, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-    });
-
-    // Create fallback client for Flow chains
-    const fallbackClient = isFlowChain ? createPublicClient({
-      chain: chain,
-      transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
-    }) : null;
-
-    // Helper to check if error is timeout
-    const isTimeoutError = (error: unknown): boolean => {
-      const errMsg = (error as Error).message || '';
-      return errMsg.includes('timeout') ||
-             errMsg.includes('timed out') ||
-             errMsg.includes('took too long') ||
-             errMsg.includes('TimeoutError');
-    };
 
     // Convert string arguments back to appropriate types for contract calls
     let processedArgs = args || [];
@@ -97,27 +57,29 @@ export async function POST(request: NextRequest) {
 
     console.log('Contract call:', { contractAddress, functionName, args: processedArgs });
 
-    // Read from the contract with fallback support for Flow chains
+    // Read from the contract — use hash-ring routing for Flow chains
     let result;
-    try {
+    if (isFlowChain) {
+      const routingKey = `${contractAddress}-${functionName}`;
+      result = await executeWithFlowFallbackForKey(routingKey, (client) =>
+        client.readContract({
+          address: contractAddress as `0x${string}`,
+          abi: abi,
+          functionName: functionName,
+          args: processedArgs,
+        })
+      );
+    } else {
+      const publicClient = createPublicClient({
+        chain: chain,
+        transport: http(undefined, { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 }),
+      });
       result = await publicClient.readContract({
         address: contractAddress as `0x${string}`,
         abi: abi,
         functionName: functionName,
         args: processedArgs,
       });
-    } catch (error) {
-      if (isTimeoutError(error) && fallbackClient) {
-        console.warn('[Contract Read] Primary RPC timed out, trying fallback...');
-        result = await fallbackClient.readContract({
-          address: contractAddress as `0x${string}`,
-          abi: abi,
-          functionName: functionName,
-          args: processedArgs,
-        });
-      } else {
-        throw error;
-      }
     }
 
     console.log('Contract result:', result);

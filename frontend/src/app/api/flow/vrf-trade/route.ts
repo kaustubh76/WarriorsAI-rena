@@ -12,12 +12,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseEther, formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { flowTestnet } from 'viem/chains';
 import {
   createFlowPublicClient,
   createFlowFallbackClient,
   createFlowWalletClient,
-  executeWithFlowFallback,
+  executeWithFlowFallbackForKey,
+  isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
@@ -175,33 +175,11 @@ const CRWN_TOKEN = process.env.NEXT_PUBLIC_CRWN_TOKEN_ADDRESS || '0x9Fd6CCEE1243
 // Client Setup
 // ============================================================================
 
-function getPublicClient() {
-  return createFlowPublicClient();
-}
-
-function getFallbackPublicClient() {
-  return createFlowFallbackClient();
-}
-
-function getWalletClient(privateKey: `0x${string}`) {
-  const account = privateKeyToAccount(privateKey);
-  return createFlowWalletClient(account);
-}
-
-// Helper to check if error is timeout
-function isTimeoutError(error: unknown): boolean {
-  const errMsg = (error as Error).message || '';
-  return errMsg.includes('timeout') ||
-         errMsg.includes('timed out') ||
-         errMsg.includes('took too long') ||
-         errMsg.includes('TimeoutError');
-}
-
 // Wait for receipt with fallback
 async function waitForReceiptWithFallback(
   hash: `0x${string}`,
-  primaryClient: ReturnType<typeof getPublicClient>,
-  fallbackClient: ReturnType<typeof getFallbackPublicClient>
+  primaryClient: ReturnType<typeof createFlowPublicClient>,
+  fallbackClient: ReturnType<typeof createFlowFallbackClient>
 ) {
   try {
     return await primaryClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
@@ -268,15 +246,15 @@ export async function POST(request: NextRequest) {
       throw ErrorResponses.serviceUnavailable('ExternalMarketMirror contract not deployed. Set EXTERNAL_MARKET_MIRROR_ADDRESS env var.');
     }
 
-    const publicClient = getPublicClient();
-    const fallbackClient = getFallbackPublicClient();
-    const walletClient = getWalletClient(privateKey);
-    const account = walletClient.account!;
+    const publicClient = createFlowPublicClient();
+    const fallbackClient = createFlowFallbackClient();
+    const account = privateKeyToAccount(privateKey);
+    const walletClient = createFlowWalletClient(account);
 
     // Verify mirror market exists and is active (wrapped with circuit breaker)
     try {
       const mirrorMarket = await globalErrorHandler.handleRPCCall(
-        async () => await executeWithFlowFallback((client) =>
+        async () => await executeWithFlowFallbackForKey(mirrorKey, (client) =>
           client.readContract({
             address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
             abi: EXTERNAL_MARKET_MIRROR_ABI,
@@ -298,7 +276,7 @@ export async function POST(request: NextRequest) {
     // Check and approve CRwN if needed (wrapped with circuit breaker)
     try {
       const allowance = await globalErrorHandler.handleRPCCall(
-        async () => await executeWithFlowFallback((client) =>
+        async () => await executeWithFlowFallbackForKey(mirrorKey, (client) =>
           client.readContract({
             address: CRWN_TOKEN as `0x${string}`,
             abi: CRWN_TOKEN_ABI,
@@ -495,7 +473,7 @@ export async function GET(request: NextRequest) {
       throw ErrorResponses.badRequest('Provide mirrorKey or txHash query parameter');
     }
 
-    const publicClient = getPublicClient();
+    const publicClient = createFlowPublicClient();
 
     if (txHash) {
       // Get transaction receipt
@@ -514,7 +492,7 @@ export async function GET(request: NextRequest) {
     if (mirrorKey && EXTERNAL_MARKET_MIRROR !== '0x0000000000000000000000000000000000000000') {
       // Get mirror market info
       try {
-        const mirrorMarket = await executeWithFlowFallback((client) =>
+        const mirrorMarket = await executeWithFlowFallbackForKey(mirrorKey, (client) =>
           client.readContract({
             address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
             abi: EXTERNAL_MARKET_MIRROR_ABI,

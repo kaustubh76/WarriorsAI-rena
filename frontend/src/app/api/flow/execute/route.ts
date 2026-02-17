@@ -17,7 +17,8 @@ import {
   createFlowPublicClient,
   createFlowFallbackClient,
   createFlowWalletClient,
-  executeWithFlowFallback,
+  executeWithFlowFallbackForKey,
+  isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
@@ -93,15 +94,6 @@ function getFallbackPublicClient() {
 function getWalletClient(privateKey: `0x${string}`) {
   const account = privateKeyToAccount(privateKey);
   return createFlowWalletClient(account);
-}
-
-// Helper to check if error is timeout
-function isTimeoutError(error: unknown): boolean {
-  const errMsg = (error as Error).message || '';
-  return errMsg.includes('timeout') ||
-         errMsg.includes('timed out') ||
-         errMsg.includes('took too long') ||
-         errMsg.includes('TimeoutError');
 }
 
 // Wait for receipt with fallback
@@ -198,7 +190,7 @@ export async function POST(request: NextRequest) {
 
           // Approve CRwN if needed (wrapped with circuit breaker)
           const allowance = await globalErrorHandler.handleRPCCall(
-            async () => await executeWithFlowFallback((client) =>
+            async () => await executeWithFlowFallbackForKey(externalId, (client) =>
               client.readContract({
                 address: CRWN_TOKEN as `0x${string}`,
                 abi: CRWN_TOKEN_ABI,
@@ -283,7 +275,7 @@ export async function POST(request: NextRequest) {
 
           // Approve if needed (wrapped with circuit breaker)
           const allowance = await globalErrorHandler.handleRPCCall(
-            async () => await executeWithFlowFallback((client) =>
+            async () => await executeWithFlowFallbackForKey(mirrorKey, (client) =>
               client.readContract({
                 address: CRWN_TOKEN as `0x${string}`,
                 abi: CRWN_TOKEN_ABI,
@@ -498,9 +490,9 @@ export async function POST(request: NextRequest) {
             throw ErrorResponses.badRequest('Missing mirrorKey for query');
           }
 
-          // Query market (wrapped with circuit breaker)
+          // Query market with hash-ring routing (same mirrorKey always hits same RPC)
           const mirrorMarket = await globalErrorHandler.handleRPCCall(
-            async () => await executeWithFlowFallback((client) =>
+            async () => await executeWithFlowFallbackForKey(mirrorKey, (client) =>
               client.readContract({
                 address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
                 abi: EXTERNAL_MARKET_MIRROR_ABI,
@@ -571,15 +563,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Use hash-ring routing with contract address as key (deterministic RPC selection)
     const [totalMirrors, totalVolume] = await Promise.all([
-      executeWithFlowFallback((client) =>
+      executeWithFlowFallbackForKey(EXTERNAL_MARKET_MIRROR, (client) =>
         client.readContract({
           address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
           abi: EXTERNAL_MARKET_MIRROR_ABI,
           functionName: 'totalMirrors',
         })
       ),
-      executeWithFlowFallback((client) =>
+      executeWithFlowFallbackForKey(EXTERNAL_MARKET_MIRROR, (client) =>
         client.readContract({
           address: EXTERNAL_MARKET_MIRROR as `0x${string}`,
           abi: EXTERNAL_MARKET_MIRROR_ABI,
