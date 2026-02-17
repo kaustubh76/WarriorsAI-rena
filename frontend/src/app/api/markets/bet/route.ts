@@ -1,47 +1,51 @@
 /**
  * Market Betting API - Place Bet
  * POST /api/markets/bet
+ *
+ * Rate limited: 15 requests/minute per IP, stricter per wallet.
+ * Uses sliding window counter to prevent boundary doubling.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { marketBettingService } from '@/services/betting/marketBettingService';
+import { applyRateLimitWithBody, RateLimitPresets } from '@/lib/api/rateLimit';
+import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { userId, externalMarketId, source, side, amount, warriorId } = body;
 
+    // Apply rate limiting with wallet-based tracking (prevents IP rotation bypass)
+    applyRateLimitWithBody(request, body, {
+      prefix: 'market-bet',
+      ...RateLimitPresets.marketBetting,
+      strictWalletLimit: true,
+    });
+
     // Validate inputs
     if (!userId || !externalMarketId || !source || !side || !amount) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Missing required fields: userId, externalMarketId, source, side, amount');
     }
 
     if (source !== 'polymarket' && source !== 'kalshi') {
-      return NextResponse.json(
-        { error: 'Invalid source. Must be "polymarket" or "kalshi"' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid source. Must be "polymarket" or "kalshi"');
     }
 
     if (side !== 'YES' && side !== 'NO') {
-      return NextResponse.json(
-        { error: 'Invalid side. Must be "YES" or "NO"' },
-        { status: 400 }
-      );
+      throw ErrorResponses.badRequest('Invalid side. Must be "YES" or "NO"');
     }
 
     // Convert amount to bigint
     let amountBigInt: bigint;
     try {
       amountBigInt = BigInt(amount);
-    } catch (error) {
-      return NextResponse.json(
-        { error: 'Invalid amount format' },
-        { status: 400 }
-      );
+    } catch {
+      throw ErrorResponses.badRequest('Invalid amount format');
+    }
+
+    if (amountBigInt <= 0n) {
+      throw ErrorResponses.badRequest('Amount must be greater than 0');
     }
 
     // Place bet
@@ -69,13 +73,6 @@ export async function POST(request: NextRequest) {
       executionPrice: result.executionPrice,
     });
   } catch (error) {
-    console.error('[Market Betting API] POST error:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to place bet',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return handleAPIError(error, 'API:Markets:Bet:POST');
   }
 }

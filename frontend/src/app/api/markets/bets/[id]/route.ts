@@ -9,12 +9,15 @@ import { marketBettingService } from '@/services/betting/marketBettingService';
 import { orderExecutionService } from '@/services/betting/orderExecutionService';
 import { escrowService } from '@/services/escrow';
 import { prisma } from '@/lib/prisma';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    applyRateLimit(request, { prefix: 'market-bet-detail', ...RateLimitPresets.readOperations });
+
     const betId = params.id;
 
     if (!betId) {
@@ -63,6 +66,8 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    applyRateLimit(request, { prefix: 'market-bet-cancel', ...RateLimitPresets.marketBetting });
+
     const betId = params.id;
 
     if (!betId) {

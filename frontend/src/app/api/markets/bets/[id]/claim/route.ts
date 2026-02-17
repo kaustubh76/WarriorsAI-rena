@@ -5,12 +5,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { marketBettingService } from '@/services/betting/marketBettingService';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    applyRateLimit(request, { prefix: 'market-bet-claim', ...RateLimitPresets.marketBetting });
+
     const betId = params.id;
 
     if (!betId) {

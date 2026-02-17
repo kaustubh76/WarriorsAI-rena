@@ -5,9 +5,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { marketBettingService } from '@/services/betting/marketBettingService';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'market-bets-list', ...RateLimitPresets.readOperations });
+
     const searchParams = request.nextUrl.searchParams;
     const userId = searchParams.get('userId');
     const status = searchParams.get('status');

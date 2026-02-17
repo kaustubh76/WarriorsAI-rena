@@ -4,14 +4,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, createWalletClient, http, type Address } from 'viem';
+import { type Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { flowTestnet } from 'viem/chains';
-import { getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
+import {
+  createFlowPublicClientForKey,
+  createFlowFallbackClient,
+  createFlowWalletClient,
+  executeWithFlowFallbackForKey,
+  RPC_TIMEOUT,
+} from '@/lib/flowClient';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
-
-// RPC timeout configuration
-const RPC_TIMEOUT = 60000;
 
 // Resolution outcome type
 type ResolutionOutcome = 'yes' | 'no' | 'draw';
@@ -203,31 +205,11 @@ async function submitToContract(
   privateKey: `0x${string}`
 ): Promise<string> {
   const account = privateKeyToAccount(privateKey);
+  const routingKey = `oracle-market-${marketId.toString()}`;
 
-  const walletClient = createWalletClient({
-    account,
-    chain: flowTestnet,
-    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
-  });
-
-  const publicClient = createPublicClient({
-    chain: flowTestnet,
-    transport: http(getFlowRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
-  });
-
-  const fallbackPublicClient = createPublicClient({
-    chain: flowTestnet,
-    transport: http(getFlowFallbackRpcUrl(), { timeout: RPC_TIMEOUT, retryCount: 2, retryDelay: 1000 })
-  });
-
-  // Helper to check if error is timeout
-  const isTimeoutError = (error: unknown): boolean => {
-    const errMsg = (error as Error).message || '';
-    return errMsg.includes('timeout') ||
-           errMsg.includes('timed out') ||
-           errMsg.includes('took too long') ||
-           errMsg.includes('TimeoutError');
-  };
+  const walletClient = createFlowWalletClient(account);
+  const publicClient = createFlowPublicClientForKey(routingKey);
+  const fallbackClient = createFlowFallbackClient();
 
   // Oracle contract address - update after deployment
   const oracleAddress = process.env.ZERO_G_ORACLE_ADDRESS as Address;
@@ -239,13 +221,16 @@ async function submitToContract(
   // Convert signatures to bytes
   const signaturesBytes = signatures.map(s => s as `0x${string}`);
 
-  const { request } = await publicClient.simulateContract({
-    address: oracleAddress,
-    abi: ZeroGOracleABI,
-    functionName: 'submitResolution',
-    args: [marketId, outcome, signaturesBytes, proofHash as `0x${string}`],
-    account
-  });
+  // Simulate via hash-ring-routed client
+  const { request } = await executeWithFlowFallbackForKey(routingKey, (client) =>
+    client.simulateContract({
+      address: oracleAddress,
+      abi: ZeroGOracleABI,
+      functionName: 'submitResolution',
+      args: [marketId, outcome, signaturesBytes, proofHash as `0x${string}`],
+      account
+    })
+  );
 
   const hash = await walletClient.writeContract(request);
 
@@ -253,9 +238,10 @@ async function submitToContract(
   try {
     await publicClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
   } catch (error) {
-    if (isTimeoutError(error)) {
+    const errMsg = (error as Error).message || '';
+    if (errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('TimeoutError')) {
       console.warn('[Oracle Resolve] Primary RPC timed out waiting for receipt, trying fallback...');
-      await fallbackPublicClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
+      await fallbackClient.waitForTransactionReceipt({ hash, timeout: RPC_TIMEOUT });
     } else {
       throw error;
     }
