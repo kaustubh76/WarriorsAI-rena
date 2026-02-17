@@ -22,9 +22,13 @@ import {
   withCronTimeout,
   cronConfig,
 } from '@/lib/api/cronAuth';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 export async function GET(request: NextRequest) {
   try {
+    // Rate limit cron endpoint (defense-in-depth)
+    applyRateLimit(request, { prefix: 'cron-detect-arbitrage', ...RateLimitPresets.cronJobs });
+
     // Verify cron authorization
     const auth = verifyCronAuth(request, { allowDevBypass: true });
     if (!auth.authorized) {

@@ -9,11 +9,17 @@ import { resolveMarketServerSide, waitForSealed } from '@/lib/flow/marketResolut
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { verifyCronAuth, cronAuthErrorResponse, cronConfig } from '@/lib/api/cronAuth';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 
 export const maxDuration = 300; // 5 minutes max execution time
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Rate limit cron endpoint (defense-in-depth)
+  try {
+    applyRateLimit(request, { prefix: 'cron-execute-resolutions', ...RateLimitPresets.cronJobs });
+  } catch { /* auth check below is primary guard */ }
+
   // Verify cron authorization (only accepts Authorization header)
   const auth = verifyCronAuth(request);
   if (!auth.authorized) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ErrorResponses } from '@/lib/api/errorHandler';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
 import { alertHighQueueDepth, sendAlert } from '@/lib/monitoring/alerts';
 import * as fcl from '@onflow/fcl';
@@ -49,6 +50,9 @@ if (!isBuildTime && !isServerFlowConfigured()) {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit cron endpoint (defense-in-depth)
+    applyRateLimit(request, { prefix: 'cron-execute-battles', ...RateLimitPresets.cronJobs });
+
     // Verify cron secret for security
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${CRON_SECRET}`) {
