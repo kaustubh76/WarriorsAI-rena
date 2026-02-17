@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MarketSource } from '@/types/externalMarket';
 import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { userDataCache } from '@/lib/cache/hashedCache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,6 +22,13 @@ export async function GET(request: NextRequest) {
     // Parse and validate limit with max constraints
     const rawLimit = parseInt(searchParams.get('limit') || '5');
     const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
+
+    // Check cache first (5-minute TTL for whale rankings)
+    const cacheKey = `whale-top-whales:${limit}`;
+    const cached = userDataCache.get(cacheKey);
+    if (cached) {
+      return NextResponse.json({ success: true, data: cached });
+    }
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -104,12 +112,17 @@ export async function GET(request: NextRequest) {
         };
       });
 
+    const responseData = {
+      topWhales,
+      count: topWhales.length,
+    };
+
+    // Cache for 5 minutes
+    userDataCache.set(cacheKey, responseData, 300_000);
+
     return NextResponse.json({
       success: true,
-      data: {
-        topWhales,
-        count: topWhales.length,
-      },
+      data: responseData,
     });
   } catch (error) {
     // Return empty array if database tables don't exist yet

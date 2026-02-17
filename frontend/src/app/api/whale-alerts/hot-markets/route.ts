@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MarketSource } from '@/types/externalMarket';
 import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { marketDataCache } from '@/lib/cache/hashedCache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,6 +20,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '5');
+
+    // Check cache first (5-minute TTL for aggregated market data)
+    const cacheKey = `whale-hot-markets:${limit}`;
+    const cached = marketDataCache.get(cacheKey);
+    if (cached) {
+      return NextResponse.json({ success: true, data: cached });
+    }
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -83,12 +91,17 @@ export async function GET(request: NextRequest) {
         totalVolume: m.totalVolume,
       }));
 
+    const responseData = {
+      hotMarkets,
+      count: hotMarkets.length,
+    };
+
+    // Cache for 5 minutes
+    marketDataCache.set(cacheKey, responseData, 300_000);
+
     return NextResponse.json({
       success: true,
-      data: {
-        hotMarkets,
-        count: hotMarkets.length,
-      },
+      data: responseData,
     });
   } catch (error) {
     // Return empty array if database tables don't exist yet

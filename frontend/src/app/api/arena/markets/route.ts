@@ -3,31 +3,7 @@ import { polymarketService } from '@/services/externalMarkets/polymarketService'
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { UnifiedMarket } from '@/types/externalMarket';
 import { handleAPIError, applyRateLimit, RateLimitPresets, validateEnum } from '@/lib/api';
-
-// In-memory cache with TTL and size limit
-interface CacheEntry {
-  data: UnifiedMarket[];
-  timestamp: number;
-}
-
-const MAX_CACHE_SIZE = 100;
-const cache: Map<string, CacheEntry> = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function getCacheKey(search?: string, source?: string, limit?: number): string {
-  return `markets:${source || 'all'}:${search || 'default'}:${limit || 50}`;
-}
-
-function setCache(key: string, data: CacheEntry): void {
-  // LRU eviction: remove oldest entry if cache is full
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey) {
-      cache.delete(oldestKey);
-    }
-  }
-  cache.set(key, data);
-}
+import { marketDataCache } from '@/lib/cache/hashedCache';
 
 // Helper functions for parallel market fetching
 async function fetchPolymarketData(search?: string): Promise<{ markets: UnifiedMarket[]; error?: string }> {
@@ -93,18 +69,18 @@ export async function GET(request: NextRequest) {
     const requestedLimit = parseInt(searchParams.get('limit') || '50');
     const limit = Math.min(Math.max(1, isNaN(requestedLimit) ? 50 : requestedLimit), 200);
 
-    const cacheKey = getCacheKey(search, source, limit);
-    const cached = cache.get(cacheKey);
+    const cacheKey = `arena-markets:${source || 'all'}:${search || 'default'}:${limit || 50}`;
+    const cached = marketDataCache.get(cacheKey) as UnifiedMarket[] | undefined;
 
     // Return cached data if valid
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    if (cached) {
       return NextResponse.json({
         success: true,
         data: {
-          markets: cached.data.slice(0, limit),
-          total: cached.data.length,
+          markets: cached.slice(0, limit),
+          total: cached.length,
           cached: true,
-          sources: getSourcesFromMarkets(cached.data),
+          sources: getSourcesFromMarkets(cached),
         },
       });
     }
@@ -117,8 +93,8 @@ export async function GET(request: NextRequest) {
     const fetchKalshi = source === 'all' || source === 'kalshi';
 
     const [polymarketResult, kalshiResult] = await Promise.all([
-      fetchPolymarket ? fetchPolymarketData(search) : Promise.resolve({ markets: [] }),
-      fetchKalshi ? fetchKalshiData(search) : Promise.resolve({ markets: [] }),
+      fetchPolymarket ? fetchPolymarketData(search) : Promise.resolve({ markets: [] as UnifiedMarket[], error: undefined }),
+      fetchKalshi ? fetchKalshiData(search) : Promise.resolve({ markets: [] as UnifiedMarket[], error: undefined }),
     ]);
 
     // Collect results and errors
@@ -135,8 +111,8 @@ export async function GET(request: NextRequest) {
     // Sort by volume (descending) for relevance
     allMarkets.sort((a, b) => parseFloat(b.volume) - parseFloat(a.volume));
 
-    // Update cache using the setCache function with LRU eviction
-    setCache(cacheKey, { data: allMarkets, timestamp: Date.now() });
+    // Store in hash-distributed cache (5-minute TTL from marketDataCache default)
+    marketDataCache.set(cacheKey, allMarkets);
 
     return NextResponse.json({
       success: true,

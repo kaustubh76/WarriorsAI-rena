@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { marketDataCache } from '@/lib/cache/hashedCache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +16,13 @@ export async function GET(request: NextRequest) {
       maxRequests: 60,
       windowMs: 60000,
     });
+
+    // Check cache first (2-minute TTL for stats that change gradually)
+    const cacheKey = 'whale-stats:24h';
+    const cached = marketDataCache.get(cacheKey);
+    if (cached) {
+      return NextResponse.json({ success: true, data: cached });
+    }
 
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -75,17 +83,22 @@ export async function GET(request: NextRequest) {
         ? ((avgTradeSize - prevAvgTradeSize) / prevAvgTradeSize) * 100
         : 0;
 
+    const statsData = {
+      totalVolume24h,
+      tradeCount24h,
+      avgTradeSize,
+      volumeChange24h,
+      tradeCountChange,
+      avgTradeSizeChange,
+      trackedTraderCount,
+    };
+
+    // Cache for 2 minutes
+    marketDataCache.set(cacheKey, statsData, 120_000);
+
     return NextResponse.json({
       success: true,
-      data: {
-        totalVolume24h,
-        tradeCount24h,
-        avgTradeSize,
-        volumeChange24h,
-        tradeCountChange,
-        avgTradeSizeChange,
-        trackedTraderCount,
-      },
+      data: statsData,
     });
   } catch (error) {
     // Return default values if database tables don't exist yet

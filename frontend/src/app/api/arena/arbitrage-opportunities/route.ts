@@ -5,9 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { handleAPIError } from '@/lib/api/errorHandler';
 
 export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: 'arena-arbitrage-opps', ...RateLimitPresets.readOperations });
+
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get('search') || '';
     const minSpread = parseFloat(searchParams.get('minSpread') || '5');
