@@ -7,8 +7,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { formatEther, type Address, parseAbiItem, createPublicClient, http } from 'viem';
+import { formatEther, type Address, parseAbiItem } from 'viem';
 import { chainsToContracts, getZeroGChainId } from '@/constants';
+import { createZeroGPublicClient } from '@/lib/zeroGClient';
 
 // ============================================================================
 // Types
@@ -38,24 +39,8 @@ export interface UseAgentTradeHistoryResult {
 
 const ZEROG_CHAIN_ID = getZeroGChainId(); // 16602 0G Galileo Testnet
 
-// 0G Galileo chain config for viem
-const zeroGGalileo = {
-  id: ZEROG_CHAIN_ID,
-  name: '0G Galileo Testnet',
-  nativeCurrency: { name: 'A0GI', symbol: 'A0GI', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['https://evmrpc-testnet.0g.ai'] },
-  },
-  blockExplorers: {
-    default: { name: 'Blockscout', url: 'https://chainscan-galileo.0g.ai' },
-  },
-} as const;
-
 // Create 0G public client for read operations
-const zeroGClient = createPublicClient({
-  chain: zeroGGalileo,
-  transport: http('https://evmrpc-testnet.0g.ai'),
-});
+const zeroGClient = createZeroGPublicClient();
 
 // TradeRecorded event from AIAgentINFT (on 0G chain)
 // event TradeRecorded(uint256 indexed tokenId, bool won, int256 pnl)

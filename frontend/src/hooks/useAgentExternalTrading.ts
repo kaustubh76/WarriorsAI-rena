@@ -5,10 +5,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useWalletClient, usePublicClient } from 'wagmi';
-import { parseEther, createWalletClient } from 'viem';
-import { chainsToContracts, getZeroGChainId, getZeroGComputeRpc } from '@/constants';
-import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+import { useWalletClient } from 'wagmi';
+import { createWalletClient } from 'viem';
 import {
   externalMarketAgentService,
   VerifiedMarketPrediction,
@@ -16,21 +14,6 @@ import {
   ExternalTradeResult,
 } from '@/services/externalMarketAgentService';
 import { UnifiedMarket, MarketSource } from '@/types/externalMarket';
-
-// ============================================
-// CHAIN DEFINITION
-// ============================================
-
-const ZEROG_CHAIN = {
-  id: 16602,
-  name: '0G Galileo Testnet',
-  network: '0g-galileo',
-  nativeCurrency: { decimals: 18, name: '0G Token', symbol: '0G' },
-  rpcUrls: {
-    default: { http: [getZeroGComputeRpc()] },
-    public: { http: [getZeroGComputeRpc()] },
-  },
-} as const;
 
 // ============================================
 // TYPES
@@ -68,7 +51,6 @@ export function useAgentExternalTrading(
   agentId: bigint | null
 ): UseAgentExternalTradingReturn {
   const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient({ chainId: ZEROG_CHAIN.id });
 
   // State
   const [canTradePolymarket, setCanTradePolymarket] = useState(false);

@@ -5,31 +5,16 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain, useChainId } from 'wagmi';
-import { parseEther, formatEther, type Address, createPublicClient, http } from 'viem';
+import { parseEther, formatEther, type Address } from 'viem';
 import { chainsToContracts, getZeroGChainId } from '@/constants';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
+import { createZeroGPublicClient } from '@/lib/zeroGClient';
 
 // 0G Galileo Testnet chain ID
 const ZEROG_CHAIN_ID = 16602;
 
-// 0G Galileo chain config for viem
-const zeroGGalileo = {
-  id: ZEROG_CHAIN_ID,
-  name: '0G Galileo Testnet',
-  nativeCurrency: { name: 'A0GI', symbol: 'A0GI', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['https://evmrpc-testnet.0g.ai'] },
-  },
-  blockExplorers: {
-    default: { name: 'Blockscout', url: 'https://chainscan-galileo.0g.ai' },
-  },
-} as const;
-
 // Create 0G public client for read operations
-const zeroGClient = createPublicClient({
-  chain: zeroGGalileo,
-  transport: http('https://evmrpc-testnet.0g.ai'),
-});
+const zeroGClient = createZeroGPublicClient();
 
 // Get contract addresses for 0G chain
 function get0GContracts() {

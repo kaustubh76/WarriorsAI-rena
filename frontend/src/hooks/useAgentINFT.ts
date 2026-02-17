@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useWalletClient, usePublicClient, useSwitchChain, useChainId } from 'wagmi';
 import type { Address } from 'viem';
-import { defineChain } from 'viem';
+import { zeroGGalileo } from '@/lib/zeroGClient';
 import {
   agentINFTService,
   type AIAgentINFT,
@@ -25,23 +25,8 @@ import {
   deserializeEncryptedData,
 } from '../services/agentEncryptionService';
 
-// 0G Galileo Testnet chain definition
-export const zeroGGalileo = defineChain({
-  id: 16602,
-  name: '0G Galileo Testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'A0GI',
-    symbol: 'A0GI',
-  },
-  rpcUrls: {
-    default: { http: ['https://evmrpc-testnet.0g.ai'] },
-  },
-  blockExplorers: {
-    default: { name: '0G Explorer', url: 'https://chainscan-galileo.0g.ai' },
-  },
-  testnet: true,
-});
+// Re-export for consumers that were importing from this module
+export { zeroGGalileo };
 
 // Chain ID constants
 const ZEROG_CHAIN_ID = 16602;

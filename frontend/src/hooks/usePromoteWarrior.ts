@@ -14,26 +14,9 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, useWalletClient, useChainId, useSwitchChain, useReadContract } from 'wagmi';
-import { defineChain, formatEther } from 'viem';
+import { formatEther } from 'viem';
+import { flowTestnet } from 'viem/chains';
 import { chainsToContracts, warriorsNFTAbi } from '../constants';
-
-// Flow Testnet chain definition
-const flowTestnet = defineChain({
-  id: 545,
-  name: 'Flow EVM Testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'FLOW',
-    symbol: 'FLOW',
-  },
-  rpcUrls: {
-    default: { http: ['https://testnet.evm.nodes.onflow.org'] },
-  },
-  blockExplorers: {
-    default: { name: 'Flow Explorer', url: 'https://evm-testnet.flowscan.io' },
-  },
-  testnet: true,
-});
 
 const FLOW_CHAIN_ID = 545;
 
