@@ -5,6 +5,8 @@
  * This enables easy network switching between testnet and mainnet.
  */
 
+import { initFlowRpcRing, initZeroGRpcRing, getFlowRpcForKey, getZeroGRpcForKey } from '@/lib/hashing';
+
 // ============================================================================
 // Chain RPCs
 // ============================================================================
@@ -15,6 +17,35 @@ export const ZEROG_RPC = process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmr
 // Chain IDs
 export const FLOW_CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '545', 10);
 export const ZEROG_CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '16602', 10);
+
+// ============================================================================
+// Multi-RPC Node Configuration (for consistent hashing)
+// ============================================================================
+
+/**
+ * Flow RPC nodes with weights for consistent hash ring routing.
+ * Higher weight = more traffic share. Add additional RPC endpoints here
+ * when scaling (e.g., Alchemy, QuickNode, dedicated nodes).
+ */
+export const FLOW_RPC_NODES = [
+  { id: 'flow-primary', url: FLOW_RPC, weight: 3 },
+  { id: 'flow-public', url: 'https://testnet.evm.nodes.onflow.org', weight: 1 },
+];
+
+/**
+ * 0G RPC nodes with weights for consistent hash ring routing.
+ */
+export const ZEROG_RPC_NODES = [
+  { id: '0g-primary', url: ZEROG_RPC, weight: 3 },
+  { id: '0g-public', url: 'https://evmrpc-testnet.0g.ai', weight: 1 },
+];
+
+// Initialize hash rings at module load time (< 1ms, safe for serverless cold start)
+initFlowRpcRing(FLOW_RPC_NODES);
+initZeroGRpcRing(ZEROG_RPC_NODES);
+
+// Re-export convenience functions for downstream consumers
+export { getFlowRpcForKey, getZeroGRpcForKey };
 
 // ============================================================================
 // Contract Addresses - Flow Testnet (545)
