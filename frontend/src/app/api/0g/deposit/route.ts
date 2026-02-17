@@ -78,8 +78,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    applyRateLimit(request, { prefix: '0g-deposit-get', maxRequests: 60, windowMs: 60000 });
+
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       throw ErrorResponses.internal('0G private key not configured');

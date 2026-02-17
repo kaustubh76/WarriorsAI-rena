@@ -14,6 +14,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import type { Address } from 'viem';
 import { handleAPIError, ErrorResponses } from '@/lib/api';
+import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { ConsistentHashRing } from '@/lib/hashing';
 
 // ============================================================================
 // Type Definitions
@@ -28,69 +30,6 @@ interface ZeroGProvider {
   inputPrice?: bigint;
   outputPrice?: bigint;
   verifiability?: string;
-}
-
-// Rate limiting
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
-// In-memory rate limit store (use Redis in production)
-const rateLimitStore = new Map<string, RateLimitEntry>();
-
-const RATE_LIMIT_CONFIG = {
-  maxRequests: 20,        // Maximum requests per window
-  windowMs: 60 * 1000,    // 1 minute window
-  blockDurationMs: 5 * 60 * 1000  // 5 minute block for exceeding limit
-};
-
-/**
- * Check rate limit for a given identifier (IP or wallet address)
- */
-function checkRateLimit(identifier: string): { allowed: boolean; remaining: number; resetIn: number } {
-  const now = Date.now();
-  const entry = rateLimitStore.get(identifier);
-
-  // Clean up expired entries periodically
-  if (rateLimitStore.size > 10000) {
-    for (const [key, val] of rateLimitStore) {
-      if (now > val.resetTime) {
-        rateLimitStore.delete(key);
-      }
-    }
-  }
-
-  if (!entry || now > entry.resetTime) {
-    // New window
-    rateLimitStore.set(identifier, {
-      count: 1,
-      resetTime: now + RATE_LIMIT_CONFIG.windowMs
-    });
-    return {
-      allowed: true,
-      remaining: RATE_LIMIT_CONFIG.maxRequests - 1,
-      resetIn: RATE_LIMIT_CONFIG.windowMs
-    };
-  }
-
-  if (entry.count >= RATE_LIMIT_CONFIG.maxRequests) {
-    // Rate limited - extend block time
-    entry.resetTime = now + RATE_LIMIT_CONFIG.blockDurationMs;
-    return {
-      allowed: false,
-      remaining: 0,
-      resetIn: entry.resetTime - now
-    };
-  }
-
-  // Increment counter
-  entry.count++;
-  return {
-    allowed: true,
-    remaining: RATE_LIMIT_CONFIG.maxRequests - entry.count,
-    resetIn: entry.resetTime - now
-  };
 }
 
 // ============================================================================
@@ -141,35 +80,53 @@ function updateProviderHealth(
   providerHealthStore.set(address, existing);
 }
 
-function selectBestProvider(providers: ZeroGProvider[]): ZeroGProvider | null {
+/**
+ * Select provider using consistent hashing with health-based fallback.
+ *
+ * Strategy:
+ * 1. Build/update hash ring from available providers
+ * 2. Use routing key (battleId or prompt hash) for deterministic selection
+ * 3. If primary is unhealthy (failure rate > 50%), walk to next ring node
+ * 4. If all unhealthy, return the hash ring's primary choice
+ *
+ * @param providers - Available providers
+ * @param routingKey - Key for deterministic routing (e.g., battleId)
+ */
+function selectBestProvider(providers: ZeroGProvider[], routingKey?: string): ZeroGProvider | null {
   if (providers.length === 0) return null;
   if (providers.length === 1) return providers[0];
 
-  // Score providers based on health metrics
-  const scoredProviders = providers.map(p => {
-    const health = providerHealthStore.get(p.provider);
+  // Rebuild ring with current providers (fast: < 1ms for typical provider counts)
+  // Using a simple ring rebuild since provider lists change dynamically
+  const ring = new ConsistentHashRing<ZeroGProvider>({ virtualNodes: 100 });
+  for (const p of providers) {
+    ring.addNode(p.provider, p);
+  }
+
+  // Use provided routing key or generate one
+  const key = routingKey || `inference-${Date.now()}`;
+
+  // Get candidates in ring order
+  const candidates = ring.getNodes(key, providers.length);
+
+  // Build set of healthy providers (failure rate < 50%)
+  for (const candidate of candidates) {
+    const health = providerHealthStore.get(candidate.provider);
     if (!health) {
-      // New provider gets a neutral score
-      return { provider: p, score: 50 };
+      // New provider — give it a chance
+      return candidate;
     }
 
     const totalRequests = health.successCount + health.failureCount;
     const successRate = totalRequests > 0 ? health.successCount / totalRequests : 0.5;
 
-    // Score: 60% success rate, 40% response time (lower is better)
-    const responseTimeScore = health.avgResponseTime > 0
-      ? Math.max(0, 100 - health.avgResponseTime / 100)
-      : 50;
+    if (successRate >= 0.5) {
+      return candidate;
+    }
+  }
 
-    const score = successRate * 60 + (responseTimeScore / 100) * 40;
-    return { provider: p, score };
-  });
-
-  // Sort by score descending
-  scoredProviders.sort((a, b) => b.score - a.score);
-
-  // Return best provider
-  return scoredProviders[0].provider;
+  // All unhealthy — return hash ring's primary choice anyway
+  return ring.getNode(key) ?? providers[0];
 }
 
 // ============================================================================
@@ -324,30 +281,11 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // Get client identifier for rate limiting
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    const clientIP = forwardedFor?.split(',')[0]?.trim() || 'unknown';
-
-    // Check rate limit
-    const rateLimit = checkRateLimit(clientIP);
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Rate limit exceeded. Please try again later.',
-          retryAfter: Math.ceil(rateLimit.resetIn / 1000)
-        },
-        {
-          status: 429,
-          headers: {
-            'X-RateLimit-Limit': RATE_LIMIT_CONFIG.maxRequests.toString(),
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': Math.ceil(rateLimit.resetIn / 1000).toString(),
-            'Retry-After': Math.ceil(rateLimit.resetIn / 1000).toString()
-          }
-        }
-      );
-    }
+    // Rate limiting via shared sliding window counter
+    applyRateLimit(request, {
+      prefix: '0g-inference',
+      ...RateLimitPresets.inference,
+    });
 
     const body: InferenceRequest = await request.json();
     const { prompt, model, maxTokens = 1000, temperature = 0.7, battleData, debateContext } = body;
@@ -496,8 +434,9 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Select best provider based on health metrics
-    const selectedService = selectBestProvider(chatbotServices);
+    // Select provider using consistent hashing with health-based fallback
+    const routingKey = body.battleData?.battleId || body.debateContext?.debateId || prompt.slice(0, 64);
+    const selectedService = selectBestProvider(chatbotServices, routingKey);
     if (!selectedService) {
       return NextResponse.json({
         success: false,

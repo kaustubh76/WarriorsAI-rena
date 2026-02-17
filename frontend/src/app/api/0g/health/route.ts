@@ -8,10 +8,11 @@
  * - Provider availability
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { ZEROG_RPC, ZEROG_CHAIN_ID, ZEROG_COMPUTE } from '@/lib/apiConfig';
-import { handleAPIError } from '@/lib/api';
+import { handleAPIError, applyRateLimit } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
 
 interface HealthStatus {
   timestamp: string;
@@ -47,7 +48,9 @@ interface HealthStatus {
   recommendations: string[];
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  applyRateLimit(request, { prefix: '0g-health', ...RateLimitPresets.readOperations });
+
   const status: HealthStatus = {
     timestamp: new Date().toISOString(),
     overall: 'healthy',

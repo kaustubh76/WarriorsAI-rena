@@ -54,36 +54,6 @@ interface VerifiedMarketPrediction {
 }
 
 // ============================================================================
-// Rate Limiting
-// ============================================================================
-
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
-const rateLimitStore = new Map<string, RateLimitEntry>();
-const RATE_LIMIT = 15;       // Max requests per window
-const RATE_WINDOW = 60000;   // 1 minute
-
-function checkRateLimit(identifier: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitStore.get(identifier);
-
-  if (!entry || now > entry.resetTime) {
-    rateLimitStore.set(identifier, { count: 1, resetTime: now + RATE_WINDOW });
-    return true;
-  }
-
-  if (entry.count >= RATE_LIMIT) {
-    return false;
-  }
-
-  entry.count++;
-  return true;
-}
-
-// ============================================================================
 // 0G Configuration
 // ============================================================================
 

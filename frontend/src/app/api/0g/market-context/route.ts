@@ -9,28 +9,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleAPIError, applyRateLimit, ErrorResponses } from '@/lib/api';
 
-// Rate limiting
-const rateLimits = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 30;
-const RATE_WINDOW = 60000; // 1 minute
-
-function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const limit = rateLimits.get(key);
-
-  if (!limit || now > limit.resetAt) {
-    rateLimits.set(key, { count: 1, resetAt: now + RATE_WINDOW });
-    return true;
-  }
-
-  if (limit.count >= RATE_LIMIT) {
-    return false;
-  }
-
-  limit.count++;
-  return true;
-}
-
 export async function POST(request: NextRequest) {
   try {
     // Apply rate limiting
