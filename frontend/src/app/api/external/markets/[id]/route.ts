@@ -5,32 +5,30 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'external-markets-id',
-      ...RateLimitPresets.apiQueries,
-    });
+  const { id } = await params;
 
-    const { id } = await params;
+  const handler = composeMiddleware([
+    withRateLimit({ prefix: 'external-markets-id', ...RateLimitPresets.apiQueries }),
+    async (req, ctx) => {
+      const market = await externalMarketsService.getMarket(id);
 
-    const market = await externalMarketsService.getMarket(id);
+      if (!market) {
+        throw ErrorResponses.notFound('Market not found');
+      }
 
-    if (!market) {
-      throw ErrorResponses.notFound('Market not found');
-    }
+      return NextResponse.json({
+        success: true,
+        data: market,
+      });
+    },
+  ], { errorContext: 'API:External:Markets:ID:GET' });
 
-    return NextResponse.json({
-      success: true,
-      data: market,
-    });
-  } catch (error) {
-    return handleAPIError(error, 'API:External:Markets:ID:GET');
-  }
+  return handler(request);
 }

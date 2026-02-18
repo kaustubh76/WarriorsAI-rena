@@ -7,17 +7,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (sync is expensive)
-    applyRateLimit(request, {
-      prefix: 'external-sync-post',
-      ...RateLimitPresets.copyTrade,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'external-sync-post', ...RateLimitPresets.copyTrade }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const source = searchParams.get('source'); // 'polymarket', 'kalshi', or null for both
 
     let results;
@@ -47,20 +43,13 @@ export async function POST(request: NextRequest) {
         timestamp: Date.now(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:External:Sync:POST');
-  }
-}
+  },
+], { errorContext: 'API:External:Sync:POST' });
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'external-sync-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'external-sync-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get('limit') || '20');
 
     // Get recent sync logs
@@ -88,7 +77,5 @@ export async function GET(request: NextRequest) {
         })),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:External:Sync:GET');
-  }
-}
+  },
+], { errorContext: 'API:External:Sync:GET' });

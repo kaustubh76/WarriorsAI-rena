@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 const prisma = new PrismaClient();
 
@@ -12,11 +13,10 @@ const prisma = new PrismaClient();
  * - mirrorKey: Filter by specific mirror market
  * - limit: Number of records to return (default: 100)
  */
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'external-sync-history', ...RateLimitPresets.readOperations });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'external-sync-history', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const mirrorKey = searchParams.get('mirrorKey');
     const limit = parseInt(searchParams.get('limit') || '100');
 
@@ -63,14 +63,5 @@ export async function GET(request: NextRequest) {
         total: eventsWithMarketInfo.length,
       },
     });
-  } catch (error) {
-    console.error('[sync-history] Error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch sync history',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:External:SyncHistory:GET' });

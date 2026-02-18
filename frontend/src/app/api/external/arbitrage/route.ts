@@ -4,9 +4,10 @@
  * POST: Trigger manual arbitrage scan
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { marketDataCache } from '@/lib/cache/hashedCache';
 
 // Minimum spread percentage to consider an opportunity
@@ -146,15 +147,10 @@ function findArbitrageOpportunities(
   return opportunities.sort((a, b) => b.potentialProfit - a.potentialProfit);
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'external-arbitrage-get',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'external-arbitrage-get', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const minSpread = parseFloat(searchParams.get('minSpread') || String(DEFAULT_MIN_SPREAD));
     const includeExpired = searchParams.get('includeExpired') === 'true';
 
@@ -292,20 +288,13 @@ export async function GET(request: NextRequest) {
         fromCache: true,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:External:Arbitrage:GET');
-  }
-}
+  },
+], { errorContext: 'API:External:Arbitrage:GET' });
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'external-arbitrage-post',
-      ...RateLimitPresets.copyTrade,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'external-arbitrage-post', ...RateLimitPresets.copyTrade }),
+  async (req, ctx) => {
+    const body = await req.json();
     const minSpread = body.minSpread || DEFAULT_MIN_SPREAD;
 
     // Force a fresh scan
@@ -390,7 +379,5 @@ export async function POST(request: NextRequest) {
         },
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:External:Arbitrage:POST');
-  }
-}
+  },
+], { errorContext: 'API:External:Arbitrage:POST' });

@@ -3,25 +3,20 @@
  * GET: Fetch unified markets from Polymarket and Kalshi
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
 import {
   MarketSource,
   ExternalMarketStatus,
   MarketFilters,
 } from '@/types/externalMarket';
-import { handleAPIError } from '@/lib/api/errorHandler';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'external-markets',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'external-markets', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
 
     // Parse filters from query params
     const filters: MarketFilters = {};
@@ -104,7 +99,5 @@ export async function GET(request: NextRequest) {
         lastSync: stats.lastSync,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:ExternalMarkets:GET');
-  }
-}
+  },
+], { errorContext: 'API:ExternalMarkets:GET' });
