@@ -22,10 +22,6 @@ export interface RPCNode {
   chainId: number;
 }
 
-export interface CacheBucketConfig {
-  id: string;
-  index: number;
-}
 
 // ============================================================================
 // RPC Node Hash Ring
@@ -43,21 +39,6 @@ export const flowRpcRing = new ConsistentHashRing<RPCNode>({ virtualNodes: 150 }
  */
 export const zeroGRpcRing = new ConsistentHashRing<RPCNode>({ virtualNodes: 150 });
 
-/**
- * Hash ring for 0G compute provider selection.
- * Routes inference requests deterministically by battle/agent ID.
- */
-export const providerRing = new ConsistentHashRing<string>({ virtualNodes: 100 });
-
-// ============================================================================
-// Cache Distribution Hash Ring
-// ============================================================================
-
-/**
- * Hash ring for distributing cache entries across buckets.
- * Prevents thundering herd on a single cache instance.
- */
-export const cacheRing = new ConsistentHashRing<CacheBucketConfig>({ virtualNodes: 50 });
 
 // ============================================================================
 // Initialization Helpers
@@ -102,31 +83,6 @@ export function initZeroGRpcRing(
   }
 }
 
-/**
- * Initialize the 0G provider hash ring from discovered providers.
- * Called dynamically when provider list is fetched.
- *
- * @param providers - Array of provider addresses
- */
-export function initProviderRing(providers: string[]): void {
-  for (const address of providers) {
-    providerRing.addNode(address, address);
-  }
-}
-
-/**
- * Initialize cache bucket ring.
- *
- * @param bucketCount - Number of cache buckets to distribute across
- */
-export function initCacheRing(bucketCount: number): void {
-  for (let i = 0; i < bucketCount; i++) {
-    cacheRing.addNode(`bucket-${i}`, {
-      id: `bucket-${i}`,
-      index: i,
-    });
-  }
-}
 
 // ============================================================================
 // Convenience Functions
@@ -159,43 +115,3 @@ export function getZeroGRpcForKey(key: string, defaultUrl?: string): string {
   return defaultUrl || process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai';
 }
 
-/**
- * Get the best 0G provider for a routing key, with health-based fallback.
- *
- * @param key - Routing key (e.g., battleId, agentId)
- * @param healthyProviders - Set of currently healthy provider addresses
- * @returns The selected provider address, or undefined
- */
-export function getProviderForKey(
-  key: string,
-  healthyProviders?: Set<string>
-): string | undefined {
-  if (providerRing.size === 0) return undefined;
-
-  // If no health data, just use hash ring directly
-  if (!healthyProviders) {
-    return providerRing.getNode(key);
-  }
-
-  // Get multiple candidates from ring, pick first healthy one
-  const candidates = providerRing.getNodes(key, providerRing.size);
-  for (const candidate of candidates) {
-    if (healthyProviders.has(candidate)) {
-      return candidate;
-    }
-  }
-
-  // All unhealthy — return the hash ring's primary choice anyway
-  return providerRing.getNode(key);
-}
-
-/**
- * Get the cache bucket index for a given key.
- *
- * @param key - Cache key
- * @returns Bucket index (0-based), or 0 if ring not initialized
- */
-export function getCacheBucketForKey(key: string): number {
-  const bucket = cacheRing.getNode(key);
-  return bucket?.index ?? 0;
-}

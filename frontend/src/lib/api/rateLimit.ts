@@ -1,9 +1,9 @@
 /**
  * Production-Grade Rate Limiting
  *
- * Implements two algorithms:
- * 1. Sliding Window Counter — for write/financial endpoints (prevents boundary doubling)
- * 2. Token Bucket — for burst-friendly read endpoints (allows controlled bursts)
+ * Two algorithms available:
+ * 1. Sliding Window Counter (default) — used by all presets
+ * 2. Token Bucket — available via `algorithm: 'token-bucket'` option, no presets
  *
  * Serverless-aware: uses lazy cleanup instead of setInterval timers.
  * In production with multiple instances, swap the storage Maps for Redis.
@@ -49,21 +49,7 @@ interface TokenBucketEntry {
 
 type RateLimitAlgorithm = 'sliding-window' | 'token-bucket';
 
-/** Options for sliding window presets */
-interface SlidingWindowPreset {
-  maxRequests: number;
-  windowMs: number;
-  algorithm?: 'sliding-window';
-}
 
-/** Options for token bucket presets */
-interface TokenBucketPreset {
-  maxTokens: number;
-  refillRate: number;
-  algorithm: 'token-bucket';
-}
-
-type RateLimitPreset = SlidingWindowPreset | TokenBucketPreset;
 
 // ============================================================================
 // Storage
@@ -507,118 +493,109 @@ export function getRateLimitHeaders(status: {
 // ============================================================================
 
 /**
- * Predefined rate limit configurations.
+ * Predefined rate limit configurations (all Sliding Window Counter).
  *
- * Sliding Window presets (default) — prevents boundary doubling:
- *   Use for write operations, financial endpoints, and anything abuse-sensitive.
- *
- * Token Bucket presets — allows controlled bursts:
- *   Use for read endpoints where occasional bursts are acceptable.
+ * Sliding Window prevents boundary doubling — suitable for both read and write
+ * endpoints. Token Bucket algorithm is available via `algorithm: 'token-bucket'`
+ * in applyRateLimit options but has no dedicated presets.
  */
 export const RateLimitPresets = {
-  // --- Sliding Window Counter presets (write/financial operations) ---
 
   /** Battle creation: 5 per minute (strict) */
   battleCreation: {
     maxRequests: 5,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** General betting: 20 per minute */
   betting: {
     maxRequests: 20,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Market creation: 3 per minute (strict) */
   marketCreation: {
     maxRequests: 3,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** API queries: 60 per minute */
   apiQueries: {
     maxRequests: 60,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Read operations: 120 per minute */
   readOperations: {
     maxRequests: 120,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Market betting (POST /api/markets/bet): 15 per minute */
   marketBetting: {
     maxRequests: 15,
     windowMs: 60000,
-  } as SlidingWindowPreset,
-
-  /** Whale alert operations: 60 per minute */
-  whaleAlerts: {
-    maxRequests: 60,
-    windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Agent write operations: 10 per minute */
   agentOperations: {
     maxRequests: 10,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Cron job endpoints: 5 per minute */
   cronJobs: {
     maxRequests: 5,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Oracle resolution: 3 per minute (strict) */
   oracleOperations: {
     maxRequests: 3,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** 0G AI inference: 20 per minute */
   inference: {
     maxRequests: 20,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Copy trade execution: 5 per minute */
   copyTrade: {
     maxRequests: 5,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Flow blockchain execution: 30 per minute */
   flowExecution: {
     maxRequests: 30,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Storage/moderate writes: 20 per minute (arena-storage, 0g-store, sign-traits, etc.) */
   storageWrite: {
     maxRequests: 20,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** Moderate reads: 30 per minute (portfolio, rpc-health, copy-trade-pnl, etc.) */
   moderateReads: {
     maxRequests: 30,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** File uploads: 10 per minute */
   fileUpload: {
     maxRequests: 10,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
   /** 0G market inference: 15 per minute */
   marketInference: {
     maxRequests: 15,
     windowMs: 60000,
-  } as SlidingWindowPreset,
+  },
 
 } as const;
 
