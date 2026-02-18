@@ -521,67 +521,41 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Leaderboard Section
-        {isMounted && isConnected && (
+        {/* Quick Links Section */}
+        {isMounted && (
           <div className="mt-20 max-w-4xl mx-auto">
-            <div 
-              className="arcade-card p-8 group cursor-pointer home-leaderboard-card relative overflow-hidden flex flex-col justify-end min-h-[400px]"
-              style={{
-                background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%) !important',
-                border: '3px solid #2d5a27 !important',
-                backdropFilter: 'blur(20px) !important',
-                WebkitBackdropFilter: 'blur(20px) !important',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(45, 90, 39, 0.2) !important',
-                borderRadius: '16px !important',
-                borderImage: 'none !important',
-                padding: '2rem',
-              }}
-            >
-              <Image 
-                src="/Leaderboard_landing.png" 
-                alt="Leaderboard Background" 
-                fill 
-                className="object-cover object-center absolute inset-0 -z-10 opacity-70" 
-                style={{borderRadius: '16px', objectFit: 'cover', objectPosition: 'center'}}
-                priority
-              />
-              <Link href="/leaderboard">
-                <div className="text-center relative z-10">
-                  <div className="mb-6">
-                  </div>
-                  <button 
-                    className="arcade-button px-8 py-4 text-xs tracking-wide"
-                    style={{
-                      fontFamily: 'Press Start 2P, monospace',
-                      borderRadius: '12px !important'
-                    }}
-                    onClick={() => playSound('/Leaderboard.wav')}
-                  >
-                    VIEW LEADERBOARD
-                  </button>
-                </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Link
+                href="/markets"
+                className="p-4 bg-purple-900/20 border border-purple-500/30 rounded-xl text-center hover:bg-purple-900/30 hover:border-purple-400/50 transition-all"
+              >
+                <div className="text-2xl mb-2">&#x1F4CA;</div>
+                <span className="text-purple-300 text-xs" style={{fontFamily: 'Press Start 2P, monospace'}}>MARKETS</span>
+              </Link>
+              <Link
+                href="/leaderboard"
+                className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-xl text-center hover:bg-yellow-900/30 hover:border-yellow-400/50 transition-all"
+              >
+                <div className="text-2xl mb-2">&#x1F3C6;</div>
+                <span className="text-yellow-300 text-xs" style={{fontFamily: 'Press Start 2P, monospace'}}>RANKINGS</span>
+              </Link>
+              <Link
+                href="/whale-tracker"
+                className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-xl text-center hover:bg-blue-900/30 hover:border-blue-400/50 transition-all"
+              >
+                <div className="text-2xl mb-2">&#x1F433;</div>
+                <span className="text-blue-300 text-xs" style={{fontFamily: 'Press Start 2P, monospace'}}>WHALES</span>
+              </Link>
+              <Link
+                href="/ai-agents"
+                className="p-4 bg-cyan-900/20 border border-cyan-500/30 rounded-xl text-center hover:bg-cyan-900/30 hover:border-cyan-400/50 transition-all"
+              >
+                <div className="text-2xl mb-2">&#x1F916;</div>
+                <span className="text-cyan-300 text-xs" style={{fontFamily: 'Press Start 2P, monospace'}}>AI AGENTS</span>
               </Link>
             </div>
           </div>
-        )} */}
-
-        {/* Epic Call to Action
-        <div className="text-center mt-20">
-          <div className="battle-frame p-8 mx-auto max-w-3xl">
-            <p 
-              className="text-yellow-400 text-lg mb-4 arcade-glow"
-              style={{fontFamily: 'Press Start 2P, monospace'}}
-            >
-              CHOOSE YOUR DESTINY
-            </p>
-            <p 
-              className="text-gray-300 text-sm"
-              style={{fontFamily: 'Press Start 2P, monospace'}}
-            >
-              THE BATTLEFIELD AWAITS YOUR COURAGE
-            </p>
-          </div>
-        </div> */}
+        )}
       </div>
     </div>
   );

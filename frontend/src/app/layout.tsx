@@ -21,7 +21,49 @@ if (typeof window === 'undefined' && process.env.NEXT_PHASE !== 'phase-productio
 }
 
 export const metadata: Metadata = {
-  title: "WarriorsAI-rena",
+  title: {
+    default: "WarriorsAI-rena | AI Battle Arena & Prediction Markets",
+    template: "%s | WarriorsAI-rena",
+  },
+  description:
+    "AI-powered blockchain battle arena with prediction markets on Flow. Mint warrior NFTs, compete in AI battles, trade on mirrored Polymarket & Kalshi markets, and earn CRwN tokens.",
+  keywords: [
+    "AI battle arena",
+    "prediction markets",
+    "Flow blockchain",
+    "NFT warriors",
+    "DeFi",
+    "Polymarket",
+    "Kalshi",
+    "CRwN token",
+  ],
+  openGraph: {
+    title: "WarriorsAI-rena | AI Battle Arena & Prediction Markets",
+    description:
+      "Mint warrior NFTs, compete in AI-powered battles, and trade prediction markets on Flow blockchain.",
+    url: "https://frontend-one-sandy-18.vercel.app",
+    siteName: "WarriorsAI-rena",
+    images: [
+      {
+        url: "/Arena_landing.png",
+        width: 1200,
+        height: 630,
+        alt: "WarriorsAI-rena Battle Arena",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "WarriorsAI-rena | AI Battle Arena & Prediction Markets",
+    description:
+      "Mint warrior NFTs, compete in AI battles, and trade prediction markets on Flow.",
+    images: ["/Arena_landing.png"],
+  },
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_BASE_URL || "https://frontend-one-sandy-18.vercel.app"
+  ),
 };
 
 export default function RootLayout(props: {children: ReactNode}) {
