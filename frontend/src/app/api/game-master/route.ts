@@ -9,7 +9,8 @@ import {
   isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Import the contract ABI and helpers
 import { ArenaAbi, getApiBaseUrl } from '../../../constants';
@@ -461,15 +462,10 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'game-master',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'game-master', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { action, arenaAddresses } = body;
 
     if (!action || !arenaAddresses || !Array.isArray(arenaAddresses)) {
@@ -480,7 +476,7 @@ export async function POST(request: NextRequest) {
 
     for (const arenaAddress of arenaAddresses) {
       console.log(`Game Master: Processing ${action} for arena ${arenaAddress}`);
-      
+
       const arenaState = await getArenaState(arenaAddress);
       if (!arenaState) {
         results[arenaAddress] = { success: false, error: 'Failed to get arena state' };
@@ -492,8 +488,8 @@ export async function POST(request: NextRequest) {
       if (action === 'checkAndStartGames') {
         // Check if betting period is over and there are bets on both sides
         const bettingEndTime = arenaState.gameInitializedAt + arenaState.minBettingPeriod;
-        const shouldStartGame = arenaState.isInitialized && 
-                               arenaState.isBettingPeriod && 
+        const shouldStartGame = arenaState.isInitialized &&
+                               arenaState.isBettingPeriod &&
                                currentTime >= bettingEndTime &&
                                arenaState.playerOneBetAddresses.length > 0 &&
                                arenaState.playerTwoBetAddresses.length > 0;
@@ -503,8 +499,8 @@ export async function POST(request: NextRequest) {
           const success = await startGame(arenaAddress);
           results[arenaAddress] = { success, action: 'started', bettingEndTime, currentTime };
         } else {
-          results[arenaAddress] = { 
-            success: true, 
+          results[arenaAddress] = {
+            success: true,
             action: 'no_action_needed',
             reason: !arenaState.isInitialized ? 'not_initialized' :
                    !arenaState.isBettingPeriod ? 'not_in_betting_period' :
@@ -518,9 +514,9 @@ export async function POST(request: NextRequest) {
       } else if (action === 'checkAndExecuteRounds') {
         // Check if it's time for next round
         const roundEndTime = arenaState.lastRoundEndedAt + arenaState.minBattleRoundsInterval;
-        const shouldExecuteRound = arenaState.isInitialized && 
+        const shouldExecuteRound = arenaState.isInitialized &&
                                   !arenaState.isBettingPeriod &&
-                                  arenaState.currentRound > 0 && 
+                                  arenaState.currentRound > 0 &&
                                   arenaState.currentRound < 6 && // Game has max 5 rounds
                                   currentTime >= roundEndTime;
 
@@ -529,8 +525,8 @@ export async function POST(request: NextRequest) {
           const success = await executeNextRound(arenaAddress);
           results[arenaAddress] = { success, action: 'executed_round', roundEndTime, currentTime, round: arenaState.currentRound };
         } else {
-          results[arenaAddress] = { 
-            success: true, 
+          results[arenaAddress] = {
+            success: true,
             action: 'no_action_needed',
             reason: !arenaState.isInitialized ? 'not_initialized' :
                    arenaState.isBettingPeriod ? 'in_betting_period' :
@@ -548,8 +544,5 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, results });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:GameMaster:POST');
-  }
-}
+  },
+], { errorContext: 'API:GameMaster:POST' });

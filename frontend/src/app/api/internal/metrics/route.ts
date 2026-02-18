@@ -8,39 +8,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  handleAPIError,
-  applyRateLimit,
   RateLimitPresets,
   apiMetrics,
   circuitBreakers,
   createAPILogger,
 } from '@/lib/api';
+import { composeMiddleware, withRateLimit, withInternalAuth } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  const logger = createAPILogger(request);
-  logger.start();
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'internal-metrics', ...RateLimitPresets.moderateReads }),
+  withInternalAuth(),
+  async (req, ctx) => {
+    const logger = createAPILogger(req);
+    logger.start();
 
-  try {
-    // Rate limit to prevent abuse
-    applyRateLimit(request, {
-      prefix: 'internal-metrics',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    // Check for internal access (basic protection)
-    // In production, add proper authentication
-    const internalKey = request.headers.get('x-internal-key');
-    const isLocalhost = request.headers.get('host')?.includes('localhost');
-
-    if (!isLocalhost && internalKey !== process.env.INTERNAL_API_KEY) {
-      logger.warn('Unauthorized metrics access attempt');
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = new URL(req.url);
     const windowMs = parseInt(searchParams.get('window') || '300000'); // 5 min default
     const includeDetails = searchParams.get('details') === 'true';
 
@@ -100,30 +82,19 @@ export async function GET(request: NextRequest) {
         'X-Request-ID': logger.requestId,
       },
     });
-  } catch (error) {
-    logger.error('Metrics fetch failed', error);
-    return handleAPIError(error, 'API:Internal:Metrics:GET');
-  }
-}
+  },
+], { errorContext: 'API:Internal:Metrics:GET' });
 
 /**
  * POST /api/internal/metrics
  * Reset metrics (for testing/maintenance)
  */
-export async function POST(request: NextRequest) {
-  const logger = createAPILogger(request);
+export const POST = composeMiddleware([
+  withInternalAuth(),
+  async (req, ctx) => {
+    const logger = createAPILogger(req);
 
-  try {
-    // Require internal key for reset
-    const internalKey = request.headers.get('x-internal-key');
-    if (internalKey !== process.env.INTERNAL_API_KEY) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
+    const body = await req.json();
     const action = body.action;
 
     switch (action) {
@@ -143,8 +114,5 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
     }
-  } catch (error) {
-    logger.error('Metrics action failed', error);
-    return handleAPIError(error, 'API:Internal:Metrics:POST');
-  }
-}
+  },
+], { errorContext: 'API:Internal:Metrics:POST' });

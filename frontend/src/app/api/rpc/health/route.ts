@@ -11,8 +11,9 @@
  * - Recommendations
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { NextResponse } from 'next/server';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { FLOW_RPC_URLS } from '@/constants';
 
 interface RPCHealthResult {
@@ -102,14 +103,9 @@ async function testRPCEndpoint(url: string): Promise<RPCHealthResult> {
   }
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'rpc-health',
-      ...RateLimitPresets.moderateReads,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'rpc-health', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
     // Get RPC URLs
     const primaryUrl = FLOW_RPC_URLS.testnet.primary;
     const fallbackUrl = FLOW_RPC_URLS.testnet.fallback;
@@ -174,8 +170,5 @@ export async function GET(request: NextRequest) {
       },
       timestamp: new Date().toISOString(),
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:RPC:Health');
-  }
-}
+  },
+], { errorContext: 'API:RPC:Health' });

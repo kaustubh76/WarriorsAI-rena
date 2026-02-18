@@ -14,9 +14,10 @@ import {
   isTimeoutError,
 } from '@/lib/flowClient';
 import { createZeroGPublicClient } from '@/lib/zeroGClient';
-import { handleAPIError, createAPILogger, applyRateLimit } from '@/lib/api';
+import { createAPILogger } from '@/lib/api';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { rpcResponseCache } from '@/lib/cache/hashedCache';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
@@ -134,14 +135,13 @@ async function checkContractDeployment(): Promise<ServiceStatus> {
   }
 }
 
-export async function GET(request: NextRequest) {
-  const logger = createAPILogger(request);
-  logger.start();
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'health', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const logger = createAPILogger(req);
+    logger.start();
 
-  try {
-    applyRateLimit(request, { prefix: 'health', ...RateLimitPresets.readOperations });
-
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = new URL(req.url);
     const isQuickCheck = searchParams.get('quick') === 'true';
 
     // For quick health checks (load balancer probes), skip external dependencies
@@ -215,8 +215,5 @@ export async function GET(request: NextRequest) {
 
     logger.complete(status === 'unhealthy' ? 503 : 200);
     return response;
-  } catch (error) {
-    logger.error('Health check failed', error);
-    return handleAPIError(error, 'API:Health:GET');
-  }
-}
+  },
+], { errorContext: 'API:Health:GET' });

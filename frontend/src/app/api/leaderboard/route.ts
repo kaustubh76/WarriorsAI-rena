@@ -5,8 +5,9 @@
 
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, createAPILogger, createResponse, ResponsePresets, RateLimitPresets } from '@/lib/api';
+import { createAPILogger, createResponse, ResponsePresets, RateLimitPresets } from '@/lib/api';
 import { userDataCache } from '@/lib/cache/hashedCache';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Time range options
 type TimeRange = 'daily' | 'weekly' | 'monthly' | 'all';
@@ -71,18 +72,13 @@ function getTierFromAccuracy(accuracy: number): string {
   return 'unranked';
 }
 
-export async function GET(request: NextRequest) {
-  const logger = createAPILogger(request);
-  logger.start();
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'leaderboard-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const logger = createAPILogger(req);
+    logger.start();
 
-  try {
-    // Apply rate limiting (60 requests per minute)
-    applyRateLimit(request, {
-      prefix: 'leaderboard-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = new URL(req.url);
     const timeRange = (searchParams.get('timeRange') || 'all') as TimeRange;
     const sortBy = (searchParams.get('sortBy') || 'profit') as SortCategory;
     // Parse and validate pagination with max limits
@@ -241,11 +237,8 @@ export async function GET(request: NextRequest) {
       ...ResponsePresets.standard, // Cache for 60s, stale-while-revalidate 30s
       requestId: logger.requestId,
     });
-  } catch (error) {
-    logger.error('Leaderboard fetch failed', error);
-    return handleAPIError(error, 'API:Leaderboard:GET');
-  }
-}
+  },
+], { errorContext: 'API:Leaderboard:GET' });
 
 function getSortOrder(sortBy: SortCategory) {
   switch (sortBy) {

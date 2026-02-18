@@ -12,20 +12,16 @@
  * - System health
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { NextResponse } from 'next/server';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { getLastSyncedBlock } from '@/lib/eventListeners';
 import { createFlowPublicClient } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'events-status',
-      ...RateLimitPresets.apiQueries,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'events-status', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
     const client = createFlowPublicClient();
 
     // Get blockchain data
@@ -105,8 +101,5 @@ export async function GET(request: NextRequest) {
       },
       timestamp: new Date().toISOString(),
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Events:Status');
-  }
-}
+  },
+], { errorContext: 'API:Events:Status' });

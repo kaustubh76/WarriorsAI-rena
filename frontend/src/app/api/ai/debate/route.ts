@@ -7,17 +7,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { aiDebateService } from '@/services/aiDebateService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (AI debates are resource-intensive)
-    applyRateLimit(request, {
-      prefix: 'ai-debate-post',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'ai-debate-post', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { marketId, question, source } = body;
 
     if (!marketId || !question) {
@@ -34,20 +30,13 @@ export async function POST(request: NextRequest) {
       success: true,
       data: { debate },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:AI:Debate:POST');
-  }
-}
+  },
+], { errorContext: 'API:AI:Debate:POST' });
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'ai-debate-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'ai-debate-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const marketId = searchParams.get('marketId');
 
     if (!marketId) {
@@ -60,7 +49,5 @@ export async function GET(request: NextRequest) {
       success: true,
       data: { debates },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:AI:Debate:GET');
-  }
-}
+  },
+], { errorContext: 'API:AI:Debate:GET' });

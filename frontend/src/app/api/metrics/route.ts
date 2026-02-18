@@ -7,18 +7,19 @@
  * GET /api/metrics?format=json
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { FlowMetrics } from '@/lib/metrics';
 import { globalErrorHandler } from '@/lib/errorRecovery';
 import { prisma } from '@/lib/prisma';
 import { createFlowPublicClient } from '@/lib/flowClient';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { rpcResponseCache } from '@/lib/cache/hashedCache';
 
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'metrics', ...RateLimitPresets.readOperations });
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'metrics', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const format = searchParams.get('format') || 'prometheus';
 
     // Update real-time metrics before export
@@ -40,20 +41,8 @@ export async function GET(request: NextRequest) {
         'Content-Type': 'text/plain; version=0.0.4',
       },
     });
-
-  } catch (error: any) {
-    console.error('[Metrics] Error generating metrics:', error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to generate metrics',
-        message: error.message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Metrics:GET' });
 
 async function updateRealTimeMetrics() {
   try {

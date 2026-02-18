@@ -5,23 +5,22 @@
  * POST /api/events/stop
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { stopAllEventListeners } from '@/lib/eventListeners';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Import shared state from start route
 // Note: In production, use Redis or similar for shared state
 let unwatchFunctions: any = null;
 let isRunning = false;
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'events-stop',
-      ...RateLimitPresets.agentOperations,
-    });
-
+export const POST = composeMiddleware([
+  withRateLimit({
+    prefix: 'events-stop',
+    ...RateLimitPresets.agentOperations,
+  }),
+  async (req, ctx) => {
     // Check if listeners are running
     if (!isRunning || !unwatchFunctions) {
       return NextResponse.json(
@@ -49,30 +48,23 @@ export async function POST(request: NextRequest) {
       message: 'Event listeners stopped successfully',
       timestamp: new Date().toISOString(),
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Events:Stop');
-  }
-}
+  },
+], { errorContext: 'API:Events:Stop' });
 
 /**
  * GET: Check stop endpoint status
  */
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, {
-      prefix: 'events-stop-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({
+    prefix: 'events-stop-get',
+    ...RateLimitPresets.apiQueries,
+  }),
+  async (req, ctx) => {
     return NextResponse.json({
       success: true,
       message: 'Event listener stop endpoint is operational',
       isRunning,
       canStop: isRunning && unwatchFunctions !== null,
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Events:Stop:GET');
-  }
-}
+  },
+], { errorContext: 'API:Events:Stop:GET' });

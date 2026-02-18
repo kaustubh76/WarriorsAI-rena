@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
 import { getBattleQueue } from '@/lib/queue/battleExecutionQueue';
 import { ErrorResponses } from '@/lib/api/errorHandler';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { checkThresholds, getHealthReport } from '@/lib/monitoring/metrics';
 import type { MetricsSnapshot } from '@/lib/monitoring/metrics';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'change-me-in-production';
 
@@ -12,12 +13,11 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET || 'change-me-in-production';
  * GET /api/admin/monitor
  * Get monitoring dashboard data
  */
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'admin-monitor', ...RateLimitPresets.readOperations });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'admin-monitor', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
     // Verify admin secret
-    const authHeader = request.headers.get('authorization');
+    const authHeader = req.headers.get('authorization');
     if (authHeader !== `Bearer ${ADMIN_SECRET}`) {
       return NextResponse.json(
         ErrorResponses.unauthorized('Invalid authorization'),
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const queue = getBattleQueue(process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS);
 
     // Get query parameters
-    const url = new URL(request.url);
+    const url = new URL(req.url);
     const format = url.searchParams.get('format'); // 'json' or 'prometheus'
 
     // Prometheus format
@@ -105,25 +105,18 @@ export async function GET(request: NextRequest) {
         timestamp: new Date().toISOString(),
       },
     });
-  } catch (error: any) {
-    console.error('[Admin Monitor API] Error:', error);
-    return NextResponse.json(
-      ErrorResponses.internal(error.message || 'Failed to get monitoring data'),
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Admin:Monitor:GET' });
 
 /**
  * POST /api/admin/monitor/acknowledge
  * Acknowledge alerts
  */
-export async function POST(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'admin-monitor-post', ...RateLimitPresets.agentOperations });
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'admin-monitor-post', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
     // Verify admin secret
-    const authHeader = request.headers.get('authorization');
+    const authHeader = req.headers.get('authorization');
     if (authHeader !== `Bearer ${ADMIN_SECRET}`) {
       return NextResponse.json(
         ErrorResponses.unauthorized('Invalid authorization'),
@@ -131,7 +124,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const body = await req.json();
     const { alertId, acknowledgeAll } = body;
 
     const monitor = getBattleMonitor();
@@ -161,25 +154,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-  } catch (error: any) {
-    console.error('[Admin Monitor API] Acknowledge error:', error);
-    return NextResponse.json(
-      ErrorResponses.internal(error.message || 'Failed to acknowledge alerts'),
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Admin:Monitor:POST' });
 
 /**
  * DELETE /api/admin/monitor/alerts
  * Clear old alerts
  */
-export async function DELETE(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'admin-monitor-delete', ...RateLimitPresets.agentOperations });
-
+export const DELETE = composeMiddleware([
+  withRateLimit({ prefix: 'admin-monitor-delete', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
     // Verify admin secret
-    const authHeader = request.headers.get('authorization');
+    const authHeader = req.headers.get('authorization');
     if (authHeader !== `Bearer ${ADMIN_SECRET}`) {
       return NextResponse.json(
         ErrorResponses.unauthorized('Invalid authorization'),
@@ -187,7 +173,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const url = new URL(request.url);
+    const url = new URL(req.url);
     const olderThanHours = parseInt(url.searchParams.get('olderThan') || '24');
 
     const monitor = getBattleMonitor();
@@ -198,11 +184,5 @@ export async function DELETE(request: NextRequest) {
       message: `Cleared ${cleared} alerts older than ${olderThanHours} hours`,
       cleared,
     });
-  } catch (error: any) {
-    console.error('[Admin Monitor API] Clear alerts error:', error);
-    return NextResponse.json(
-      ErrorResponses.internal(error.message || 'Failed to clear alerts'),
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Admin:Monitor:DELETE' });
