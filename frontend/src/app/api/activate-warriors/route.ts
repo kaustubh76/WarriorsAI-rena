@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (10 activations per minute)
-    applyRateLimit(request, {
-      prefix: 'activate-warriors',
-      ...RateLimitPresets.fileUpload,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'activate-warriors', ...RateLimitPresets.fileUpload }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { auth, warriorsData } = body;
 
     // Check if we have both auth and warriorsData
@@ -22,7 +18,7 @@ export async function POST(request: NextRequest) {
     if (auth) {
       // Frontend provided signed auth - use it directly (like the working /api/near-ai route)
       console.log('Using frontend-provided auth:', auth);
-      
+
       // Validate auth structure
       if (!auth.signature || !auth.accountId || !auth.publicKey) {
         throw ErrorResponses.badRequest('Invalid auth structure - missing signature, accountId, or publicKey');
@@ -46,14 +42,14 @@ export async function POST(request: NextRequest) {
 
       throw ErrorResponses.serviceUnavailable('Backend signing not yet working - please provide signed auth from frontend');
     }
-    
+
     // Create the JSON payload for the traits generator AI (not a text prompt)
     const traitsGeneratorPayload = {
       name: warriorsData.name,
       bio: warriorsData.bio,
       life_history: warriorsData.life_history,
-      personality: Array.isArray(warriorsData.personality) 
-        ? warriorsData.personality 
+      personality: Array.isArray(warriorsData.personality)
+        ? warriorsData.personality
         : (warriorsData.personality ? warriorsData.personality.split(', ') : ['Brave', 'Skilled']),
       knowledge_areas: Array.isArray(warriorsData.knowledge_areas)
         ? warriorsData.knowledge_areas
@@ -64,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     // Use the same approach as the working /api/near-ai route
     const authString = `Bearer ${JSON.stringify(authForNearAI)}`;
-    
+
     const { default: OpenAI } = await import('openai');
     const openai = new OpenAI({
       baseURL: "https://api.near.ai/v1",
@@ -77,7 +73,7 @@ export async function POST(request: NextRequest) {
     // Try chat completions format with the traits generator assistant
     try {
       const assistant_id = "samkitsoni.near/traits-generator/latest";
-      
+
       const chatResponse = await fetch("https://api.near.ai/v1/chat/completions", {
         method: 'POST',
         headers: {
@@ -95,11 +91,11 @@ export async function POST(request: NextRequest) {
           max_tokens: 1000
         })
       });
-      
+
       if (chatResponse.ok) {
         const result = await chatResponse.json();
         const responseContent = result.choices?.[0]?.message?.content || result.response || JSON.stringify(result);
-        
+
         return NextResponse.json({
           success: true,
           response: responseContent
@@ -126,7 +122,7 @@ export async function POST(request: NextRequest) {
       const assistant_id = "samkitsoni.near/traits-generator/latest";
       const run = await openai.beta.threads.runs.createAndPoll(
         thread.id,
-        { 
+        {
           assistant_id: assistant_id,
         }
       );
@@ -135,18 +131,18 @@ export async function POST(request: NextRequest) {
         const messages = await openai.beta.threads.messages.list(
           run.thread_id
         );
-        
+
         const assistantMessages = messages.data.filter(msg => msg.role === 'assistant');
-        
+
         if (assistantMessages.length > 0) {
-          const contentMessages = assistantMessages.filter(msg => 
-            !msg.metadata || 
+          const contentMessages = assistantMessages.filter(msg =>
+            !msg.metadata ||
             (msg.metadata.message_type !== 'system:log' && msg.metadata.message_type !== 'system:output_file')
           );
-          
+
           const mainResponse = contentMessages.length > 0 ? contentMessages[0] : assistantMessages[0];
           const content = mainResponse.content[0];
-          
+
           if (content.type === 'text') {
             return NextResponse.json({
               success: true,
@@ -154,7 +150,7 @@ export async function POST(request: NextRequest) {
             });
           }
         }
-        
+
         return NextResponse.json(
           { error: "No response received from assistant" },
           { status: 500 }
@@ -169,8 +165,5 @@ export async function POST(request: NextRequest) {
       console.error('Threads approach failed:', threadsError);
       throw threadsError;
     }
-
-  } catch (error) {
-    return handleAPIError(error, 'API:ActivateWarriors:POST');
-  }
-}
+  },
+], { errorContext: 'API:ActivateWarriors:POST' });

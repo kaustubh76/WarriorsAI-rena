@@ -3,8 +3,9 @@
  * Uses 0G AI to predict battle outcomes before markets open
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { NextResponse } from 'next/server';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 interface WarriorStats {
   strength: number;
@@ -41,15 +42,13 @@ interface PredictionResponse {
   error?: string;
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (30 predictions per minute)
-    applyRateLimit(request, {
-      prefix: 'predict-battle-post',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const body: PredictionRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({
+    prefix: 'predict-battle-post',
+    ...RateLimitPresets.moderateReads,
+  }),
+  async (req, ctx) => {
+    const body: PredictionRequest = await req.json();
     const { warrior1Id, warrior2Id, warrior1Stats, warrior2Stats } = body;
 
     // Validate input
@@ -89,10 +88,8 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(response);
-  } catch (error) {
-    return handleAPIError(error, 'API:PredictBattle:POST');
-  }
-}
+  },
+], { errorContext: 'API:PredictBattle:POST' });
 
 /**
  * Calculate warrior power score based on stats
@@ -202,15 +199,13 @@ function generateAnalysis(
 }
 
 // GET endpoint for fetching stored predictions
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'predict-battle-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({
+    prefix: 'predict-battle-get',
+    ...RateLimitPresets.apiQueries,
+  }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const battleId = searchParams.get('battleId');
 
     if (!battleId) {
@@ -223,7 +218,5 @@ export async function GET(request: NextRequest) {
       status: 'no_prediction',
       message: 'Submit a POST request with warrior stats to get a prediction'
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:PredictBattle:GET');
-  }
-}
+  },
+], { errorContext: 'API:PredictBattle:GET' });

@@ -4,10 +4,11 @@
  * This keeps the private key secure on the server
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { encodePacked, keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Maximum signature validity period (5 minutes)
 const SIGNATURE_EXPIRY_MS = 5 * 60 * 1000;
@@ -31,15 +32,10 @@ interface SignTraitsRequest {
  * POST /api/sign-traits
  * Sign warrior traits data with Game Master private key
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (20 signings per minute)
-    applyRateLimit(request, {
-      prefix: 'sign-traits-post',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body: SignTraitsRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'sign-traits-post', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body: SignTraitsRequest = await req.json();
     const {
       tokenId,
       strength,
@@ -159,24 +155,16 @@ export async function POST(request: NextRequest) {
         recover
       }
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:SignTraits:POST');
-  }
-}
+  },
+], { errorContext: 'API:SignTraits:POST' });
 
 /**
  * GET /api/sign-traits
  * Returns the Game Master address for verification
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'sign-traits-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'sign-traits-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
     const privateKey = process.env.GAME_MASTER_PRIVATE_KEY;
     if (!privateKey) {
       throw ErrorResponses.serviceUnavailable('Game Master key not configured');
@@ -192,8 +180,5 @@ export async function GET(request: NextRequest) {
       success: true,
       gameMasterAddress: account.address
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:SignTraits:GET');
-  }
-}
+  },
+], { errorContext: 'API:SignTraits:GET' });

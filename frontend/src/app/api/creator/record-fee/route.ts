@@ -3,19 +3,18 @@
  * POST: Record a trade fee for a creator
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (30 fee recordings per minute)
-    applyRateLimit(request, {
-      prefix: 'creator-record-fee-post',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({
+    prefix: 'creator-record-fee-post',
+    ...RateLimitPresets.moderateReads,
+  }),
+  async (req, ctx) => {
+    const body = await req.json();
     const {
       marketId,
       creatorAddress,
@@ -133,10 +132,8 @@ export async function POST(request: NextRequest) {
         feeEntryId: feeEntry.id,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Creator:RecordFee:POST');
-  }
-}
+  },
+], { errorContext: 'API:Creator:RecordFee:POST' });
 
 function calculateTier(totalVolume: number): string {
   // Tier thresholds in CRwN
@@ -149,15 +146,13 @@ function calculateTier(totalVolume: number): string {
 /**
  * GET: Get fee history for a creator
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'creator-record-fee-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({
+    prefix: 'creator-record-fee-get',
+    ...RateLimitPresets.apiQueries,
+  }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const creatorAddress = searchParams.get('creator');
     const limit = parseInt(searchParams.get('limit') || '50');
 
@@ -197,7 +192,5 @@ export async function GET(request: NextRequest) {
           : null,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Creator:RecordFee:GET');
-  }
-}
+  },
+], { errorContext: 'API:Creator:RecordFee:GET' });

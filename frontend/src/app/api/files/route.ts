@@ -1,19 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getStorageApiUrl } from '@/constants';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // 0G Storage service URL - configured via environment variable
 const STORAGE_API_URL = getStorageApiUrl();
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (10 file uploads per minute)
-    applyRateLimit(request, {
-      prefix: 'files-upload',
-      ...RateLimitPresets.fileUpload,
-    });
-
-    const data = await request.formData();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'files-upload', ...RateLimitPresets.fileUpload }),
+  async (req, ctx) => {
+    const data = await req.formData();
     const file: File | null = data.get("file") as unknown as File;
 
     // Get form data for JSON metadata
@@ -27,29 +23,29 @@ export async function POST(request: NextRequest) {
       throw ErrorResponses.badRequest("No file received");
     }
 
-    console.log("🚀 Uploading file to 0G Storage:", file.name, "(" + (file.size / 1024 / 1024).toFixed(2) + " MB)");
-    
+    console.log("Uploading file to 0G Storage:", file.name, "(" + (file.size / 1024 / 1024).toFixed(2) + " MB)");
+
     // Step 1: Upload image to 0G Storage
     const imageFormData = new FormData();
     imageFormData.append('file', file);
-    
+
     const imageUploadResponse = await fetch(`${STORAGE_API_URL}/upload`, {
       method: 'POST',
       body: imageFormData,
     });
-    
+
     if (!imageUploadResponse.ok) {
       throw new Error(`Image upload failed: ${imageUploadResponse.statusText}`);
     }
-    
+
     const imageResult = await imageUploadResponse.json();
     const imageRootHash = imageResult.rootHash;
     const imageTransactionHash = imageResult.transactionHash;
-    
-    console.log("✅ Image uploaded successfully to 0G Storage!");
-    console.log("📷 Image Root Hash:", imageRootHash);
-    console.log("📝 Image Transaction Hash:", imageTransactionHash);
-    
+
+    console.log("Image uploaded successfully to 0G Storage!");
+    console.log("Image Root Hash:", imageRootHash);
+    console.log("Image Transaction Hash:", imageTransactionHash);
+
     // Step 2: Create JSON metadata with 0G Storage image reference
     const metadata = {
       name: name || "Unknown Warrior",
@@ -61,44 +57,44 @@ export async function POST(request: NextRequest) {
       image_root_hash: imageRootHash, // Store the root hash for direct access
       image_transaction_hash: imageTransactionHash
     };
-    
-    console.log("📋 Created metadata JSON:", metadata);
-    
+
+    console.log("Created metadata JSON:", metadata);
+
     // Step 3: Upload JSON metadata to 0G Storage
-    const metadataBlob = new Blob([JSON.stringify(metadata, null, 2)], { 
-      type: 'application/json' 
+    const metadataBlob = new Blob([JSON.stringify(metadata, null, 2)], {
+      type: 'application/json'
     });
-    const metadataFile = new File([metadataBlob], 'metadata.json', { 
-      type: 'application/json' 
+    const metadataFile = new File([metadataBlob], 'metadata.json', {
+      type: 'application/json'
     });
-    
+
     const metadataFormData = new FormData();
     metadataFormData.append('file', metadataFile);
-    
+
     const metadataUploadResponse = await fetch(`${STORAGE_API_URL}/upload`, {
       method: 'POST',
       body: metadataFormData,
     });
-    
+
     if (!metadataUploadResponse.ok) {
       throw new Error(`Metadata upload failed: ${metadataUploadResponse.statusText}`);
     }
-    
+
     const metadataResult = await metadataUploadResponse.json();
     const metadataRootHash = metadataResult.rootHash;
     const metadataTransactionHash = metadataResult.transactionHash;
-    
-    console.log("✅ Metadata JSON uploaded successfully to 0G Storage!");
-    console.log("📋 Metadata Root Hash:", metadataRootHash);
-    console.log("📝 Metadata Transaction Hash:", metadataTransactionHash);
-    
-    console.log("🎯 === 0G STORAGE UPLOAD COMPLETE ===");
-    console.log("📷 Image Root Hash:", imageRootHash);
-    console.log("📋 Metadata Root Hash:", metadataRootHash);
-    console.log("🔗 Image Transaction Hash:", imageTransactionHash);
-    console.log("🔗 Metadata Transaction Hash:", metadataTransactionHash);
+
+    console.log("Metadata JSON uploaded successfully to 0G Storage!");
+    console.log("Metadata Root Hash:", metadataRootHash);
+    console.log("Metadata Transaction Hash:", metadataTransactionHash);
+
+    console.log("=== 0G STORAGE UPLOAD COMPLETE ===");
+    console.log("Image Root Hash:", imageRootHash);
+    console.log("Metadata Root Hash:", metadataRootHash);
+    console.log("Image Transaction Hash:", imageTransactionHash);
+    console.log("Metadata Transaction Hash:", metadataTransactionHash);
     console.log("=======================================");
-    
+
     return NextResponse.json({
       success: true,
       imageRootHash: imageRootHash,
@@ -113,8 +109,5 @@ export async function POST(request: NextRequest) {
       imageUrl: `0g://${imageRootHash}`,
       metadataUrl: `0g://${metadataRootHash}`
     }, { status: 200 });
-    
-  } catch (error) {
-    return handleAPIError(error, 'API:Files:POST');
-  }
-}
+  },
+], { errorContext: 'API:Files:POST' });
