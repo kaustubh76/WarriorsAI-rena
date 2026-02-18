@@ -1,12 +1,9 @@
 /**
  * Consistent Hashing Module
  *
- * Pre-configured hash rings for deterministic routing across the system:
- * - RPC node selection (Flow + 0G chains)
- * - Cache bucket distribution
- * - 0G compute provider selection
- *
- * All rings are module-level singletons — constructed once on cold start (< 1ms).
+ * Pre-configured hash rings for deterministic RPC node selection (Flow + 0G chains).
+ * Rings are module-level singletons — constructed once on cold start (< 1ms).
+ * Cache distribution is handled separately by HashedCache in lib/cache/hashedCache.ts.
  */
 
 export { ConsistentHashRing, fnv1a } from './consistentHash';
