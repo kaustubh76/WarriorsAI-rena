@@ -6,25 +6,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { arbitrageBattleSettlementService } from '@/services/arena/arbitrageBattleSettlement';
-import {
-  verifyCronAuth,
-  cronAuthErrorResponse,
-  withCronTimeout,
-  cronConfig,
-} from '@/lib/api/cronAuth';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Rate limit cron endpoint (defense-in-depth)
-    applyRateLimit(request, { prefix: 'cron-settle-arbitrage', ...RateLimitPresets.cronJobs });
-
-    // Verify cron authorization
-    const auth = verifyCronAuth(request);
-    if (!auth.authorized) {
-      return cronAuthErrorResponse(auth);
-    }
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'cron-settle-arbitrage', ...RateLimitPresets.cronJobs }),
+  withCronAuth(),
+  async (req, ctx) => {
     console.log('[Cron] Starting arbitrage battle settlement...');
     const startTime = Date.now();
 
@@ -55,31 +44,15 @@ export async function POST(request: NextRequest) {
       duration,
       timestamp: new Date().toISOString(),
     });
-  } catch (error) {
-    console.error('[Cron] Error in settlement cron job:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Internal server error',
-        details: (error as Error).message,
-        timestamp: new Date().toISOString(),
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'CRON:SettleArbitrageBattles' });
 
 // GET handler for health check / manual trigger in development
-export async function GET(request: NextRequest) {
-  // Use cronAuth with dev bypass for health checks
-  const auth = verifyCronAuth(request, { allowDevBypass: true });
-  if (!auth.authorized) {
-    return cronAuthErrorResponse(auth);
-  }
+export const GET = composeMiddleware([
+  withCronAuth({ allowDevBypass: true }),
+  async (req, ctx) => {
+    console.log('[Cron] Manual settlement trigger');
 
-  console.log('[Cron] Manual settlement trigger');
-
-  try {
     const results = await withCronTimeout(
       arbitrageBattleSettlementService.settleAllReadyBattles(),
       cronConfig.defaultApiTimeout,
@@ -91,13 +64,5 @@ export async function GET(request: NextRequest) {
       message: 'Manual settlement completed',
       results,
     });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: (error as Error).message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'CRON:SettleArbitrageBattles:GET' });

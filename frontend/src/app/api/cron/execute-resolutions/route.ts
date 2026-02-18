@@ -8,30 +8,21 @@ import { prisma } from '@/lib/prisma';
 import { resolveMarketServerSide, waitForSealed } from '@/lib/flow/marketResolutionClient';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
-import { verifyCronAuth, cronAuthErrorResponse, cronConfig } from '@/lib/api/cronAuth';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 
 export const maxDuration = 300; // 5 minutes max execution time
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
-  // Rate limit cron endpoint (defense-in-depth)
-  try {
-    applyRateLimit(request, { prefix: 'cron-execute-resolutions', ...RateLimitPresets.cronJobs });
-  } catch { /* auth check below is primary guard */ }
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'cron-execute-resolutions', ...RateLimitPresets.cronJobs }),
+  withCronAuth(),
+  async (req, ctx) => {
+    console.log('[Cron: Execute Resolutions] Starting execution...');
 
-  // Verify cron authorization (only accepts Authorization header)
-  const auth = verifyCronAuth(request);
-  if (!auth.authorized) {
-    return cronAuthErrorResponse(auth);
-  }
+    const startTime = Date.now();
+    const results: any[] = [];
 
-  console.log('[Cron: Execute Resolutions] Starting execution...');
-
-  const startTime = Date.now();
-  const results: any[] = [];
-
-  try {
     // Get resolutions ready to execute
     const readyResolutions = await prisma.scheduledResolution.findMany({
       where: {
@@ -228,31 +219,15 @@ export async function POST(request: NextRequest) {
       results,
       duration: totalDuration,
     });
-  } catch (error) {
-    console.error('[Cron: Execute Resolutions] Fatal error:', error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        processed: results.length,
-        results,
-        duration: Date.now() - startTime,
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'CRON:ExecuteResolutions' });
 
 // GET handler for health check / manual testing
 // NOTE: Removed insecure query param auth - only accepts Authorization header now
-export async function GET(request: NextRequest) {
-  // Verify cron authorization with dev bypass for health checks
-  const auth = verifyCronAuth(request, { allowDevBypass: true });
-  if (!auth.authorized) {
-    return cronAuthErrorResponse(auth);
-  }
-
-  // Forward to POST handler
-  return POST(request);
-}
+export const GET = composeMiddleware([
+  withCronAuth({ allowDevBypass: true }),
+  async (req, ctx) => {
+    // Forward to POST handler logic
+    return POST(req);
+  },
+], { errorContext: 'CRON:ExecuteResolutions:GET' });

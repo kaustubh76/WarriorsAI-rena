@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ErrorResponses } from '@/lib/api/errorHandler';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
 import { alertHighQueueDepth, sendAlert } from '@/lib/monitoring/alerts';
 import * as fcl from '@onflow/fcl';
@@ -48,26 +49,10 @@ if (!isBuildTime && !isServerFlowConfigured()) {
  * Or call manually: curl -X POST http://localhost:3000/api/cron/execute-battles \
  *   -H "Authorization: Bearer YOUR_CRON_SECRET"
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Rate limit cron endpoint (defense-in-depth)
-    applyRateLimit(request, { prefix: 'cron-execute-battles', ...RateLimitPresets.cronJobs });
-
-    // Verify cron secret for security
-    const authHeader = request.headers.get('authorization');
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
-      console.warn('[Execute Battles Cron] Unauthorized access attempt:', {
-        ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
-        userAgent: request.headers.get('user-agent') || 'unknown',
-        timestamp: new Date().toISOString(),
-        hasAuthHeader: !!authHeader,
-      });
-      return NextResponse.json(
-        ErrorResponses.unauthorized('Invalid authorization'),
-        { status: 401 }
-      );
-    }
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'cron-execute-battles', ...RateLimitPresets.cronJobs }),
+  withCronAuth(),
+  async (req, ctx) => {
     if (!isServerFlowConfigured() || !CONTRACT_ADDRESS) {
       return NextResponse.json(
         ErrorResponses.serviceUnavailable('Flow testnet not configured'),
@@ -239,14 +224,8 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
       },
     });
-  } catch (error: any) {
-    console.error('[Execute Battles Cron] Fatal error:', error);
-    return NextResponse.json(
-      ErrorResponses.internal(error.message || 'Failed to execute battles'),
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'CRON:ExecuteBattles' });
 
 /**
  * GET /api/cron/execute-battles

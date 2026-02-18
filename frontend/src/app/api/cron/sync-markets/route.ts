@@ -9,26 +9,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
-import { handleAPIError } from '@/lib/api/errorHandler';
-import {
-  verifyCronAuth,
-  cronAuthErrorResponse,
-  withCronTimeout,
-  cronConfig,
-} from '@/lib/api/cronAuth';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Rate limit cron endpoint (defense-in-depth)
-    applyRateLimit(request, { prefix: 'cron-sync-markets', ...RateLimitPresets.cronJobs });
-
-    // Verify cron authorization
-    const auth = verifyCronAuth(request, { allowDevBypass: true });
-    if (!auth.authorized) {
-      return cronAuthErrorResponse(auth);
-    }
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'cron-sync-markets', ...RateLimitPresets.cronJobs }),
+  withCronAuth({ allowDevBypass: true }),
+  async (req, ctx) => {
     console.log('[Cron] Starting external markets sync...');
 
     // Execute with timeout protection
@@ -61,13 +49,8 @@ export async function GET(request: NextRequest) {
       success: true,
       data: summary,
     });
-  } catch (error) {
-    console.error('[Cron] Sync failed:', error);
-    return handleAPIError(error, 'CRON:SyncMarkets');
-  }
-}
+  },
+], { errorContext: 'CRON:SyncMarkets' });
 
 // Also support POST for manual triggers
-export async function POST(request: NextRequest) {
-  return GET(request);
-}
+export const POST = GET;
