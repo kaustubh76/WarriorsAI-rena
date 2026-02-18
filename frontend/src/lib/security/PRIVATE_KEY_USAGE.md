@@ -29,7 +29,7 @@ This document describes the private keys used in the WarriorsAI-rena project, th
 - `/app/api/sign-traits/route.ts` - Signing NFT traits
 - `/services/gameMasterSigning.ts` - Signature generation
 - `/services/arenaBackendService.ts` - Arena backend operations
-- `/pages/api/arena/[battleId]Fixed.ts` - Battle execution
+- `/app/api/arena/automation/[battleId]/route.ts` - Battle execution
 
 **Risk Level**: HIGH - Controls game outcomes and NFT traits
 
