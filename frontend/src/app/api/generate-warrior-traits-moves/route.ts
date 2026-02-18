@@ -1,20 +1,22 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { getApiBaseUrl } from '../../constants';
-import { logger } from '../../lib/logger';
+/**
+ * Generate Warrior Traits & Moves API Route
+ * POST: Generate AI warrior traits and battle moves via 0G inference
+ */
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+import { NextResponse } from 'next/server';
+import { getApiBaseUrl } from '@/constants';
+import { logger } from '@/lib/logger';
+import { RateLimitPresets } from '@/lib/api';
+import { ErrorResponses } from '@/lib/api/errorHandler';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-  try {
-    const { personalityAttributes } = req.body;
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'generate-warrior-traits-moves', ...RateLimitPresets.inference }),
+  async (req, ctx) => {
+    const { personalityAttributes } = await req.json();
 
     if (!personalityAttributes || typeof personalityAttributes !== 'object') {
-      return res.status(400).json({ error: 'personalityAttributes is required and must be an object' });
+      throw ErrorResponses.badRequest('personalityAttributes is required and must be an object');
     }
 
     logger.debug('Generating warrior traits and moves');
@@ -49,7 +51,6 @@ IMPORTANT:
 - Base traits on personality (e.g., aggressive = high Strength, clever = high Wit)
 
 Respond with valid JSON only, no explanation.`,
-        // Let 0G use the provider's available model
         maxTokens: 400,
         temperature: 0.7
       })
@@ -66,20 +67,20 @@ Respond with valid JSON only, no explanation.`,
     // Check if inference is verified (real 0G, not fallback)
     if (inferenceResult.fallbackMode === true || inferenceResult.isVerified === false) {
       logger.warn('0G inference returned unverified result - blocking for testnet');
-      return res.status(503).json({
+      return NextResponse.json({
         success: false,
         error: '0G Compute services unavailable. Cannot generate verified traits.',
         fallbackMode: true,
         isVerified: false,
         message: 'Warrior trait generation requires verified 0G inference. Please try again later.'
-      });
+      }, { status: 503 });
     }
 
     const traitsMovesJson = inferenceResult.content || inferenceResult.response;
 
     logger.debug('Generated warrior traits and moves');
 
-    // Parse the response - it should already be in the correct format
+    // Parse the response
     let traitsAndMoves;
     try {
       traitsAndMoves = typeof traitsMovesJson === 'string'
@@ -110,17 +111,9 @@ Respond with valid JSON only, no explanation.`,
     }
 
     // Return as JSON string since the page expects to JSON.parse it
-    res.status(200).json({
+    return NextResponse.json({
       success: true,
       traitsAndMoves: JSON.stringify(traitsAndMoves)
     });
-
-  } catch (error) {
-    logger.error('Error generating warrior traits and moves:', error);
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred'
-    });
-  }
-}
+  },
+], { errorContext: 'API:GenerateWarriorTraitsMoves:POST' });

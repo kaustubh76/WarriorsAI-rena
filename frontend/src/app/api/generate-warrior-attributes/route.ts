@@ -1,20 +1,22 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { getApiBaseUrl } from '../../constants';
-import { logger } from '../../lib/logger';
+/**
+ * Generate Warrior Attributes API Route
+ * POST: Generate AI warrior character attributes via 0G inference
+ */
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+import { NextResponse } from 'next/server';
+import { getApiBaseUrl } from '@/constants';
+import { logger } from '@/lib/logger';
+import { RateLimitPresets } from '@/lib/api';
+import { ErrorResponses } from '@/lib/api/errorHandler';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-  try {
-    const { prompt } = req.body;
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'generate-warrior-attributes', ...RateLimitPresets.inference }),
+  async (req, ctx) => {
+    const { prompt } = await req.json();
 
     if (!prompt || typeof prompt !== 'string') {
-      return res.status(400).json({ error: 'Prompt is required and must be a string' });
+      throw ErrorResponses.badRequest('Prompt is required and must be a string');
     }
 
     logger.debug('Generating warrior attributes');
@@ -42,7 +44,6 @@ IMPORTANT:
 - Make the character unique and interesting
 
 Respond with valid JSON only, no explanation.`,
-        // Let 0G use the provider's available model
         maxTokens: 600,
         temperature: 0.8
       })
@@ -59,13 +60,13 @@ Respond with valid JSON only, no explanation.`,
     // Check if inference is verified (real 0G, not fallback)
     if (inferenceResult.fallbackMode === true || inferenceResult.isVerified === false) {
       logger.warn('0G inference returned unverified result - blocking for testnet');
-      return res.status(503).json({
+      return NextResponse.json({
         success: false,
         error: '0G Compute services unavailable. Cannot generate verified character.',
         fallbackMode: true,
         isVerified: false,
         message: 'Character generation requires verified 0G inference. Please try again later.'
-      });
+      }, { status: 503 });
     }
 
     const attributesJson = inferenceResult.content || inferenceResult.response;
@@ -106,17 +107,9 @@ Respond with valid JSON only, no explanation.`,
     }
 
     // Return the JSON response as string (page expects to JSON.parse it)
-    res.status(200).json({
+    return NextResponse.json({
       success: true,
       attributes: JSON.stringify(attributes)
     });
-
-  } catch (error) {
-    logger.error('Error generating warrior attributes:', error);
-
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred'
-    });
-  }
-}
+  },
+], { errorContext: 'API:GenerateWarriorAttributes:POST' });
