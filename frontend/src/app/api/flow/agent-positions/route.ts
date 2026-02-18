@@ -3,11 +3,12 @@
  * GET: Get agent's active positions on Flow chain
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { chainsToContracts } from '@/constants';
 import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Simplified ABIs
 const predictionMarketAbi = [
@@ -65,15 +66,10 @@ const externalMarketMirrorAbi = [
   },
 ] as const;
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'flow-agent-positions',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'flow-agent-positions', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const agentId = searchParams.get('agentId');
 
     if (!agentId) {
@@ -218,7 +214,5 @@ export async function GET(request: NextRequest) {
           .toString(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Flow:AgentPositions:GET');
-  }
-}
+  },
+], { errorContext: 'API:Flow:AgentPositions:GET' });

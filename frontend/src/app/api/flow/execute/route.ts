@@ -9,7 +9,7 @@
  * - Sync prices from external markets
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { parseEther, formatEther, keccak256, encodeAbiParameters } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { flowTestnet } from 'viem/chains';
@@ -21,7 +21,8 @@ import {
   isTimeoutError,
   RPC_TIMEOUT
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { EXTERNAL_MARKET_MIRROR_ABI, CRWN_TOKEN_ABI } from '@/constants/abis';
 import { assertOracleAuthorized } from '@/lib/oracleVerification';
 import { getChainId } from '@/constants';
@@ -143,15 +144,10 @@ async function signOracleMessage(
 // API Handler
 // ============================================================================
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'flow-execute',
-      ...RateLimitPresets.flowExecution,
-    });
-
-    const body: ExecuteRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'flow-execute', ...RateLimitPresets.flowExecution }),
+  async (req, ctx) => {
+    const body: ExecuteRequest = await req.json();
 
     // Get private key
     const privateKey = process.env.PRIVATE_KEY as `0x${string}`;
@@ -530,23 +526,15 @@ export async function POST(request: NextRequest) {
       default:
         throw ErrorResponses.badRequest('Invalid action. Use: createMirror, trade, syncPrice, resolve, query');
     }
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Flow:Execute:POST');
-  }
-}
+  },
+], { errorContext: 'API:Flow:Execute:POST' });
 
 /**
  * GET: Query system stats
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'flow-execute-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'flow-execute-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
     if (EXTERNAL_MARKET_MIRROR === '0x0000000000000000000000000000000000000000') {
       return NextResponse.json({
         success: true,
@@ -593,8 +581,5 @@ export async function GET(request: NextRequest) {
         chainId: flowTestnet.id,
       },
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Flow:Execute:GET');
-  }
-}
+  },
+], { errorContext: 'API:Flow:Execute:GET' });

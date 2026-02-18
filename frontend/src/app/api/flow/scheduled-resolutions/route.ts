@@ -13,11 +13,12 @@
  * database-based scheduling and tracking.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // ============================================
 // TYPES
@@ -100,11 +101,10 @@ function isValidScheduledTime(scheduledTime: Date): boolean {
 // GET - Query resolutions
 // ============================================
 
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'scheduled-resolutions-get', ...RateLimitPresets.readOperations });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'scheduled-resolutions-get', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const status = searchParams.get('status');
     const resolutionId = searchParams.get('id');
     const externalMarketId = searchParams.get('externalMarketId');
@@ -195,28 +195,17 @@ export async function GET(request: NextRequest) {
       resolutions,
       count: resolutions.length,
     });
-  } catch (error) {
-    console.error('[Scheduled Resolutions API] GET error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch resolutions',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Flow:ScheduledResolutions:GET' });
 
 // ============================================
 // POST - Schedule new resolution
 // ============================================
 
-export async function POST(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'scheduled-resolutions-post', ...RateLimitPresets.marketCreation });
-
-    const body: ScheduleRequestBody = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'scheduled-resolutions-post', ...RateLimitPresets.marketCreation }),
+  async (req, ctx) => {
+    const body: ScheduleRequestBody = await req.json();
     const { externalMarketId, mirrorKey, scheduledTime, oracleSource, creator } = body;
 
     // Validate required fields
@@ -338,241 +327,231 @@ export async function POST(request: NextRequest) {
       resolution,
       message: 'Resolution scheduled successfully',
     });
-  } catch (error) {
-    console.error('[Scheduled Resolutions API] POST error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to schedule resolution',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Flow:ScheduledResolutions:POST' });
 
 // ============================================
 // PUT - Execute ready resolution
 // ============================================
 
-export async function PUT(request: NextRequest) {
-  let resolutionId: string | null = null;
+export const PUT = composeMiddleware([
+  withRateLimit({ prefix: 'scheduled-resolutions-put', ...RateLimitPresets.oracleOperations }),
+  async (req, ctx) => {
+    let resolutionId: string | null = null;
 
-  try {
-    applyRateLimit(request, { prefix: 'scheduled-resolutions-put', ...RateLimitPresets.oracleOperations });
+    try {
+      const body: ExecuteRequestBody = await req.json();
+      resolutionId = body.resolutionId;
 
-    const body: ExecuteRequestBody = await request.json();
-    resolutionId = body.resolutionId;
+      if (!resolutionId) {
+        return NextResponse.json(
+          { success: false, error: 'Missing required field: resolutionId' },
+          { status: 400 }
+        );
+      }
 
-    if (!resolutionId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required field: resolutionId' },
-        { status: 400 }
-      );
-    }
-
-    // Get resolution from database with lock-like behavior
-    const resolution = await prisma.scheduledResolution.findUnique({
-      where: { id: resolutionId },
-      include: {
-        externalMarket: true,
-        mirrorMarket: true,
-      },
-    });
-
-    if (!resolution) {
-      return NextResponse.json(
-        { success: false, error: 'Resolution not found' },
-        { status: 404 }
-      );
-    }
-
-    // Verify resolution status
-    if (resolution.status === 'completed') {
-      return NextResponse.json(
-        { success: false, error: 'Resolution has already been completed' },
-        { status: 400 }
-      );
-    }
-
-    if (resolution.status === 'cancelled') {
-      return NextResponse.json(
-        { success: false, error: 'Resolution has been cancelled' },
-        { status: 400 }
-      );
-    }
-
-    if (resolution.status === 'executing') {
-      return NextResponse.json(
-        { success: false, error: 'Resolution is already being executed' },
-        { status: 400 }
-      );
-    }
-
-    if (resolution.status !== 'pending') {
-      return NextResponse.json(
-        { success: false, error: `Cannot execute resolution with status: ${resolution.status}` },
-        { status: 400 }
-      );
-    }
-
-    // Check if scheduled time has arrived
-    const now = new Date();
-    if (new Date(resolution.scheduledTime) > now) {
-      const timeRemaining = new Date(resolution.scheduledTime).getTime() - now.getTime();
-      const minutesRemaining = Math.ceil(timeRemaining / 60000);
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Scheduled time has not arrived yet. ${minutesRemaining} minute(s) remaining.`
-        },
-        { status: 400 }
-      );
-    }
-
-    // Update status to executing (prevents concurrent execution)
-    await prisma.scheduledResolution.update({
-      where: { id: resolutionId },
-      data: {
-        status: 'executing',
-        attempts: resolution.attempts + 1,
-      },
-    });
-
-    // Fetch outcome from external market
-    const { outcome, error: outcomeError } = await fetchOutcomeFromOracle(
-      resolution.oracleSource,
-      resolution.externalMarket.externalId
-    );
-
-    if (outcome === null) {
-      // Revert to pending so it can be retried
-      await prisma.scheduledResolution.update({
+      // Get resolution from database with lock-like behavior
+      const resolution = await prisma.scheduledResolution.findUnique({
         where: { id: resolutionId },
-        data: {
-          status: 'pending',
-          lastError: outcomeError || 'Outcome not available from external market',
+        include: {
+          externalMarket: true,
+          mirrorMarket: true,
         },
       });
 
+      if (!resolution) {
+        return NextResponse.json(
+          { success: false, error: 'Resolution not found' },
+          { status: 404 }
+        );
+      }
+
+      // Verify resolution status
+      if (resolution.status === 'completed') {
+        return NextResponse.json(
+          { success: false, error: 'Resolution has already been completed' },
+          { status: 400 }
+        );
+      }
+
+      if (resolution.status === 'cancelled') {
+        return NextResponse.json(
+          { success: false, error: 'Resolution has been cancelled' },
+          { status: 400 }
+        );
+      }
+
+      if (resolution.status === 'executing') {
+        return NextResponse.json(
+          { success: false, error: 'Resolution is already being executed' },
+          { status: 400 }
+        );
+      }
+
+      if (resolution.status !== 'pending') {
+        return NextResponse.json(
+          { success: false, error: `Cannot execute resolution with status: ${resolution.status}` },
+          { status: 400 }
+        );
+      }
+
+      // Check if scheduled time has arrived
+      const now = new Date();
+      if (new Date(resolution.scheduledTime) > now) {
+        const timeRemaining = new Date(resolution.scheduledTime).getTime() - now.getTime();
+        const minutesRemaining = Math.ceil(timeRemaining / 60000);
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Scheduled time has not arrived yet. ${minutesRemaining} minute(s) remaining.`
+          },
+          { status: 400 }
+        );
+      }
+
+      // Update status to executing (prevents concurrent execution)
+      await prisma.scheduledResolution.update({
+        where: { id: resolutionId },
+        data: {
+          status: 'executing',
+          attempts: resolution.attempts + 1,
+        },
+      });
+
+      // Fetch outcome from external market
+      const { outcome, error: outcomeError } = await fetchOutcomeFromOracle(
+        resolution.oracleSource,
+        resolution.externalMarket.externalId
+      );
+
+      if (outcome === null) {
+        // Revert to pending so it can be retried
+        await prisma.scheduledResolution.update({
+          where: { id: resolutionId },
+          data: {
+            status: 'pending',
+            lastError: outcomeError || 'Outcome not available from external market',
+          },
+        });
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: outcomeError || 'Outcome not available from external market',
+            canRetry: true,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Update the external market's outcome in the database for caching
+      await prisma.externalMarket.update({
+        where: { id: resolution.externalMarketId },
+        data: {
+          outcome: outcome ? 'yes' : 'no',
+          status: 'resolved',
+        },
+      });
+
+      // Update resolution as completed
+      const updatedResolution = await prisma.scheduledResolution.update({
+        where: { id: resolutionId },
+        data: {
+          status: 'completed',
+          outcome,
+          executedAt: new Date(),
+          lastError: null,
+        },
+        include: {
+          externalMarket: true,
+          mirrorMarket: true,
+        },
+      });
+
+      // If has mirror market, attempt to resolve it
+      let mirrorResolutionStatus = null;
+      if (resolution.mirrorMarket) {
+        try {
+          const mirrorResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/flow/execute`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'resolve',
+                mirrorKey: resolution.mirrorKey,
+                yesWon: outcome,
+              }),
+            }
+          );
+
+          if (mirrorResponse.ok) {
+            mirrorResolutionStatus = 'success';
+          } else {
+            mirrorResolutionStatus = 'failed';
+            console.error('[Scheduled Resolutions] Mirror resolution failed:', await mirrorResponse.text());
+          }
+        } catch (mirrorError) {
+          mirrorResolutionStatus = 'error';
+          console.error('[Scheduled Resolutions] Failed to resolve mirror market:', mirrorError);
+        }
+      }
+
+      console.log(`[Scheduled Resolutions] Executed resolution ${resolutionId}: outcome=${outcome ? 'YES' : 'NO'}`);
+
+      return NextResponse.json({
+        success: true,
+        resolution: updatedResolution,
+        outcome,
+        outcomeLabel: outcome ? 'YES' : 'NO',
+        mirrorResolutionStatus,
+        message: `Market resolved with outcome: ${outcome ? 'YES' : 'NO'}`,
+      });
+    } catch (error) {
+      console.error('[Scheduled Resolutions API] PUT error:', error);
+
+      // Revert status to pending on error
+      if (resolutionId) {
+        try {
+          const existingResolution = await prisma.scheduledResolution.findUnique({
+            where: { id: resolutionId },
+          });
+
+          if (existingResolution && existingResolution.status === 'executing') {
+            await prisma.scheduledResolution.update({
+              where: { id: resolutionId },
+              data: {
+                status: 'pending',
+                lastError: error instanceof Error ? error.message : 'Execution failed',
+              },
+            });
+          }
+        } catch (updateError) {
+          console.error('[Scheduled Resolutions] Failed to revert status:', updateError);
+        }
+      }
+
       return NextResponse.json(
         {
           success: false,
-          error: outcomeError || 'Outcome not available from external market',
+          error: 'Failed to execute resolution',
+          details: error instanceof Error ? error.message : 'Unknown error',
           canRetry: true,
         },
-        { status: 400 }
+        { status: 500 }
       );
     }
-
-    // Update the external market's outcome in the database for caching
-    await prisma.externalMarket.update({
-      where: { id: resolution.externalMarketId },
-      data: {
-        outcome: outcome ? 'yes' : 'no',
-        status: 'resolved',
-      },
-    });
-
-    // Update resolution as completed
-    const updatedResolution = await prisma.scheduledResolution.update({
-      where: { id: resolutionId },
-      data: {
-        status: 'completed',
-        outcome,
-        executedAt: new Date(),
-        lastError: null,
-      },
-      include: {
-        externalMarket: true,
-        mirrorMarket: true,
-      },
-    });
-
-    // If has mirror market, attempt to resolve it
-    let mirrorResolutionStatus = null;
-    if (resolution.mirrorMarket) {
-      try {
-        const mirrorResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/flow/execute`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'resolve',
-              mirrorKey: resolution.mirrorKey,
-              yesWon: outcome,
-            }),
-          }
-        );
-
-        if (mirrorResponse.ok) {
-          mirrorResolutionStatus = 'success';
-        } else {
-          mirrorResolutionStatus = 'failed';
-          console.error('[Scheduled Resolutions] Mirror resolution failed:', await mirrorResponse.text());
-        }
-      } catch (mirrorError) {
-        mirrorResolutionStatus = 'error';
-        console.error('[Scheduled Resolutions] Failed to resolve mirror market:', mirrorError);
-      }
-    }
-
-    console.log(`[Scheduled Resolutions] Executed resolution ${resolutionId}: outcome=${outcome ? 'YES' : 'NO'}`);
-
-    return NextResponse.json({
-      success: true,
-      resolution: updatedResolution,
-      outcome,
-      outcomeLabel: outcome ? 'YES' : 'NO',
-      mirrorResolutionStatus,
-      message: `Market resolved with outcome: ${outcome ? 'YES' : 'NO'}`,
-    });
-  } catch (error) {
-    console.error('[Scheduled Resolutions API] PUT error:', error);
-
-    // Revert status to pending on error
-    if (resolutionId) {
-      try {
-        const existingResolution = await prisma.scheduledResolution.findUnique({
-          where: { id: resolutionId },
-        });
-
-        if (existingResolution && existingResolution.status === 'executing') {
-          await prisma.scheduledResolution.update({
-            where: { id: resolutionId },
-            data: {
-              status: 'pending',
-              lastError: error instanceof Error ? error.message : 'Execution failed',
-            },
-          });
-        }
-      } catch (updateError) {
-        console.error('[Scheduled Resolutions] Failed to revert status:', updateError);
-      }
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to execute resolution',
-        details: error instanceof Error ? error.message : 'Unknown error',
-        canRetry: true,
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Flow:ScheduledResolutions:PUT' });
 
 // ============================================
 // DELETE - Cancel pending resolution
 // ============================================
 
-export async function DELETE(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'scheduled-resolutions-delete', ...RateLimitPresets.oracleOperations });
-
-    const searchParams = request.nextUrl.searchParams;
+export const DELETE = composeMiddleware([
+  withRateLimit({ prefix: 'scheduled-resolutions-delete', ...RateLimitPresets.oracleOperations }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const resolutionId = searchParams.get('id');
 
     if (!resolutionId) {
@@ -631,15 +610,5 @@ export async function DELETE(request: NextRequest) {
       success: true,
       message: 'Resolution cancelled successfully',
     });
-  } catch (error) {
-    console.error('[Scheduled Resolutions API] DELETE error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to cancel resolution',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Flow:ScheduledResolutions:DELETE' });
