@@ -26,6 +26,7 @@ export default function MirrorPortfolioPage() {
   const [mirrors, setMirrors] = useState<MirrorMarket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchMirrors = async () => {
@@ -119,6 +120,30 @@ export default function MirrorPortfolioPage() {
       return `${hours}h ${minutes}m ago`;
     }
     return `${minutes}m ago`;
+  };
+
+  const handleSync = async (mirror: MirrorMarket) => {
+    setSyncing(mirror.mirrorKey);
+    try {
+      const response = await fetch(`/api/external/sync?source=${mirror.source}`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Sync failed');
+      }
+      // Refresh portfolio data after sync
+      const refreshResponse = await fetch(`/api/portfolio/mirror?address=${address}`);
+      const refreshData = await refreshResponse.json();
+      if (refreshData.success) {
+        setMirrors(refreshData.data.positions || []);
+      }
+    } catch (err) {
+      console.error('[MirrorPortfolio] Sync error:', err);
+      setError(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setSyncing(null);
+    }
   };
 
   const needsSync = (timestamp: number) => {
@@ -289,13 +314,11 @@ export default function MirrorPortfolioPage() {
                   </Link>
                   {syncNeeded && (
                     <button
-                      className="px-4 py-2 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 rounded-lg text-sm transition-colors"
-                      onClick={() => {
-                        // TODO: Implement manual sync
-                        console.log('Sync mirror:', mirror.mirrorKey);
-                      }}
+                      className="px-4 py-2 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={syncing === mirror.mirrorKey}
+                      onClick={() => handleSync(mirror)}
                     >
-                      Sync Now
+                      {syncing === mirror.mirrorKey ? 'Syncing...' : 'Sync Now'}
                     </button>
                   )}
                 </div>
