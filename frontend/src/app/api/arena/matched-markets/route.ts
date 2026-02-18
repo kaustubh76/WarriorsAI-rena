@@ -4,11 +4,12 @@
  * Enables arbitrage opportunities and cross-platform warrior battles
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { UnifiedMarket } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, validateBoolean, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets, validateBoolean } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Stop words to filter out for better matching
 const STOP_WORDS = new Set([
@@ -260,15 +261,10 @@ async function findMatchedMarkets(
  * - onlyArbitrage: Only return pairs with arbitrage opportunities (default false)
  * - limit: Max number of pairs to return (default 50)
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting (30/min due to heavy computation)
-    applyRateLimit(request, {
-      prefix: 'matched-markets',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'matched-markets', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
 
     // Parse and validate parameters
     const minSimilarityParam = parseFloat(searchParams.get('minSimilarity') || '0.4');
@@ -310,7 +306,5 @@ export async function GET(request: NextRequest) {
         timestamp: Date.now(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:MatchedMarkets:GET');
-  }
-}
+  },
+], { errorContext: 'API:MatchedMarkets:GET' });

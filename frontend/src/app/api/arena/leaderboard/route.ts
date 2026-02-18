@@ -1,21 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { userDataCache } from '@/lib/cache/hashedCache';
 
 /**
  * GET /api/arena/leaderboard
  * Get warrior arena leaderboard
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'arena-leaderboard',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'arena-leaderboard', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const sortBy = searchParams.get('sortBy') || 'rating';
     const limit = parseInt(searchParams.get('limit') || '20');
 
@@ -55,7 +51,5 @@ export async function GET(request: NextRequest) {
       sortBy,
       total: leaderboard.length,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arena:Leaderboard:GET');
-  }
-}
+  },
+], { errorContext: 'API:Arena:Leaderboard:GET' });

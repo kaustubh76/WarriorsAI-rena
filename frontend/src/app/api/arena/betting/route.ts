@@ -4,19 +4,20 @@
  * Uses persistent database storage for bets and pools
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
+import { ErrorResponses } from '@/lib/api/errorHandler';
 import { validateAddress, validateBigIntString, validateBoolean } from '@/lib/api/validation';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 /**
  * GET /api/arena/betting?battleId=xxx
  * Get betting pool info and user's bet
  */
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const battleId = searchParams.get('battleId');
     const userAddress = searchParams.get('userAddress');
 
@@ -105,24 +106,17 @@ export async function GET(request: NextRequest) {
       userBet,
       bettingOpen: pool.bettingOpen,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Betting:GET');
-  }
-}
+  },
+], { errorContext: 'API:Betting:GET' });
 
 /**
  * POST /api/arena/betting
  * Place a bet on a battle
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'betting',
-      ...RateLimitPresets.betting,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'betting', ...RateLimitPresets.betting }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { battleId, bettorAddress, betOnWarrior1, amount, txHash } = body;
 
     // Validate required fields
@@ -238,18 +232,16 @@ export async function POST(request: NextRequest) {
         totalInPool: (BigInt(result.pool.totalWarrior1Bets) + BigInt(result.pool.totalWarrior2Bets)).toString(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Betting:POST');
-  }
-}
+  },
+], { errorContext: 'API:Betting:POST' });
 
 /**
  * PATCH /api/arena/betting
  * Claim winnings from a completed battle
  */
-export async function PATCH(request: NextRequest) {
-  try {
-    const body = await request.json();
+export const PATCH = composeMiddleware([
+  async (req, ctx) => {
+    const body = await req.json();
     const { battleId, bettorAddress } = body;
 
     // Validate inputs
@@ -353,18 +345,16 @@ export async function PATCH(request: NextRequest) {
         ? `Draw - refunded ${payout.toString()} wei (minus fee)`
         : 'Sorry, you lost this bet',
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Betting:PATCH');
-  }
-}
+  },
+], { errorContext: 'API:Betting:PATCH' });
 
 /**
  * DELETE /api/arena/betting
  * Close betting for a battle (admin action)
  */
-export async function DELETE(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
+export const DELETE = composeMiddleware([
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const battleId = searchParams.get('battleId');
 
     if (!battleId || typeof battleId !== 'string') {
@@ -380,7 +370,5 @@ export async function DELETE(request: NextRequest) {
       success: true,
       message: 'Betting closed for battle',
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Betting:DELETE');
-  }
-}
+  },
+], { errorContext: 'API:Betting:DELETE' });

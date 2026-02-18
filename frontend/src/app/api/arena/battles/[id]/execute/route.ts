@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { executeDebateRound, executeFullBattle } from '../../../../../../services/arena/debateService';
 import { WarriorTraits, MarketSource, PredictionRound } from '../../../../../../types/predictionArena';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 const prisma = new PrismaClient();
 
@@ -90,19 +91,18 @@ async function storeBattleTo0G(
  * POST /api/arena/battles/[id]/execute
  * Execute a battle round or full battle
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'arena-battles-execute',
-      ...RateLimitPresets.storageWrite,
-    });
+export const POST = composeMiddleware([
+  withRateLimit({
+    prefix: 'arena-battles-execute',
+    ...RateLimitPresets.storageWrite,
+  }),
+  async (req, ctx) => {
+    const battleId = ctx.params?.id;
+    if (!battleId) {
+      throw ErrorResponses.badRequest('Missing battle ID');
+    }
 
-    const { id: battleId } = await params;
-    const body = await request.json();
+    const body = await req.json();
     const { mode = 'round', warrior1Traits, warrior2Traits } = body;
 
     // Fetch battle
@@ -345,10 +345,8 @@ export async function POST(
       message: `Round ${roundNumber} executed`,
       storage: storageResult,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arena:Battles:Execute:POST');
-  }
-}
+  },
+], { errorContext: 'API:Arena:Battles:Execute:POST' });
 
 async function updateWarriorStats(
   warrior1Id: number,

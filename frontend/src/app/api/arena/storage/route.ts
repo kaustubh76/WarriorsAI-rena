@@ -3,9 +3,10 @@
  * Handles storing and retrieving prediction arena battles via 0G Storage
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 const prisma = new PrismaClient();
 
@@ -67,15 +68,13 @@ interface BattleStorageRecord {
  * POST /api/arena/storage
  * Store a completed battle record to 0G Storage
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting for storage operations
-    applyRateLimit(request, {
-      prefix: 'arena-storage',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({
+    prefix: 'arena-storage',
+    ...RateLimitPresets.storageWrite,
+  }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { battle } = body as { battle: BattleStorageRecord };
 
     if (!battle || !battle.battleId) {
@@ -163,24 +162,20 @@ export async function POST(request: NextRequest) {
       dataHash: storeResult.dataHash,
       message: `Battle ${battle.battleId} stored on 0G`,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arena:Storage:POST');
-  }
-}
+  },
+], { errorContext: 'API:Arena:Storage:POST' });
 
 /**
  * GET /api/arena/storage?rootHash=xxx
  * Retrieve a battle record from 0G Storage
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting for retrieval operations
-    applyRateLimit(request, {
-      prefix: 'arena-storage-get',
-      ...RateLimitPresets.flowExecution,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({
+    prefix: 'arena-storage-get',
+    ...RateLimitPresets.flowExecution,
+  }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
@@ -206,7 +201,5 @@ export async function GET(request: NextRequest) {
       rootHash,
       data,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arena:Storage:GET');
-  }
-}
+  },
+], { errorContext: 'API:Arena:Storage:GET' });

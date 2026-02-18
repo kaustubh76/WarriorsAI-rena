@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { UnifiedMarket } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, RateLimitPresets, validateEnum } from '@/lib/api';
+import { RateLimitPresets, validateEnum } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { marketDataCache } from '@/lib/cache/hashedCache';
 
 // Helper functions for parallel market fetching
@@ -50,15 +51,10 @@ async function fetchKalshiData(search?: string): Promise<{ markets: UnifiedMarke
  * - source: Optional source filter ('polymarket' | 'kalshi' | 'all')
  * - limit: Max number of markets to return (default 50, max 200)
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'arena-markets',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'arena-markets', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const search = searchParams.get('search') || undefined;
     const sourceParam = searchParams.get('source') || 'all';
 
@@ -124,10 +120,8 @@ export async function GET(request: NextRequest) {
         errors: errors.length > 0 ? errors : undefined,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:ArenaMarkets:GET');
-  }
-}
+  },
+], { errorContext: 'API:ArenaMarkets:GET' });
 
 function getSourcesFromMarkets(markets: UnifiedMarket[]): { polymarket: number; kalshi: number } {
   const sources = { polymarket: 0, kalshi: 0 };

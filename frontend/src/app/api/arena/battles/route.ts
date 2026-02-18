@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { keccak256, toBytes } from 'viem';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
+import { ErrorResponses } from '@/lib/api/errorHandler';
 import { validateInteger, validateAddress, validateBigIntString, validateEnum } from '@/lib/api/validation';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { marketDataCache } from '@/lib/cache/hashedCache';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
 import { readContract } from '@wagmi/core';
@@ -48,9 +49,9 @@ export interface AcceptBattleRequest {
  * GET /api/arena/battles
  * List battles with optional filters
  */
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') as BattleStatus | null;
     const warriorId = searchParams.get('warriorId');
     const marketId = searchParams.get('marketId');
@@ -107,24 +108,17 @@ export async function GET(request: NextRequest) {
     // Add cache headers for battles list (cache for 30 seconds - active battles change frequently)
     response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=15');
     return response;
-  } catch (error) {
-    return handleAPIError(error, 'API:Battles:GET');
-  }
-}
+  },
+], { errorContext: 'API:Battles:GET' });
 
 /**
  * POST /api/arena/battles
  * Create a new challenge (pending battle) or arbitrage battle
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'battle-create',
-      ...RateLimitPresets.battleCreation,
-    });
-
-    const body: CreateBattleRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'battle-create', ...RateLimitPresets.battleCreation }),
+  async (req, ctx) => {
+    const body: CreateBattleRequest = await req.json();
 
     const {
       externalMarketId,
@@ -368,18 +362,16 @@ export async function POST(request: NextRequest) {
       marketKey,
       message: 'Challenge created successfully',
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Battles:POST');
-  }
-}
+  },
+], { errorContext: 'API:Battles:POST' });
 
 /**
  * PATCH /api/arena/battles
  * Accept a challenge or update battle state
  */
-export async function PATCH(request: NextRequest) {
-  try {
-    const body = await request.json();
+export const PATCH = composeMiddleware([
+  async (req, ctx) => {
+    const body = await req.json();
     const { action } = body;
 
     if (action === 'accept') {
@@ -551,10 +543,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     throw ErrorResponses.badRequest('Unknown action');
-  } catch (error) {
-    return handleAPIError(error, 'API:Battles:PATCH');
-  }
-}
+  },
+], { errorContext: 'API:Battles:PATCH' });
 
 // Type for transaction client
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;

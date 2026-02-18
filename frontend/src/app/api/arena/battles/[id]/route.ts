@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 const prisma = new PrismaClient();
 
@@ -12,30 +13,27 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'arena-battles-id',
-      ...RateLimitPresets.apiQueries,
-    });
+  const handler = composeMiddleware([
+    withRateLimit({ prefix: 'arena-battles-id', ...RateLimitPresets.apiQueries }),
+    async (req, ctx) => {
+      const { id } = await params;
 
-    const { id } = await params;
-
-    const battle = await prisma.predictionBattle.findUnique({
-      where: { id },
-      include: {
-        rounds: {
-          orderBy: { roundNumber: 'asc' },
+      const battle = await prisma.predictionBattle.findUnique({
+        where: { id },
+        include: {
+          rounds: {
+            orderBy: { roundNumber: 'asc' },
+          },
         },
-      },
-    });
+      });
 
-    if (!battle) {
-      throw ErrorResponses.notFound('Battle not found');
-    }
+      if (!battle) {
+        throw ErrorResponses.notFound('Battle not found');
+      }
 
-    return NextResponse.json({ battle });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arena:Battles:ID:GET');
-  }
+      return NextResponse.json({ battle });
+    },
+  ], { errorContext: 'API:Arena:Battles:ID:GET' });
+
+  return handler(request);
 }

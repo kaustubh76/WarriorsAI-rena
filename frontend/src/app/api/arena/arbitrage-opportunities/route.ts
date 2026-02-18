@@ -3,17 +3,16 @@
  * Find arbitrage opportunities between Polymarket and Kalshi
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
-import { handleAPIError } from '@/lib/api/errorHandler';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { marketDataCache } from '@/lib/cache/hashedCache';
 
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'arena-arbitrage-opps', ...RateLimitPresets.readOperations });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'arena-arbitrage-opps', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const search = searchParams.get('search') || '';
     const minSpread = parseFloat(searchParams.get('minSpread') || '5');
     const limit = parseInt(searchParams.get('limit') || '20');
@@ -103,15 +102,5 @@ export async function GET(request: NextRequest) {
       opportunities,
       count: opportunities.length,
     });
-  } catch (error) {
-    console.error('[API] Error fetching arbitrage opportunities:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch arbitrage opportunities',
-        details: (error as Error).message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Arena:ArbitrageOpportunities:GET' });
