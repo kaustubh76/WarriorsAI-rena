@@ -3,15 +3,15 @@
  * GET /api/markets/bets?userId=xxx&status=xxx&source=xxx
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { marketBettingService } from '@/services/betting/marketBettingService';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'market-bets-list', ...RateLimitPresets.readOperations });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'market-bets-list', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const userId = searchParams.get('userId');
     const status = searchParams.get('status');
     const source = searchParams.get('source');
@@ -43,14 +43,5 @@ export async function GET(request: NextRequest) {
       bets: serializedBets,
       total: bets.length,
     });
-  } catch (error) {
-    console.error('[Market Betting API] GET bets error:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to fetch bets',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Markets:Bets:GET' });

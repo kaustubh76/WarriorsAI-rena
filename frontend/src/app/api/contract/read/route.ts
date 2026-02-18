@@ -7,7 +7,8 @@ import {
   RPC_TIMEOUT,
 } from '@/lib/flowClient';
 import { zeroGGalileo } from '@/lib/zeroGClient';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Define supported chains
 const SUPPORTED_CHAINS: Record<number, Chain> = {
@@ -17,15 +18,10 @@ const SUPPORTED_CHAINS: Record<number, Chain> = {
   [zeroGGalileo.id]: zeroGGalileo, // Chain ID 16602 - 0G Galileo for iNFTs
 };
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'contract-read',
-      ...RateLimitPresets.readOperations,
-    });
-
-    const { contractAddress, abi, functionName, args, chainId } = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'contract-read', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const { contractAddress, abi, functionName, args, chainId } = await req.json();
 
     if (!contractAddress || !abi || !functionName) {
       throw ErrorResponses.badRequest('Missing required parameters');
@@ -89,8 +85,5 @@ export async function POST(request: NextRequest) {
     ));
 
     return NextResponse.json(serializedResult);
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Contract:Read:POST');
-  }
-}
+  },
+], { errorContext: 'API:Contract:Read:POST' });

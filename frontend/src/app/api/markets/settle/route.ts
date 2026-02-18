@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Flow Testnet Configuration
 const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
@@ -163,14 +164,9 @@ async function updateAgentPerformance(marketId: number, outcome: Outcome, privat
  * - If marketId provided, only settle that market
  * - If outcome provided, use that outcome instead of auto-determining
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (5 settlements per minute)
-    applyRateLimit(request, {
-      prefix: 'markets-settle-post',
-      ...RateLimitPresets.copyTrade,
-    });
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'markets-settle-post', ...RateLimitPresets.copyTrade }),
+  async (req, ctx) => {
     // Get owner private key (AI_SIGNER_PRIVATE_KEY is the contract owner)
     const privateKey = process.env.AI_SIGNER_PRIVATE_KEY;
     if (!privateKey) {
@@ -182,7 +178,7 @@ export async function POST(request: NextRequest) {
     let specificOutcome: number | null = null;
 
     try {
-      const body = await request.json();
+      const body = await req.json();
       specificMarketId = body.marketId ?? null;
       specificOutcome = body.outcome ?? null;
     } catch {
@@ -321,24 +317,16 @@ export async function POST(request: NextRequest) {
       results,
       timestamp: new Date().toISOString()
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Markets:Settle:POST');
-  }
-}
+  },
+], { errorContext: 'API:Markets:Settle:POST' });
 
 /**
  * GET /api/markets/settle
  * Returns status of markets that need settlement
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'markets-settle-get',
-      ...RateLimitPresets.moderateReads,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'markets-settle-get', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
     const provider = new ethers.JsonRpcProvider(FLOW_RPC);
     const marketContract = new ethers.Contract(
       PREDICTION_MARKET,
@@ -404,8 +392,5 @@ export async function GET(request: NextRequest) {
       activeMarkets,
       settlementEndpoint: 'POST /api/markets/settle'
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Markets:Settle:GET');
-  }
-}
+  },
+], { errorContext: 'API:Markets:Settle:GET' });

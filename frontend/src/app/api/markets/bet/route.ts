@@ -6,18 +6,19 @@
  * Uses sliding window counter to prevent boundary doubling.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { marketBettingService } from '@/services/betting/marketBettingService';
 import { applyRateLimitWithBody, RateLimitPresets } from '@/lib/api/rateLimit';
-import { handleAPIError, ErrorResponses } from '@/lib/api/errorHandler';
+import { ErrorResponses } from '@/lib/api/errorHandler';
+import { composeMiddleware } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
+export const POST = composeMiddleware([
+  async (req, ctx) => {
+    const body = await req.json();
     const { userId, externalMarketId, source, side, amount, warriorId } = body;
 
     // Apply rate limiting with wallet-based tracking (prevents IP rotation bypass)
-    applyRateLimitWithBody(request, body, {
+    applyRateLimitWithBody(req, body, {
       prefix: 'market-bet',
       ...RateLimitPresets.marketBetting,
       strictWalletLimit: true,
@@ -72,7 +73,5 @@ export async function POST(request: NextRequest) {
       shares: result.shares,
       executionPrice: result.executionPrice,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Markets:Bet:POST');
-  }
-}
+  },
+], { errorContext: 'API:Markets:Bet:POST' });

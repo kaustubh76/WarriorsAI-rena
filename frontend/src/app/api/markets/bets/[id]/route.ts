@@ -4,21 +4,18 @@
  * DELETE /api/markets/bets/[id] - Cancel bet
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { marketBettingService } from '@/services/betting/marketBettingService';
 import { orderExecutionService } from '@/services/betting/orderExecutionService';
 import { escrowService } from '@/services/escrow';
 import { prisma } from '@/lib/prisma';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    applyRateLimit(request, { prefix: 'market-bet-detail', ...RateLimitPresets.readOperations });
-
-    const betId = params.id;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'market-bet-detail', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const betId = ctx.params?.id;
 
     if (!betId) {
       return NextResponse.json(
@@ -49,26 +46,13 @@ export async function GET(
       orderStatus: status.orderStatus,
       fillPercentage: status.fillPercentage,
     });
-  } catch (error) {
-    console.error('[Market Betting API] GET bet error:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to fetch bet',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Markets:Bets:Detail:GET' });
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    applyRateLimit(request, { prefix: 'market-bet-cancel', ...RateLimitPresets.marketBetting });
-
-    const betId = params.id;
+export const DELETE = composeMiddleware([
+  withRateLimit({ prefix: 'market-bet-cancel', ...RateLimitPresets.marketBetting }),
+  async (req, ctx) => {
+    const betId = ctx.params?.id;
 
     if (!betId) {
       return NextResponse.json(
@@ -165,14 +149,5 @@ export async function DELETE(
       orderCancelled,
       escrowReleased,
     });
-  } catch (error) {
-    console.error('[Market Betting API] DELETE bet error:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to cancel bet',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
-}
+  },
+], { errorContext: 'API:Markets:Bets:Detail:DELETE' });

@@ -13,7 +13,8 @@ import {
   executeWithFlowFallbackForKey,
   RPC_TIMEOUT,
 } from '@/lib/flowClient';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Resolution outcome type
 type ResolutionOutcome = 'yes' | 'no' | 'draw';
@@ -52,15 +53,10 @@ const ZeroGOracleABI = [
   }
 ] as const;
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'oracle-resolve',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body: ResolutionRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'oracle-resolve', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body: ResolutionRequest = await req.json();
     const { battleId, marketId, warrior1Damage, warrior2Damage } = body;
 
     // Validate input
@@ -133,10 +129,8 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(response);
-  } catch (error) {
-    return handleAPIError(error, 'API:Oracle:Resolve:POST');
-  }
-}
+  },
+], { errorContext: 'API:Oracle:Resolve:POST' });
 
 /**
  * Generate simulated AI signatures from multiple providers
@@ -250,15 +244,10 @@ async function submitToContract(
 }
 
 // GET endpoint for checking resolution status
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'oracle-resolve-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'oracle-resolve-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const marketId = searchParams.get('marketId');
 
     if (!marketId) {
@@ -271,7 +260,5 @@ export async function GET(request: NextRequest) {
       status: 'pending',
       message: 'Resolution status check - implement contract read'
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Oracle:Resolve:GET');
-  }
-}
+  },
+], { errorContext: 'API:Oracle:Resolve:GET' });

@@ -4,9 +4,10 @@
  * PATCH: Update market with on-chain data
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { isAddress } from 'viem';
 
 /**
@@ -43,15 +44,10 @@ function validateCategory(category: string | undefined): MarketCategory {
     : 'other';
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (10 market creations per minute)
-    applyRateLimit(request, {
-      prefix: 'markets-user-create-post',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'markets-user-create-post', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body = await req.json();
     const {
       question,
       description,
@@ -152,20 +148,13 @@ export async function POST(request: NextRequest) {
         },
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Markets:UserCreate:POST');
-  }
-}
+  },
+], { errorContext: 'API:Markets:UserCreate:POST' });
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'markets-user-create-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'markets-user-create-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const creatorAddress = searchParams.get('creator');
     const status = searchParams.get('status');
     // Parse and validate limit with max constraints
@@ -205,23 +194,16 @@ export async function GET(request: NextRequest) {
         count: markets.length,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Markets:UserCreate:GET');
-  }
-}
+  },
+], { errorContext: 'API:Markets:UserCreate:GET' });
 
 /**
  * PATCH: Update market with on-chain data
  */
-export async function PATCH(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'markets-user-create-patch',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const body = await request.json();
+export const PATCH = composeMiddleware([
+  withRateLimit({ prefix: 'markets-user-create-patch', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { marketId, onChainMarketId, txHash } = body;
 
     if (!marketId) {
@@ -246,7 +228,5 @@ export async function PATCH(request: NextRequest) {
         txHash: market.txHash,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Markets:UserCreate:PATCH');
-  }
-}
+  },
+], { errorContext: 'API:Markets:UserCreate:PATCH' });

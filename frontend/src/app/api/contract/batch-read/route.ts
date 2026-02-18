@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createPublicClient, http } from 'viem';
 import { Chain } from 'viem';
 import { anvil, flowTestnet, flowMainnet } from 'viem/chains';
@@ -7,7 +7,8 @@ import {
   RPC_TIMEOUT,
 } from '@/lib/flowClient';
 import { zeroGGalileo } from '@/lib/zeroGClient';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 const MAX_BATCH_SIZE = 20;
 
 // Define supported chains
@@ -38,15 +39,10 @@ interface BatchReadResult {
  * Accepts multiple read requests and processes them in parallel
  * This reduces the number of HTTP round-trips for NFT loading
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'contract-batch-read',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { requests, chainId } = await request.json() as {
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'contract-batch-read', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { requests, chainId } = await req.json() as {
       requests: BatchReadRequest[];
       chainId?: number;
     };
@@ -65,8 +61,8 @@ export async function POST(request: NextRequest) {
 
     // Validate each request
     for (let i = 0; i < requests.length; i++) {
-      const req = requests[i];
-      if (!req.contractAddress || !req.abi || !req.functionName) {
+      const r = requests[i];
+      if (!r.contractAddress || !r.abi || !r.functionName) {
         throw ErrorResponses.badRequest(`Request at index ${i} missing required parameters (contractAddress, abi, functionName)`);
       }
     }
@@ -100,26 +96,26 @@ export async function POST(request: NextRequest) {
     };
 
     // Execute single read with hash-ring routing for Flow chains
-    const executeRead = async (req: BatchReadRequest): Promise<BatchReadResult> => {
-      const processedArgs = processArgs(req.args);
+    const executeRead = async (r: BatchReadRequest): Promise<BatchReadResult> => {
+      const processedArgs = processArgs(r.args);
 
       try {
         let result;
         if (isFlowChain) {
-          const routingKey = `${req.contractAddress}-${req.functionName}`;
+          const routingKey = `${r.contractAddress}-${r.functionName}`;
           result = await executeWithFlowFallbackForKey(routingKey, (client) =>
             client.readContract({
-              address: req.contractAddress as `0x${string}`,
-              abi: req.abi as readonly unknown[],
-              functionName: req.functionName,
+              address: r.contractAddress as `0x${string}`,
+              abi: r.abi as readonly unknown[],
+              functionName: r.functionName,
               args: processedArgs,
             })
           );
         } else {
           result = await nonFlowClient!.readContract({
-            address: req.contractAddress as `0x${string}`,
-            abi: req.abi as readonly unknown[],
-            functionName: req.functionName,
+            address: r.contractAddress as `0x${string}`,
+            abi: r.abi as readonly unknown[],
+            functionName: r.functionName,
             args: processedArgs,
           });
         }
@@ -130,14 +126,14 @@ export async function POST(request: NextRequest) {
         ));
 
         return {
-          id: req.id,
+          id: r.id,
           success: true,
           result: serializedResult,
         };
       } catch (error) {
-        console.error(`[Batch Read] Error reading ${req.functionName}:`, error);
+        console.error(`[Batch Read] Error reading ${r.functionName}:`, error);
         return {
-          id: req.id,
+          id: r.id,
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
         };
@@ -148,8 +144,5 @@ export async function POST(request: NextRequest) {
     const results = await Promise.all(requests.map(executeRead));
 
     return NextResponse.json({ results });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Contract:BatchRead:POST');
-  }
-}
+  },
+], { errorContext: 'API:Contract:BatchRead:POST' });
