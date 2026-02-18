@@ -4,8 +4,9 @@
  * Supports RAG-style queries for AI agent analysis
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { NextResponse } from 'next/server';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Battle query parameters
 interface BattleQuery {
@@ -151,15 +152,10 @@ async function queryBattlesFromSource(query: BattleQuery): Promise<{ battles: In
 /**
  * POST: Query battles based on criteria
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-query-post',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const body: BattleQuery = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-query-post', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const body: BattleQuery = await req.json();
     const { warriorIds, dateRange, outcome, minVolume, limit = 50, offset = 0 } = body;
 
     // Query battles from 0G indexer or local index
@@ -210,23 +206,16 @@ export async function POST(request: NextRequest) {
       limit,
       battles: results
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Query:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:Query:POST' });
 
 /**
  * GET: Get warrior analytics or matchup history
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-query-get',
-      ...RateLimitPresets.readOperations,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: '0g-query-get', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const queryType = searchParams.get('type');
     const warrior1Id = searchParams.get('warrior1Id');
     const warrior2Id = searchParams.get('warrior2Id');
@@ -260,23 +249,16 @@ export async function GET(request: NextRequest) {
     }
 
     throw ErrorResponses.badRequest('Invalid query type or missing parameters');
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Query:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:Query:GET' });
 
 /**
  * PUT: Index a battle (called after battle storage)
  */
-export async function PUT(request: NextRequest) {
-  try {
-    // Apply rate limiting for write operations
-    applyRateLimit(request, {
-      prefix: '0g-query-index',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const body = await request.json();
+export const PUT = composeMiddleware([
+  withRateLimit({ prefix: '0g-query-index', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { rootHash, battle } = body;
 
     if (!rootHash || !battle) {
@@ -306,10 +288,8 @@ export async function PUT(request: NextRequest) {
       rootHash,
       totalIndexed: battleIndex.size
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Query:PUT');
-  }
-}
+  },
+], { errorContext: 'API:0G:Query:PUT' });
 
 /**
  * Calculate comprehensive warrior statistics

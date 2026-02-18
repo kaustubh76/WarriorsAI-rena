@@ -12,7 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import type { Address } from 'viem';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // ============================================================================
 // Types
@@ -196,17 +197,12 @@ async function fetchHistoricalContext(
 // API Handler
 // ============================================================================
 
-export async function POST(request: NextRequest) {
-  const startTime = Date.now();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-market-inference', ...RateLimitPresets.marketInference }),
+  async (req, ctx) => {
+    const startTime = Date.now();
 
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-market-inference',
-      ...RateLimitPresets.marketInference,
-    });
-
-    const body: MarketAnalysisRequest = await request.json();
+    const body: MarketAnalysisRequest = await req.json();
     const { marketId, source, marketData, agentId, includeContext = true } = body;
 
     // Validate input
@@ -410,11 +406,8 @@ export async function POST(request: NextRequest) {
         testMode: true,
       });
     }
-
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:MarketInference:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:MarketInference:POST' });
 
 /**
  * GET: Health check and status

@@ -10,7 +10,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // ============================================================================
 // Configuration
@@ -44,21 +45,16 @@ interface OracleResponse {
 // API Handler
 // ============================================================================
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-reencrypt',
-      ...RateLimitPresets.agentOperations,
-    });
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-reencrypt', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
     // Validate configuration
     if (!ZERO_G_ORACLE_URL) {
       throw ErrorResponses.serviceUnavailable('TEE Oracle not configured. ZERO_G_ORACLE_URL environment variable is required.');
     }
 
     // Parse request body
-    const body: ReEncryptRequest = await request.json();
+    const body: ReEncryptRequest = await req.json();
 
     // Validate required fields
     if (!body.tokenId || !body.currentOwner || !body.newOwner || !body.encryptedMetadataRef) {
@@ -138,8 +134,5 @@ export async function POST(request: NextRequest) {
       newMetadataHash: result.newMetadataHash,
       oracleSignature: result.oracleSignature
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Reencrypt:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:Reencrypt:POST' });

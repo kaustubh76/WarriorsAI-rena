@@ -6,12 +6,13 @@
  * It uses the 0G SDK directly to upload binary data to the storage network.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Dynamic import for 0G SDK (works better with Next.js)
 let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
@@ -180,16 +181,11 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
  * POST: Upload encrypted metadata to 0G storage
  * Accepts FormData with a 'file' field containing the encrypted metadata
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting for upload operations
-    applyRateLimit(request, {
-      prefix: '0g-upload',
-      ...RateLimitPresets.fileUpload,
-    });
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-upload', ...RateLimitPresets.fileUpload }),
+  async (req, ctx) => {
     // Parse form data
-    const formData = await request.formData();
+    const formData = await req.formData();
     const file = formData.get('file') as File | null;
 
     if (!file) {
@@ -222,24 +218,17 @@ export async function POST(request: NextRequest) {
       size: file.size,
       filename: file.name
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Upload:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:Upload:POST' });
 
 /**
  * GET: Download data from 0G storage
  * Query params: rootHash
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting for download operations
-    applyRateLimit(request, {
-      prefix: '0g-upload-download',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: '0g-upload-download', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
@@ -274,7 +263,5 @@ export async function GET(request: NextRequest) {
         fs.unlinkSync(tempFilePath);
       }
     }
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Upload:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:Upload:GET' });

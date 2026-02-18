@@ -9,12 +9,13 @@
  * - Index data for fast local queries
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // ============================================================================
 // Types
@@ -334,15 +335,10 @@ async function indexMarketData(
 /**
  * POST: Store market data to 0G
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-market-store-post',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body: StoreRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-market-store-post', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body: StoreRequest = await req.json();
     const { type, data, snapshot } = body;
 
     // Support legacy format
@@ -383,24 +379,16 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(response);
-
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:MarketStore:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:MarketStore:POST' });
 
 /**
  * GET: Retrieve market data from 0G
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-market-store-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: '0g-market-store-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
@@ -432,24 +420,16 @@ export async function GET(request: NextRequest) {
         fs.unlinkSync(tempFilePath);
       }
     }
-
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:MarketStore:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:MarketStore:GET' });
 
 /**
  * PUT: Query indexed market data
  */
-export async function PUT(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-market-store-put',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const body = await request.json();
+export const PUT = composeMiddleware([
+  withRateLimit({ prefix: '0g-market-store-put', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { query, type, source, category, limit = 10 } = body;
 
     // Query Prisma for indexed data
@@ -510,8 +490,5 @@ export async function PUT(request: NextRequest) {
       results,
       count: results.length,
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:MarketStore:PUT');
-  }
-}
+  },
+], { errorContext: 'API:0G:MarketStore:PUT' });

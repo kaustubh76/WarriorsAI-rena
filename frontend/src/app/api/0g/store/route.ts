@@ -10,12 +10,13 @@
  * - Storage status monitoring
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Dynamic import for 0G SDK (works better with Next.js)
 let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
@@ -381,18 +382,13 @@ async function downloadFromZeroG(rootHash: string): Promise<string> {
 /**
  * POST: Store battle data on 0G testnet
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting for storage operations
-    applyRateLimit(request, {
-      prefix: '0g-store',
-      ...RateLimitPresets.storageWrite,
-    });
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-store', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
     // Parse request body
     let body: StoreRequest;
     try {
-      body = await request.json();
+      body = await req.json();
     } catch {
       throw ErrorResponses.badRequest('Invalid JSON in request body');
     }
@@ -449,23 +445,16 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(storeResponse);
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Store:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:Store:POST' });
 
 /**
  * GET: Retrieve battle data from 0G storage
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting for read operations
-    applyRateLimit(request, {
-      prefix: '0g-store-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: '0g-store-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const rootHash = searchParams.get('rootHash');
 
     if (!rootHash) {
@@ -482,22 +471,15 @@ export async function GET(request: NextRequest) {
       data: battleData,
       cached: false
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Store:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:Store:GET' });
 
 /**
  * PUT: Check 0G storage status
  */
-export async function PUT(request: NextRequest) {
-  try {
-    // Apply rate limiting for status checks
-    applyRateLimit(request, {
-      prefix: '0g-store-status',
-      ...RateLimitPresets.moderateReads,
-    });
-
+export const PUT = composeMiddleware([
+  withRateLimit({ prefix: '0g-store-status', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
     // Initialize SDK to verify configuration
     await initializeSDK();
 
@@ -513,7 +495,5 @@ export async function PUT(request: NextRequest) {
       indexer: STORAGE_CONFIG.indexerUrl,
       network: health
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Store:PUT');
-  }
-}
+  },
+], { errorContext: 'API:0G:Store:PUT' });

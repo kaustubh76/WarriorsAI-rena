@@ -3,23 +3,19 @@
  * Deposits funds to the 0G compute ledger for inference payments
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
-import { handleAPIError, ErrorResponses, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 const ZERO_G_CONFIG = {
   computeRpc: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
 };
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting (5 deposits per minute)
-    applyRateLimit(request, {
-      prefix: '0g-deposit',
-      ...RateLimitPresets.copyTrade,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-deposit', ...RateLimitPresets.copyTrade }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { amount = 0.5 } = body;
 
     // Validate amount
@@ -72,15 +68,12 @@ export async function POST(request: NextRequest) {
       newBalance: newBalance,
       walletAddress: wallet.address,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Deposit:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:Deposit:POST' });
 
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: '0g-deposit-get', ...RateLimitPresets.apiQueries });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: '0g-deposit-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       throw ErrorResponses.internal('0G private key not configured');
@@ -116,7 +109,5 @@ export async function GET(request: NextRequest) {
         balance: ledgerBalance,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Deposit:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:Deposit:GET' });

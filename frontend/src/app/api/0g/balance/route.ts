@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import {
   ZEROG_RPC,
@@ -7,7 +7,8 @@ import {
   ERC20_ABI,
   AI_AGENT_INFT_ABI,
 } from '@/lib/apiConfig';
-import { handleAPIError, validateAddress, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { validateAddress, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 /**
  * GET /api/0g/balance?address=0x...
@@ -18,15 +19,10 @@ import { handleAPIError, validateAddress, applyRateLimit, RateLimitPresets } fro
  * - This is separate from Flow CRwN used for prediction market trading
  * - Browser can't directly call 0G RPC due to CORS
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-balance',
-      ...RateLimitPresets.readOperations,
-    });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: '0g-balance', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const addressParam = searchParams.get('address');
 
     // Validate address using centralized validation
@@ -77,8 +73,5 @@ export async function GET(request: NextRequest) {
       },
       note: 'This is CRwN on 0G chain for iNFT staking. Flow CRwN (for trading) is separate.'
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Balance:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:Balance:GET' });

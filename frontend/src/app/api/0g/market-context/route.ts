@@ -6,18 +6,14 @@
  * Body: { question: string, source: 'polymarket' | 'kalshi', maxResults?: number }
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { NextResponse } from 'next/server';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: '0g-market-context',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-market-context', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { question, source, maxResults = 5 } = body;
 
     // Validate input
@@ -62,10 +58,8 @@ export async function POST(request: NextRequest) {
       query: question,
       timestamp: Date.now(),
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:MarketContext:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:MarketContext:POST' });
 
 /**
  * Query 0G storage for relevant market context

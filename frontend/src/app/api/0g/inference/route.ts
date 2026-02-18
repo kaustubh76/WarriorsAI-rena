@@ -10,11 +10,12 @@
  * - Provider health tracking
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import type { Address } from 'viem';
-import { handleAPIError, ErrorResponses } from '@/lib/api';
-import { applyRateLimit, RateLimitPresets } from '@/lib/api/rateLimit';
+import { ErrorResponses } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { ConsistentHashRing } from '@/lib/hashing';
 
 // ============================================================================
@@ -277,17 +278,12 @@ function resetProviderCache(): void {
   lastProviderCheck = 0;
 }
 
-export async function POST(request: NextRequest) {
-  const startTime = Date.now();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: '0g-inference', ...RateLimitPresets.inference }),
+  async (req, ctx) => {
+    const startTime = Date.now();
 
-  try {
-    // Rate limiting via shared sliding window counter
-    applyRateLimit(request, {
-      prefix: '0g-inference',
-      ...RateLimitPresets.inference,
-    });
-
-    const body: InferenceRequest = await request.json();
+    const body: InferenceRequest = await req.json();
     const { prompt, model, maxTokens = 1000, temperature = 0.7, battleData, debateContext } = body;
 
     // Validate input
@@ -526,16 +522,14 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(response);
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Inference:POST');
-  }
-}
+  },
+], { errorContext: 'API:0G:Inference:POST' });
 
 /**
  * GET endpoint for listing available providers
  */
-export async function GET() {
-  try {
+export const GET = composeMiddleware([
+  async (req, ctx) => {
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       throw ErrorResponses.serviceUnavailable('0G private key not configured');
@@ -585,10 +579,8 @@ export async function GET() {
         verifiability: s.verifiability || 'none'
       }))
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:0G:Inference:GET');
-  }
-}
+  },
+], { errorContext: 'API:0G:Inference:GET' });
 
 /**
  * Cryptographic hash using keccak256 for proper proof generation
