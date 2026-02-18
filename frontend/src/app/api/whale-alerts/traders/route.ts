@@ -5,19 +5,15 @@
  * DELETE: Untrack a trader
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-traders-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'whale-traders-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
     const traders = await whaleTrackerService.getTrackedTraders();
 
     return NextResponse.json({
@@ -27,20 +23,13 @@ export async function GET(request: NextRequest) {
         count: traders.length,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleTraders:GET');
-  }
-}
+  },
+], { errorContext: 'API:WhaleTraders:GET' });
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-traders-post',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'whale-traders-post', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { address, source, alias } = body;
 
     if (!address || !source) {
@@ -57,20 +46,13 @@ export async function POST(request: NextRequest) {
       success: true,
       data: { trader },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleTraders:POST');
-  }
-}
+  },
+], { errorContext: 'API:WhaleTraders:POST' });
 
-export async function DELETE(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-traders-delete',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body = await request.json();
+export const DELETE = composeMiddleware([
+  withRateLimit({ prefix: 'whale-traders-delete', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { address, source } = body;
 
     if (!address || !source) {
@@ -83,7 +65,5 @@ export async function DELETE(request: NextRequest) {
       success: true,
       data: { message: 'Trader untracked successfully' },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleTraders:DELETE');
-  }
-}
+  },
+], { errorContext: 'API:WhaleTraders:DELETE' });

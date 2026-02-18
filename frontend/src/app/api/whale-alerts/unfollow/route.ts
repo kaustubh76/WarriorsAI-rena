@@ -3,25 +3,21 @@
  * POST: Remove a whale from user's follow list (soft delete)
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 interface UnfollowRequest {
   userAddress: string;
   whaleAddress: string;
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-unfollow',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body: UnfollowRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'whale-unfollow', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body: UnfollowRequest = await req.json();
     const { userAddress, whaleAddress } = body;
 
     // Validate addresses
@@ -66,7 +62,5 @@ export async function POST(request: NextRequest) {
         unfollowed: true,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleUnfollow:POST');
-  }
-}
+  },
+], { errorContext: 'API:WhaleUnfollow:POST' });

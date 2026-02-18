@@ -3,10 +3,11 @@
  * POST: Update copy trading configuration for a followed whale
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 interface UpdateConfigRequest {
   userAddress: string;
@@ -19,15 +20,10 @@ interface UpdateConfigRequest {
   };
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-update-config',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body: UpdateConfigRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'whale-update-config', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body: UpdateConfigRequest = await req.json();
     const { userAddress, whaleAddress, config } = body;
 
     // Validate addresses
@@ -100,7 +96,5 @@ export async function POST(request: NextRequest) {
         updatedAt: updatedFollow.updatedAt.toISOString(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleUpdateConfig:POST');
-  }
-}
+  },
+], { errorContext: 'API:WhaleUpdateConfig:POST' });

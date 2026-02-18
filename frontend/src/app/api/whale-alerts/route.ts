@@ -3,20 +3,16 @@
  * GET: Fetch recent whale trades
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-alerts',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'whale-alerts', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
 
     // Parse and validate pagination with max limits
     const rawLimit = parseInt(searchParams.get('limit') || '50');
@@ -50,7 +46,5 @@ export async function GET(request: NextRequest) {
     // Add cache headers for whale alerts (cache for 30 seconds - trades update frequently)
     response.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=15');
     return response;
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleAlerts:GET');
-  }
-}
+  },
+], { errorContext: 'API:WhaleAlerts:GET' });

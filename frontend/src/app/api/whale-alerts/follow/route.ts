@@ -3,10 +3,11 @@
  * POST: Add a whale to user's follow list for copy trading
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 interface FollowRequest {
   userAddress: string;
@@ -19,15 +20,10 @@ interface FollowRequest {
   };
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-follow',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body: FollowRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'whale-follow', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const body: FollowRequest = await req.json();
     const { userAddress, whaleAddress, config } = body;
 
     // Validate addresses
@@ -107,7 +103,5 @@ export async function POST(request: NextRequest) {
         createdAt: follow.createdAt.toISOString(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleFollow:POST');
-  }
-}
+  },
+], { errorContext: 'API:WhaleFollow:POST' });

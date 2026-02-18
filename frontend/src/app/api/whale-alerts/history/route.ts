@@ -3,20 +3,16 @@
  * GET: Fetch historical whale trades
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerService';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'whale-history',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'whale-history', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
 
     const limit = parseInt(searchParams.get('limit') || '50');
     const source = searchParams.get('source') as MarketSource | null;
@@ -33,7 +29,5 @@ export async function GET(request: NextRequest) {
         count: trades.length,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:WhaleHistory:GET');
-  }
-}
+  },
+], { errorContext: 'API:WhaleHistory:GET' });
