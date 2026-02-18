@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { keccak256, toBytes } from 'viem';
 import {
@@ -12,7 +12,8 @@ import {
   getServerPrivateKey,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // In-memory idempotency cache (for production, use Redis)
 // Maps idempotency key -> { timestamp, result }
@@ -76,15 +77,10 @@ interface ExecutionResult {
  *   agentTradeAmount: string (in CRwN, e.g., "10")
  * }
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting for copy trade execution (5/min - critical operation)
-    applyRateLimit(request, {
-      prefix: 'copy-trade-execute',
-      ...RateLimitPresets.copyTrade,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'copy-trade-execute', ...RateLimitPresets.copyTrade }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { agentId, marketId, isYes, agentTradeAmount } = body;
 
     // Validate required fields with proper type checking (marketId can be 0)
@@ -341,25 +337,17 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(responseData);
-
-  } catch (error) {
-    return handleAPIError(error, 'API:CopyTrade:Execute:POST');
-  }
-}
+  },
+], { errorContext: 'API:CopyTrade:Execute:POST' });
 
 /**
  * GET /api/copy-trade/execute?agentId=1
  * Get copy trade readiness status for an agent
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting for status checks
-    applyRateLimit(request, {
-      prefix: 'copy-trade-status',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'copy-trade-status', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const agentId = searchParams.get('agentId');
 
     if (!agentId) {
@@ -447,8 +435,5 @@ export async function GET(request: NextRequest) {
       },
       executionEndpoint: 'POST /api/copy-trade/execute'
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:CopyTrade:Execute:GET');
-  }
-}
+  },
+], { errorContext: 'API:CopyTrade:Execute:GET' });

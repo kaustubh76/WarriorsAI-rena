@@ -5,22 +5,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
-import { applyRateLimit, handleAPIError, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { tradingConfig } from '@/services/config';
 
 // Constants for validation
 const MIN_INVESTMENT_WEI = BigInt(1e15); // 0.001 tokens minimum
 const MAX_INVESTMENT_WEI = BigInt(100_000 * 1e18); // 100,000 tokens maximum absolute cap
 
-export async function POST(request: NextRequest) {
-  try {
-    // 1. Apply rate limiting - max 10 executions per minute per IP
-    applyRateLimit(request, {
-      prefix: 'arbitrage-execute',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'arbitrage-execute', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { userId, opportunityId, investmentAmount } = body;
 
     // 2. Validate required fields with type checking
@@ -98,7 +94,5 @@ export async function POST(request: NextRequest) {
         expectedProfit: result.expectedProfit,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arbitrage:Execute');
-  }
-}
+  },
+], { errorContext: 'API:Arbitrage:Execute' });

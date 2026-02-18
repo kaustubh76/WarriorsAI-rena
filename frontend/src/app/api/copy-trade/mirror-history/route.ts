@@ -3,20 +3,16 @@
  * GET: Get user's copy trade execution history
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'copy-trade-history',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'copy-trade-history', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const address = searchParams.get('address');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
@@ -116,7 +112,5 @@ export async function GET(request: NextRequest) {
         hasMore: offset + trades.length < total,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:CopyTrade:MirrorHistory:GET');
-  }
-}
+  },
+], { errorContext: 'API:CopyTrade:MirrorHistory:GET' });

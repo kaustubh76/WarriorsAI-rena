@@ -3,13 +3,14 @@
  * GET: Get user's mirror market positions (Polymarket/Kalshi)
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
 import { chainsToContracts } from '@/constants';
 import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Simplified ABI for ExternalMarketMirror
@@ -45,15 +46,10 @@ const externalMarketMirrorAbi = [
   },
 ] as const;
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'portfolio-mirror',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'portfolio-mirror', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const address = searchParams.get('address');
 
     // Validate address
@@ -203,7 +199,5 @@ export async function GET(request: NextRequest) {
         },
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Portfolio:Mirror:GET');
-  }
-}
+  },
+], { errorContext: 'API:Portfolio:Mirror:GET' });

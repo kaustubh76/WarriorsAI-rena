@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import {
   ZEROG_RPC,
@@ -6,7 +6,8 @@ import {
   AI_AGENT_INFT_ABI,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, ErrorResponses, validateAddress, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, validateAddress, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Extended ABI for PnL calculations
 const EXTENDED_ABI = [
@@ -69,15 +70,10 @@ interface FollowedAgentSummary {
  * GET /api/copy-trade/pnl?address=0x...
  * Calculate copy trading PnL for a user by reading from 0G chain and database
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'copy-trade-pnl',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'copy-trade-pnl', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const addressParam = searchParams.get('address');
 
     // Validate address
@@ -274,8 +270,5 @@ export async function GET(request: NextRequest) {
       },
       timestamp: new Date().toISOString()
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:CopyTrade:PnL:GET');
-  }
-}
+  },
+], { errorContext: 'API:CopyTrade:PnL:GET' });

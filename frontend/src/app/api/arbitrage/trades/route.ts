@@ -3,23 +3,19 @@
  * GET /api/arbitrage/trades?userId=xxx&status=xxx&settled=xxx
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
-import { applyRateLimit, handleAPIError, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Valid status values for filtering
 const VALID_STATUSES = ['pending', 'partial', 'completed', 'settled', 'failed', 'stale'];
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'arbitrage-trades',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const searchParams = request.nextUrl.searchParams;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'arbitrage-trades', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const searchParams = req.nextUrl.searchParams;
     const userId = searchParams.get('userId');
     const status = searchParams.get('status');
     const settledStr = searchParams.get('settled');
@@ -73,7 +69,5 @@ export async function GET(request: NextRequest) {
         total: trades.length,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arbitrage:Trades:GET');
-  }
-}
+  },
+], { errorContext: 'API:Arbitrage:Trades:GET' });

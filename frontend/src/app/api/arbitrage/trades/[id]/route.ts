@@ -4,23 +4,16 @@
  * POST /api/arbitrage/trades/[id] - Close positions manually
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { arbitrageTradingService } from '@/services/betting/arbitrageTradingService';
 import { prisma } from '@/lib/prisma';
-import { applyRateLimit, handleAPIError, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'arbitrage-trade-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const tradeId = params.id;
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'arbitrage-trade-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const tradeId = ctx.params?.id;
 
     if (!tradeId || tradeId.trim().length === 0) {
       throw ErrorResponses.badRequest('Missing trade ID');
@@ -66,23 +59,13 @@ export async function GET(
         pnl: serializedPnL,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arbitrage:Trade:GET');
-  }
-}
+  },
+], { errorContext: 'API:Arbitrage:Trade:GET' });
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // Apply rate limiting - more restrictive for mutations
-    applyRateLimit(request, {
-      prefix: 'arbitrage-trade-close',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const tradeId = params.id;
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'arbitrage-trade-close', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const tradeId = ctx.params?.id;
 
     if (!tradeId || tradeId.trim().length === 0) {
       throw ErrorResponses.badRequest('Missing trade ID');
@@ -103,7 +86,5 @@ export async function POST(
         market2Payout: result.market2Payout?.toString(),
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Arbitrage:Trade:Close');
-  }
-}
+  },
+], { errorContext: 'API:Arbitrage:Trade:Close' });

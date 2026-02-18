@@ -3,13 +3,14 @@
  * GET: Get user's native market positions
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAddress } from 'viem';
 import { chainsToContracts } from '@/constants';
 import { executeWithFlowFallbackForKey } from '@/lib/flowClient';
 import { MarketSource } from '@/types/externalMarket';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { userDataCache } from '@/lib/cache/hashedCache';
 
 // Simplified ABI for PredictionMarketAMM
@@ -36,15 +37,10 @@ const predictionMarketAbi = [
   },
 ] as const;
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'portfolio-native',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'portfolio-native', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const address = searchParams.get('address');
 
     // Validate address
@@ -160,7 +156,5 @@ export async function GET(request: NextRequest) {
         count: positions.length,
       },
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Portfolio:Native:GET');
-  }
-}
+  },
+], { errorContext: 'API:Portfolio:Native:GET' });
