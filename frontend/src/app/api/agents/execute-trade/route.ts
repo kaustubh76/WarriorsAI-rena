@@ -12,7 +12,7 @@
  * - Agent validation required
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import {
   FLOW_RPC,
@@ -26,7 +26,8 @@ import {
   getApiBaseUrl,
 } from '@/lib/apiConfig';
 import { prisma } from '@/lib/prisma';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Parse trade limits from config
 const MAX_TRADE_AMOUNT = ethers.parseEther(TRADING_LIMITS.maxTradeAmount);
@@ -94,7 +95,7 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = RATE_LIMITS.agentTrades.windowMs;
 const RATE_LIMIT_MAX = RATE_LIMITS.agentTrades.maxPerMinute;
 
-function checkRateLimit(agentId: string): boolean {
+function checkAgentRateLimit(agentId: string): boolean {
   const now = Date.now();
   const limit = rateLimitMap.get(agentId);
 
@@ -114,16 +115,11 @@ function checkRateLimit(agentId: string): boolean {
 /**
  * POST: Execute trade on behalf of agent
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agent-execute-trade',
-      ...RateLimitPresets.agentOperations,
-    });
-
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'agent-execute-trade', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
     // Parse request body
-    const body: ExecuteTradeRequest = await request.json();
+    const body: ExecuteTradeRequest = await req.json();
     const { agentId, marketId, isYes, amount, prediction, minConfidenceOverride } = body;
 
     // Validate required fields
@@ -132,7 +128,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check rate limit (per agent)
-    if (!checkRateLimit(agentId)) {
+    if (!checkAgentRateLimit(agentId)) {
       throw ErrorResponses.tooManyRequests('Rate limit exceeded. Max 10 trades per minute per agent.');
     }
 
@@ -311,23 +307,16 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(response);
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:ExecuteTrade:POST');
-  }
-}
+  },
+], { errorContext: 'API:Agents:ExecuteTrade:POST' });
 
 /**
  * GET: Check agent trading status and wallet balance
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agent-execute-trade-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agent-execute-trade-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const agentId = searchParams.get('agentId');
 
     // Get server wallet from environment
@@ -381,7 +370,5 @@ export async function GET(request: NextRequest) {
         rpc: FLOW_RPC
       }
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:ExecuteTrade:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:ExecuteTrade:GET' });

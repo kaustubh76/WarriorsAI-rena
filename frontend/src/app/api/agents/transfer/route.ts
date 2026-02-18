@@ -6,10 +6,11 @@
  * Handles AI Agent iNFT transfer operations
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 /**
  * POST - Prepare iNFT transfer transaction
@@ -20,15 +21,10 @@ import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from
  *   recipientAddress: string // 0x address
  * }
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting for transfer operations (5/min)
-    applyRateLimit(request, {
-      prefix: 'agents-transfer',
-      ...RateLimitPresets.copyTrade,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'agents-transfer', ...RateLimitPresets.copyTrade }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { tokenId, recipientAddress } = body;
 
     // Validation
@@ -88,10 +84,8 @@ export async function POST(request: NextRequest) {
       currentOwner: inft.owner,
       chainId: agentINFTService.getChainId(),
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Transfer:POST');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Transfer:POST' });
 
 /**
  * GET - Check transfer status for an iNFT
@@ -99,15 +93,10 @@ export async function POST(request: NextRequest) {
  * Query params:
  * - tokenId: string (required)
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting for status checks
-    applyRateLimit(request, {
-      prefix: 'agents-transfer-status',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agents-transfer-status', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const tokenId = searchParams.get('tokenId');
 
     if (!tokenId) {
@@ -141,7 +130,5 @@ export async function GET(request: NextRequest) {
       pendingTransfer,
       isActive: inft.onChainData.isActive,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Transfer:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Transfer:GET' });

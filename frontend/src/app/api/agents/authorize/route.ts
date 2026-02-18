@@ -7,10 +7,11 @@
  * Handles AI Agent iNFT usage authorization
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Constants
 const MIN_DURATION_DAYS = 1;
@@ -27,15 +28,10 @@ const SECONDS_PER_DAY = 24 * 60 * 60;
  *   durationDays: number  // 1-365
  * }
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting for authorization operations
-    applyRateLimit(request, {
-      prefix: 'agents-authorize',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'agents-authorize', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { tokenId, executorAddress, durationDays } = body;
 
     // Validation
@@ -102,10 +98,8 @@ export async function POST(request: NextRequest) {
       },
       chainId: agentINFTService.getChainId(),
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Authorize:POST');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Authorize:POST' });
 
 /**
  * GET - Check authorization status
@@ -114,15 +108,10 @@ export async function POST(request: NextRequest) {
  * - tokenId: string (required)
  * - executor: string (required)
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting for authorization status checks
-    applyRateLimit(request, {
-      prefix: 'agents-authorize-status',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agents-authorize-status', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const tokenId = searchParams.get('tokenId');
     const executor = searchParams.get('executor');
 
@@ -172,10 +161,8 @@ export async function GET(request: NextRequest) {
           }
         : null,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Authorize:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Authorize:GET' });
 
 /**
  * DELETE - Prepare revoke authorization transaction
@@ -186,15 +173,10 @@ export async function GET(request: NextRequest) {
  *   executorAddress: string
  * }
  */
-export async function DELETE(request: NextRequest) {
-  try {
-    // Apply rate limiting for revoke operations
-    applyRateLimit(request, {
-      prefix: 'agents-authorize-revoke',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body = await request.json();
+export const DELETE = composeMiddleware([
+  withRateLimit({ prefix: 'agents-authorize-revoke', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { tokenId, executorAddress } = body;
 
     // Validation
@@ -243,7 +225,5 @@ export async function DELETE(request: NextRequest) {
       executorAddress,
       chainId: agentINFTService.getChainId(),
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Authorize:DELETE');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Authorize:DELETE' });

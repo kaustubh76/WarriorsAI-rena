@@ -10,7 +10,7 @@
  * 5. Cross-chain callback to record on 0G
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import {
   parseEther,
   encodePacked,
@@ -24,7 +24,8 @@ import {
 } from '@/lib/flowClient';
 import { createZeroGPublicClient } from '@/lib/zeroGClient';
 import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { prisma } from '@/lib/prisma';
 
 const FLOW_CHAIN_ID = 545;
@@ -125,15 +126,10 @@ const zeroGPublicClient = createZeroGPublicClient();
 // ROUTE HANDLER
 // ============================================
 
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agent-external-trade',
-      ...RateLimitPresets.agentOperations,
-    });
-
-    const body: ExternalTradeRequest = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'agent-external-trade', ...RateLimitPresets.agentOperations }),
+  async (req, ctx) => {
+    const body: ExternalTradeRequest = await req.json();
 
     // Validate request
     if (!body.agentId || !body.mirrorKey || !body.prediction || !body.amount) {
@@ -271,24 +267,16 @@ export async function POST(request: NextRequest) {
         confidence: body.prediction.confidence,
       },
     });
-
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:ExternalTrade:POST');
-  }
-}
+  },
+], { errorContext: 'API:Agents:ExternalTrade:POST' });
 
 /**
  * GET: Get agent external trade history
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agent-external-trade-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agent-external-trade-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const agentId = searchParams.get('agentId');
 
     if (!agentId) {
@@ -338,7 +326,5 @@ export async function GET(request: NextRequest) {
       limit,
       offset,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:ExternalTrade:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:ExternalTrade:GET' });

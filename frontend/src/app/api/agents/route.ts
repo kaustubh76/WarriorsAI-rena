@@ -4,20 +4,15 @@
  */
 
 import { NextResponse } from 'next/server';
-import { type NextRequest } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { rpcResponseCache } from '@/lib/cache/hashedCache';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agents-list',
-      ...RateLimitPresets.readOperations,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agents-list', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const forceRefresh = searchParams.get('refresh') === 'true';
 
     // When force refresh is requested (after minting), wait for blockchain state to propagate
@@ -82,7 +77,5 @@ export async function GET(request: NextRequest) {
     rpcResponseCache.set(cacheKey, responseData);
 
     return NextResponse.json(responseData);
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:GET' });

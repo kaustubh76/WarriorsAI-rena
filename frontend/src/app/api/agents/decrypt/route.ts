@@ -5,10 +5,11 @@
  * Returns encrypted data that can be decrypted client-side by authorized users
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { type Address, isAddress } from 'viem';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { ErrorResponses, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // 0G Storage configuration
 const STORAGE_API_URL =
@@ -93,15 +94,10 @@ async function fetchFromStorage(rootHash: string): Promise<Uint8Array | null> {
  *   storageRef: string
  * }
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agents-decrypt',
-      ...RateLimitPresets.moderateReads,
-    });
-
-    const body = await request.json();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'agents-decrypt', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
+    const body = await req.json();
     const { tokenId, userAddress } = body;
 
     // Validation
@@ -181,10 +177,8 @@ export async function POST(request: NextRequest) {
         fetchedAt: Date.now(),
       });
     }
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Decrypt:POST');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Decrypt:POST' });
 
 /**
  * GET - Check if user can decrypt metadata (without fetching)
@@ -193,15 +187,10 @@ export async function POST(request: NextRequest) {
  * - tokenId: string (required)
  * - userAddress: string (required)
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agents-decrypt-check',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agents-decrypt-check', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const tokenId = searchParams.get('tokenId');
     const userAddress = searchParams.get('userAddress');
 
@@ -247,7 +236,5 @@ export async function GET(request: NextRequest) {
         inft.encryptedMetadataRef && inft.encryptedMetadataRef.length > 0,
       reason: authCheck.reason,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Decrypt:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Decrypt:GET' });

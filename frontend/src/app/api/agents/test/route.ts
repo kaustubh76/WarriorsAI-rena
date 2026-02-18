@@ -2,17 +2,14 @@
  * Test API Route for debugging iNFT agent fetching
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agents-test',
-      ...RateLimitPresets.moderateReads,
-    });
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agents-test', ...RateLimitPresets.moderateReads }),
+  async (req, ctx) => {
     console.log('=== Testing iNFT Service ===');
 
     // Check service configuration
@@ -64,7 +61,5 @@ export async function GET(request: NextRequest) {
         : null,
       totalActiveINFTs: allINFTs.length,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Test:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Test:GET' });

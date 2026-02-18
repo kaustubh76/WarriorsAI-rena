@@ -4,15 +4,14 @@
  */
 
 import { NextResponse } from 'next/server';
-import { type NextRequest } from 'next/server';
 import { agentINFTService } from '@/services/agentINFTService';
-import { handleAPIError, validateAddress, applyRateLimit, RateLimitPresets } from '@/lib/api';
+import { validateAddress, RateLimitPresets } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-export async function GET(request: NextRequest) {
-  try {
-    applyRateLimit(request, { prefix: 'agents-following', ...RateLimitPresets.readOperations });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agents-following', ...RateLimitPresets.readOperations }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const addressParam = searchParams.get('address');
 
     // Validate address parameter
@@ -30,14 +29,12 @@ export async function GET(request: NextRequest) {
     // Get user's following list from contract
     const following = await agentINFTService.getUserFollowing(address as `0x${string}`);
 
-    // Convert bigint array to string array for JSON serialization
+    // Convert bigint array to string arrays for JSON serialization
     const followingStrings = following.map(id => id.toString());
 
     return NextResponse.json({
       success: true,
       following: followingStrings,
     });
-  } catch (error) {
-    return handleAPIError(error, 'API:Agents:Following:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:Following:GET' });

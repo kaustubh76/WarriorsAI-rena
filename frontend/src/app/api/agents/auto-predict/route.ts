@@ -14,7 +14,7 @@
  * - Trait weights for analysis
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import {
   ZEROG_RPC,
@@ -28,7 +28,8 @@ import {
   getServerPrivateKey,
   TRADING_LIMITS,
 } from '@/lib/apiConfig';
-import { handleAPIError, applyRateLimit, RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { RateLimitPresets, ErrorResponses } from '@/lib/api';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Strategy type mapping
 const STRATEGY_NAMES: Record<number, string> = {
@@ -102,17 +103,12 @@ interface PredictionResult {
  *   autoExecute?: boolean (default: false)
  * }
  */
-export async function POST(request: NextRequest) {
-  const startTime = Date.now();
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'agent-auto-predict', ...RateLimitPresets.storageWrite }),
+  async (req, ctx) => {
+    const startTime = Date.now();
 
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agent-auto-predict',
-      ...RateLimitPresets.storageWrite,
-    });
-
-    const body = await request.json();
+    const body = await req.json();
     const { agentId, marketId, autoExecute = false, minConfidenceOverride } = body;
 
     if (!agentId || marketId === undefined) {
@@ -362,25 +358,17 @@ export async function POST(request: NextRequest) {
         totalMs: Date.now() - startTime
       }
     });
-
-  } catch (error: unknown) {
-    return handleAPIError(error, 'API:Agents:AutoPredict:POST');
-  }
-}
+  },
+], { errorContext: 'API:Agents:AutoPredict:POST' });
 
 /**
  * GET /api/agents/auto-predict?agentId=1
  * Get agent's prediction capabilities and current status
  */
-export async function GET(request: NextRequest) {
-  try {
-    // Apply rate limiting
-    applyRateLimit(request, {
-      prefix: 'agent-auto-predict-get',
-      ...RateLimitPresets.apiQueries,
-    });
-
-    const { searchParams } = new URL(request.url);
+export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'agent-auto-predict-get', ...RateLimitPresets.apiQueries }),
+  async (req, ctx) => {
+    const { searchParams } = new URL(req.url);
     const agentId = searchParams.get('agentId');
 
     if (!agentId) {
@@ -419,11 +407,8 @@ export async function GET(request: NextRequest) {
         execute: 'POST /api/agents/execute-trade'
       }
     });
-
-  } catch (error: unknown) {
-    return handleAPIError(error, 'API:Agents:AutoPredict:GET');
-  }
-}
+  },
+], { errorContext: 'API:Agents:AutoPredict:GET' });
 
 /**
  * Build the prediction prompt based on agent's strategy and market data
