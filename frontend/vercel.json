@@ -30,7 +30,11 @@
     },
     {
       "path": "/api/cron/detect-arbitrage",
-      "schedule": "0 16 * * *"
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/sync-whale-trades",
+      "schedule": "0 */6 * * *"
     }
   ],
   "env": {

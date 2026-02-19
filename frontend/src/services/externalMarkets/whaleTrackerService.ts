@@ -167,6 +167,34 @@ class WhaleTrackerService {
   }
 
   /**
+   * Public method for cron jobs to trigger whale trade sync
+   * Returns count of trades saved for reporting
+   */
+  async syncWhaleTrades(): Promise<{ polymarket: number; kalshi: number; errors: string[] }> {
+    const errors: string[] = [];
+    let polyCount = 0;
+    let kalshiCount = 0;
+
+    if (this.config.sources.includes(MarketSource.POLYMARKET)) {
+      try {
+        polyCount = await this.pollPolymarketWithCount();
+      } catch (error) {
+        errors.push(`Polymarket: ${(error as Error).message}`);
+      }
+    }
+
+    if (this.config.sources.includes(MarketSource.KALSHI)) {
+      try {
+        kalshiCount = await this.pollKalshiWithCount();
+      } catch (error) {
+        errors.push(`Kalshi: ${(error as Error).message}`);
+      }
+    }
+
+    return { polymarket: polyCount, kalshi: kalshiCount, errors };
+  }
+
+  /**
    * Poll all enabled sources for new whale trades
    */
   private async pollAllSources(): Promise<void> {
@@ -244,6 +272,65 @@ class WhaleTrackerService {
     } catch (error) {
       console.error('[WhaleTracker] Kalshi polling error:', error);
     }
+  }
+
+  /**
+   * Poll Polymarket and return count of trades saved (for cron reporting)
+   */
+  private async pollPolymarketWithCount(): Promise<number> {
+    let count = 0;
+    const markets = await polymarketService.getActiveMarkets(50);
+    const lastChecked = this.lastCheckedTimestamp.get('polymarket') || 0;
+
+    for (const market of markets) {
+      const yesTokenId = polymarketService.getYesTokenId(market);
+      if (!yesTokenId) continue;
+
+      const whaleTrades = await polymarketService.detectWhaleTrades(
+        yesTokenId,
+        market,
+        this.config.threshold
+      );
+
+      for (const trade of whaleTrades) {
+        if (trade.timestamp > lastChecked) {
+          this.emitAlert(trade);
+          await this.saveTrade(trade);
+          count++;
+        }
+      }
+    }
+
+    this.lastCheckedTimestamp.set('polymarket', Date.now());
+    return count;
+  }
+
+  /**
+   * Poll Kalshi and return count of trades saved (for cron reporting)
+   */
+  private async pollKalshiWithCount(): Promise<number> {
+    let count = 0;
+    const { markets } = await kalshiService.getMarkets('open', 50);
+    const lastChecked = this.lastCheckedTimestamp.get('kalshi') || 0;
+
+    for (const market of markets) {
+      const whaleTrades = await kalshiService.detectWhaleTrades(
+        market.ticker,
+        market,
+        this.config.threshold
+      );
+
+      for (const trade of whaleTrades) {
+        if (trade.timestamp > lastChecked) {
+          this.emitAlert(trade);
+          await this.saveTrade(trade);
+          count++;
+        }
+      }
+    }
+
+    this.lastCheckedTimestamp.set('kalshi', Date.now());
+    return count;
   }
 
   // ============================================
