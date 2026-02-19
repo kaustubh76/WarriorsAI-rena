@@ -17,7 +17,9 @@ export const GET = composeMiddleware([
       const cacheKey = 'whale-stats:24h';
       const cached = marketDataCache.get(cacheKey);
       if (cached) {
-        return NextResponse.json({ success: true, data: cached });
+        const response = NextResponse.json({ success: true, data: cached });
+        response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+        return response;
       }
 
       const now = new Date();

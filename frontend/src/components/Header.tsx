@@ -30,30 +30,29 @@ type NavLink = {
 const NAV_LINKS: NavLink[] = [
   { href: "/arena", label: "Arena", hoverColor: "hover:text-red-400" },
   {
-    href: "/external",
-    label: "External",
+    href: "/markets",
+    label: "Markets",
     hoverColor: "hover:text-yellow-400",
     submenu: [
-      { href: "/external", label: "All Markets", icon: "🌐" },
+      { href: "/markets", label: "All Markets", icon: "📈" },
+      { href: "/markets/create", label: "Create Market", icon: "➕" },
+      { href: "/external", label: "External Markets", icon: "🌐" },
       { href: "/external/arbitrage", label: "Arbitrage", icon: "🎯" },
-      { href: "/external/mirror-portfolio", label: "Mirror Portfolio", icon: "🪞" },
-      { href: "/external/sync-history", label: "Sync History", icon: "📊" },
     ]
   },
+  { href: "/ai-agents", label: "Agents", hoverColor: "hover:text-blue-400" },
+  { href: "/leaderboard", label: "Rankings", hoverColor: "hover:text-yellow-400" },
   {
-    href: "/flow-scheduled",
-    label: "Automation",
-    hoverColor: "hover:text-purple-400",
+    href: "/whale-tracker",
+    label: "Whale",
+    hoverColor: "hover:text-cyan-400",
     submenu: [
-      { href: "/flow-scheduled", label: "Scheduled Battles", icon: "⏰" },
-      { href: "/flow-scheduled-resolutions", label: "Market Resolutions", icon: "🎯" },
-      { href: "/flow-scheduled?filter=ready", label: "Ready to Execute", icon: "⚡" },
-      { href: "/flow-scheduled?filter=executed", label: "History", icon: "📜" },
+      { href: "/whale-tracker", label: "Whale Tracker", icon: "🐋" },
+      { href: "/social/copy-trading", label: "Copy Trading", icon: "📋" },
+      { href: "/external/mirror-portfolio", label: "Mirror Portfolio", icon: "🪞" },
     ]
   },
-  { href: "/whale-tracker", label: "Whale", hoverColor: "hover:text-blue-400" },
-  { href: "/social/copy-trading", label: "Copy Trading", hoverColor: "hover:text-purple-400" },
-  { href: "/portfolio", label: "Wallets", hoverColor: "hover:text-green-400" },
+  { href: "/portfolio", label: "Portfolio", hoverColor: "hover:text-green-400" },
 ];
 
 // Hamburger icon component

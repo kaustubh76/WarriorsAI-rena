@@ -18,6 +18,7 @@ import { createAPILogger } from '@/lib/api';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { rpcResponseCache } from '@/lib/cache/hashedCache';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import '@/lib/envValidation';
 
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
@@ -204,7 +205,7 @@ export const GET = composeMiddleware([
       services,
       timestamp: Date.now(),
       uptime: Date.now() - serverStartTime,
-      version: process.env.npm_package_version || 'unknown',
+      version: process.env.NEXT_PUBLIC_APP_VERSION || '0.1.0',
       environment: process.env.NODE_ENV || 'unknown',
       memory: memoryUsage,
     });

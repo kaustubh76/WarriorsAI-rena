@@ -70,7 +70,7 @@ export const GET = composeMiddleware([
 
     // Return cached data if valid
     if (cached) {
-      return NextResponse.json({
+      const response = NextResponse.json({
         success: true,
         data: {
           markets: cached.slice(0, limit),
@@ -79,6 +79,8 @@ export const GET = composeMiddleware([
           sources: getSourcesFromMarkets(cached),
         },
       });
+      response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+      return response;
     }
 
     const allMarkets: UnifiedMarket[] = [];

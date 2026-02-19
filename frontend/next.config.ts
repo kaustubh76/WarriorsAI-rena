@@ -1,10 +1,19 @@
 import type { NextConfig } from "next";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+// Read version from package.json at build time
+const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
+const APP_VERSION = packageJson.version || '0.0.0';
 
 // Parse the storage API URL to extract hostname and port for image patterns
 const storageApiUrl = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
 const storageUrlParts = new URL(storageApiUrl);
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_APP_VERSION: APP_VERSION,
+  },
   // Ignore ESLint errors during build (pre-existing code quality issues)
   // This allows Vercel deployment to succeed
   eslint: {

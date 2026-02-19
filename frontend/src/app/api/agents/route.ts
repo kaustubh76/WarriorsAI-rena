@@ -36,7 +36,9 @@ export const GET = composeMiddleware([
     if (!forceRefresh) {
       const cached = rpcResponseCache.get(cacheKey);
       if (cached) {
-        return NextResponse.json(cached);
+        const response = NextResponse.json(cached);
+        response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+        return response;
       }
     }
 
