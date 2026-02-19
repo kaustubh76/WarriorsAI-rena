@@ -21,6 +21,7 @@ import { parseEther } from 'viem';
 import { monitoredCall, externalMarketMonitor } from './monitoring';
 import { polymarketWS } from './polymarketWebSocket';
 import { kalshiWS } from './kalshiWebSocket';
+import { fetchWithTimeout } from './utils';
 
 // ============================================
 // CONSTANTS
@@ -613,7 +614,7 @@ class WhaleTrackerService {
     marketId: string
   ): Promise<string | null> {
     try {
-      const response = await fetch('/api/flow/execute', {
+      const response = await fetchWithTimeout('/api/flow/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -621,7 +622,7 @@ class WhaleTrackerService {
           source,
           externalId: marketId,
         }),
-      });
+      }, 10_000);
 
       if (!response.ok) return null;
 
@@ -662,7 +663,7 @@ class WhaleTrackerService {
     isYes: boolean,
     amount: bigint
   ): Promise<string> {
-    const response = await fetch('/api/flow/execute', {
+    const response = await fetchWithTimeout('/api/flow/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -672,7 +673,7 @@ class WhaleTrackerService {
         isYes,
         amount: amount.toString(),
       }),
-    });
+    }, 30_000);
 
     if (!response.ok) {
       throw new Error(`VRF copy trade failed: ${response.statusText}`);

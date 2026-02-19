@@ -24,12 +24,13 @@ import {
   type ValidatedKalshiPosition,
   type ValidatedKalshiBalance,
 } from './schemas/kalshiSchemas';
+import { fetchWithTimeout } from './utils';
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
 
 // ============================================
 // TYPES
@@ -83,7 +84,7 @@ class KalshiTradingService {
         await kalshiAdaptiveRateLimiter.acquire();
         const headers = await kalshiAuth.getAuthHeaders();
 
-        const response = await fetch(`${KALSHI_API_BASE}/portfolio/orders`, {
+        const response = await fetchWithTimeout(`${KALSHI_API_BASE}/portfolio/orders`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -126,7 +127,7 @@ class KalshiTradingService {
       await kalshiAdaptiveRateLimiter.acquire();
       const headers = await kalshiAuth.getAuthHeaders();
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${KALSHI_API_BASE}/portfolio/orders/${orderId}`,
         {
           method: 'DELETE',
@@ -155,7 +156,7 @@ class KalshiTradingService {
       await kalshiAdaptiveRateLimiter.acquire();
       const headers = await kalshiAuth.getAuthHeaders();
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${KALSHI_API_BASE}/portfolio/orders/${orderId}`,
         {
           method: 'GET',
@@ -194,7 +195,7 @@ class KalshiTradingService {
       const params = new URLSearchParams({ status: 'resting' });
       if (ticker) params.set('ticker', ticker);
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${KALSHI_API_BASE}/portfolio/orders?${params}`,
         {
           method: 'GET',
@@ -236,7 +237,7 @@ class KalshiTradingService {
       const params = new URLSearchParams({ limit: limit.toString() });
       if (status) params.set('status', status);
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${KALSHI_API_BASE}/portfolio/orders?${params}`,
         {
           method: 'GET',
@@ -272,7 +273,7 @@ class KalshiTradingService {
       await kalshiAdaptiveRateLimiter.acquire();
       const headers = await kalshiAuth.getAuthHeaders();
 
-      const response = await fetch(`${KALSHI_API_BASE}/portfolio/positions`, {
+      const response = await fetchWithTimeout(`${KALSHI_API_BASE}/portfolio/positions`, {
         method: 'GET',
         headers,
       });
@@ -313,7 +314,7 @@ class KalshiTradingService {
       await kalshiAdaptiveRateLimiter.acquire();
       const headers = await kalshiAuth.getAuthHeaders();
 
-      const response = await fetch(`${KALSHI_API_BASE}/portfolio/balance`, {
+      const response = await fetchWithTimeout(`${KALSHI_API_BASE}/portfolio/balance`, {
         method: 'GET',
         headers,
       });

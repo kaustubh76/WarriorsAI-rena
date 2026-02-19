@@ -32,6 +32,7 @@ import {
   OpinionPriceHistoryResponseSchema,
   safeValidateOpinion,
 } from './schemas/opinionSchemas';
+import { fetchWithTimeout } from './utils';
 
 // ============================================
 // CONSTANTS
@@ -120,7 +121,7 @@ class OpinionService {
           });
 
           const response = await withRetry(() =>
-            fetch(`${OPINION_API_BASE}/market?${params}`, {
+            fetchWithTimeout(`${OPINION_API_BASE}/market?${params}`, {
               headers: this.getHeaders(),
             })
           );
@@ -133,7 +134,7 @@ class OpinionService {
 
           const data = await response.json();
 
-          // Validate response (soft validation - returns raw on failure)
+          // Validate response — throw on schema mismatch instead of falling back to raw data
           const validated = safeValidateOpinion(
             data,
             OpinionMarketsResponseSchema,
@@ -144,8 +145,7 @@ class OpinionService {
             return validated.result.list;
           }
 
-          // Fallback to raw data
-          return data?.result?.list || [];
+          throw new Error('Opinion getActiveMarkets: response failed schema validation');
         });
       },
       { limit, page }
@@ -187,7 +187,7 @@ class OpinionService {
           await opinionAdaptiveRateLimiter.acquire();
 
           const response = await withRetry(() =>
-            fetch(`${OPINION_API_BASE}/market/${marketId}`, {
+            fetchWithTimeout(`${OPINION_API_BASE}/market/${marketId}`, {
               headers: this.getHeaders(),
             })
           );
@@ -213,7 +213,7 @@ class OpinionService {
             return validated.result;
           }
 
-          return data?.result || null;
+          throw new Error('Opinion getMarket: response failed schema validation');
         });
       },
       { marketId }
@@ -249,7 +249,7 @@ class OpinionService {
       await opinionRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(
+        fetchWithTimeout(
           `${OPINION_API_BASE}/token/latest-price?token_id=${tokenId}`,
           {
             headers: this.getHeaders(),
@@ -272,7 +272,7 @@ class OpinionService {
         return validated.result as OpinionPrice;
       }
 
-      return data?.result || null;
+      throw new Error('Opinion getLatestPrice: response failed schema validation');
     });
   }
 
@@ -318,7 +318,7 @@ class OpinionService {
       });
 
       const response = await withRetry(() =>
-        fetch(`${OPINION_API_BASE}/token/price-history?${params}`, {
+        fetchWithTimeout(`${OPINION_API_BASE}/token/price-history?${params}`, {
           headers: this.getHeaders(),
         })
       );
@@ -338,7 +338,7 @@ class OpinionService {
         return validated.result.prices;
       }
 
-      return data?.result?.prices || [];
+      throw new Error('Opinion getPriceHistory: response failed schema validation');
     });
   }
 

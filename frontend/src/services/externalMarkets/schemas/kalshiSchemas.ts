@@ -200,6 +200,7 @@ export const KalshiTradeSchema = z.object({
   trade_id: z.string().optional(),
   ticker: z.string(),
   count: z.number(),
+  price: z.number().optional(),
   yes_price: z.number(),
   no_price: z.number().optional(),
   created_time: z.string(),

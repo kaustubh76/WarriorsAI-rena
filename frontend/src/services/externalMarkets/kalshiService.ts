@@ -2,7 +2,7 @@
  * Kalshi Service
  * Integrates with Kalshi Trade API for market data and trading
  *
- * API: https://api.elections.kalshi.com/trade-api/v2
+ * API: https://trading-api.kalshi.com/trade-api/v2
  * Docs: https://docs.kalshi.com
  *
  * Authentication: API key + JWT (30-min expiry with auto-refresh)
@@ -36,12 +36,13 @@ import {
   KalshiTradesResponseSchema,
   safeValidateKalshi,
 } from './schemas/kalshiSchemas';
+import { fetchWithTimeout } from './utils';
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
 const WHALE_THRESHOLD = 10000; // $10k USD
 
 // ============================================
@@ -171,7 +172,7 @@ class KalshiService {
           if (cursor) params.append('cursor', cursor);
 
           const response = await withRetry(() =>
-            fetch(`${KALSHI_API_BASE}/markets?${params}`, {
+            fetchWithTimeout(`${KALSHI_API_BASE}/markets?${params}`, {
               headers: this.getHeaders(),
             })
           );
@@ -184,14 +185,18 @@ class KalshiService {
 
           const data = await response.json();
 
-          // Validate response (soft validation)
+          // Validate response — throw on schema mismatch instead of falling back to raw data
           const validated = safeValidateKalshi(
             data,
             KalshiMarketsResponseSchema,
             'getMarkets'
           );
 
-          return validated || data;
+          if (!validated) {
+            throw new Error('Kalshi getMarkets: response failed schema validation');
+          }
+
+          return validated as unknown as KalshiMarketsResponse;
         });
       },
       { status, limit }
@@ -227,7 +232,7 @@ class KalshiService {
       await kalshiRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(`${KALSHI_API_BASE}/markets/${ticker}`, {
+        fetchWithTimeout(`${KALSHI_API_BASE}/markets/${ticker}`, {
           headers: this.getHeaders(),
         })
       );
@@ -318,7 +323,7 @@ class KalshiService {
       await kalshiRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(`${KALSHI_API_BASE}/markets/${ticker}/orderbook`, {
+        fetchWithTimeout(`${KALSHI_API_BASE}/markets/${ticker}/orderbook`, {
           headers: this.getHeaders(),
         })
       );
@@ -334,13 +339,14 @@ class KalshiService {
 
   /**
    * Get midpoint price for a market
+   * @returns Price as 0-100 percentage (matching UnifiedMarket.yesPrice convention)
    */
   async getMidpoint(ticker: string): Promise<number> {
     const market = await this.getMarket(ticker);
-    if (!market) return 0.5;
+    if (!market) return 50;
 
-    // Use yes_bid and yes_ask for midpoint
-    return (market.yes_bid + market.yes_ask) / 200; // Convert cents to decimal
+    // yes_bid and yes_ask are in cents (0-100), return midpoint in same scale
+    return (market.yes_bid + market.yes_ask) / 2;
   }
 
   // ============================================
@@ -358,7 +364,7 @@ class KalshiService {
       await kalshiRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(
+        fetchWithTimeout(
           `${KALSHI_API_BASE}/markets/${ticker}/trades?limit=${limit}`,
           {
             headers: this.getHeaders(),
@@ -519,7 +525,7 @@ class KalshiService {
       if (status) params.append('status', status);
 
       const response = await withRetry(() =>
-        fetch(`${KALSHI_API_BASE}/events?${params}`, {
+        fetchWithTimeout(`${KALSHI_API_BASE}/events?${params}`, {
           headers: this.getHeaders(),
         })
       );

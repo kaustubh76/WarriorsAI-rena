@@ -15,12 +15,13 @@ import {
   KalshiAuthResponseSchema,
   validateKalshiResponse,
 } from './schemas/kalshiSchemas';
+import { fetchWithTimeout } from './utils';
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
 const TOKEN_LIFETIME_MS = 25 * 60 * 1000; // 25 minutes
 const TOKEN_REFRESH_BUFFER_MS = 3 * 60 * 1000; // Refresh 3 minutes before expiry
 
@@ -133,7 +134,7 @@ class KalshiAuthManager {
       async () => {
         await kalshiAdaptiveRateLimiter.acquire();
 
-        const response = await fetch(`${KALSHI_API_BASE}/login`, {
+        const response = await fetchWithTimeout(`${KALSHI_API_BASE}/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -38,6 +38,7 @@ import {
   PolymarketTradesResponseSchema,
   safeValidatePolymarket,
 } from './schemas/polymarketSchemas';
+import { fetchWithTimeout } from './utils';
 
 // ============================================
 // CONSTANTS
@@ -78,7 +79,7 @@ class PolymarketService {
           await polymarketAdaptiveRateLimiter.acquire();
 
           const response = await withRetry(() =>
-            fetch(
+            fetchWithTimeout(
               `${GAMMA_API_BASE}/markets?` +
                 new URLSearchParams({
                   limit: limit.toString(),
@@ -97,11 +98,18 @@ class PolymarketService {
 
           const data = await response.json();
 
-          // Validate response (soft validation - returns raw on failure)
+          // Validate each market individually — skip invalid items instead of falling back to raw data
           const markets = Array.isArray(data) ? data : data.markets || [];
-          return markets.map((m: unknown) =>
-            safeValidatePolymarket(m, PolymarketMarketSchema, 'getActiveMarkets') || m
-          ) as PolymarketMarket[];
+          const validated: PolymarketMarket[] = [];
+          for (const m of markets) {
+            const result = safeValidatePolymarket(m, PolymarketMarketSchema, 'getActiveMarkets');
+            if (result) {
+              validated.push(result as unknown as PolymarketMarket);
+            } else {
+              console.warn('[getActiveMarkets] Dropping invalid market item:', (m as any)?.id || 'unknown');
+            }
+          }
+          return validated;
         });
       },
       { limit, offset }
@@ -121,7 +129,7 @@ class PolymarketService {
           await polymarketAdaptiveRateLimiter.acquire();
 
           const response = await withRetry(() =>
-            fetch(`${CLOB_API_BASE}/markets/${conditionId}`)
+            fetchWithTimeout(`${CLOB_API_BASE}/markets/${conditionId}`)
           );
 
           polymarketAdaptiveRateLimiter.updateFromHeaders(response.headers);
@@ -205,7 +213,7 @@ class PolymarketService {
             }
           }
 
-          // Fallback: infer from outcome prices
+          // Fallback: infer from outcome prices (only for resolved/closed markets)
           if (!outcome && market.outcomes && market.outcomes.length >= 2) {
             const yesPriceStr = market.outcomePrices?.[0] || '0';
             const noPriceStr = market.outcomePrices?.[1] || '0';
@@ -215,14 +223,22 @@ class PolymarketService {
             if (isNaN(yesPrice)) yesPrice = 0;
             if (isNaN(noPrice)) noPrice = 0;
 
-            if (yesPrice > 0.9) {
+            // Tighter thresholds (0.95/0.05) to reduce false inferences
+            if (yesPrice > 0.95) {
               outcome = 'yes';
-            } else if (noPrice > 0.9) {
+            } else if (noPrice > 0.95) {
               outcome = 'no';
-            } else if (yesPrice < 0.1) {
+            } else if (yesPrice < 0.05) {
               outcome = 'no';
-            } else if (noPrice < 0.1) {
+            } else if (noPrice < 0.05) {
               outcome = 'yes';
+            }
+
+            if (outcome) {
+              console.warn(
+                `[getMarketOutcome] Used price-based fallback for ${conditionId}: ` +
+                `yesPrice=${yesPrice}, noPrice=${noPrice} → ${outcome}`
+              );
             }
           }
 
@@ -247,7 +263,7 @@ class PolymarketService {
       await polymarketRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(
+        fetchWithTimeout(
           `${GAMMA_API_BASE}/markets?` +
             new URLSearchParams({
               search: query,
@@ -272,7 +288,7 @@ class PolymarketService {
       await polymarketRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(
+        fetchWithTimeout(
           `${GAMMA_API_BASE}/markets?` +
             new URLSearchParams({
               tag_id: category,
@@ -301,7 +317,7 @@ class PolymarketService {
       await polymarketRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(`${CLOB_API_BASE}/book?token_id=${tokenId}`)
+        fetchWithTimeout(`${CLOB_API_BASE}/book?token_id=${tokenId}`)
       );
 
       if (!response.ok) {
@@ -314,6 +330,7 @@ class PolymarketService {
 
   /**
    * Get midpoint price for a token
+   * @returns Price as 0-100 percentage (matching UnifiedMarket.yesPrice convention)
    */
   async getMidpoint(tokenId: string): Promise<number> {
     const orderbook = await this.getOrderbook(tokenId);
@@ -325,7 +342,8 @@ class PolymarketService {
       ? parseFloat(orderbook.asks[0].price)
       : 1;
 
-    return (bestBid + bestAsk) / 2;
+    // Polymarket prices are 0-1 decimals, convert to 0-100 percentage
+    return ((bestBid + bestAsk) / 2) * 100;
   }
 
   /**
@@ -378,7 +396,7 @@ class PolymarketService {
       await polymarketRateLimiter.acquire();
 
       const response = await withRetry(() =>
-        fetch(
+        fetchWithTimeout(
           `${CLOB_API_BASE}/trades?` +
             new URLSearchParams({
               asset_id: tokenId,
@@ -619,7 +637,7 @@ class PolymarketService {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${GAMMA_API_BASE}/markets?limit=1`);
+      const response = await fetchWithTimeout(`${GAMMA_API_BASE}/markets?limit=1`, {}, 5000);
       return response.ok;
     } catch {
       return false;
