@@ -121,18 +121,15 @@ export const GET = composeMiddleware([
         data: responseData,
       });
     } catch (error) {
-      // Return empty array if database tables don't exist yet
-      const errorMessage = (error as Error).message;
-      if (errorMessage.includes('does not exist') || errorMessage.includes('no such table')) {
-        return NextResponse.json({
-          success: true,
-          data: {
-            topWhales: [],
-            count: 0,
-          },
-        });
-      }
-      throw error; // Re-throw for composeMiddleware to handle
+      // Return empty array if database is unavailable
+      console.warn('[WhaleTopWhales] Database error, returning defaults:', (error as Error).message);
+      return NextResponse.json({
+        success: true,
+        data: {
+          topWhales: [],
+          count: 0,
+        },
+      });
     }
   },
 ], { errorContext: 'API:WhaleTopWhales:GET' });

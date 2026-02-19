@@ -99,23 +99,28 @@ export const GET = composeMiddleware([
         data: statsData,
       });
     } catch (error) {
-      // Return default values if database tables don't exist yet
-      const errorMessage = (error as Error).message;
-      if (errorMessage.includes('does not exist') || errorMessage.includes('no such table')) {
-        return NextResponse.json({
-          success: true,
-          data: {
-            totalVolume24h: 0,
-            tradeCount24h: 0,
-            avgTradeSize: 0,
-            volumeChange24h: 0,
-            tradeCountChange: 0,
-            avgTradeSizeChange: 0,
-            trackedTraderCount: 0,
-          },
-        });
-      }
-      throw error; // Re-throw for composeMiddleware to handle
+      // Return default values if database is unavailable
+      // On serverless (Vercel), SQLite may not persist between invocations,
+      // or the database may not have been migrated yet
+      console.warn('[WhaleStats] Database error, returning defaults:', (error as Error).message);
+
+      const defaultStats = {
+        totalVolume24h: 0,
+        tradeCount24h: 0,
+        avgTradeSize: 0,
+        volumeChange24h: 0,
+        tradeCountChange: 0,
+        avgTradeSizeChange: 0,
+        trackedTraderCount: 0,
+      };
+
+      // Cache defaults briefly so we don't hammer a broken DB
+      marketDataCache.set('whale-stats:24h', defaultStats, 30_000);
+
+      return NextResponse.json({
+        success: true,
+        data: defaultStats,
+      });
     }
   },
 ], { errorContext: 'API:WhaleStats:GET' });

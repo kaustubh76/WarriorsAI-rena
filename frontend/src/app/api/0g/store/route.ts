@@ -480,20 +480,38 @@ export const GET = composeMiddleware([
 export const PUT = composeMiddleware([
   withRateLimit({ prefix: '0g-store-status', ...RateLimitPresets.moderateReads }),
   async (req, ctx) => {
-    // Initialize SDK to verify configuration
-    await initializeSDK();
+    try {
+      // Initialize SDK to verify configuration
+      await initializeSDK();
 
-    // Check network health
-    const health = await checkNetworkHealth();
+      // Check network health
+      const health = await checkNetworkHealth();
 
-    return NextResponse.json({
-      success: true,
-      status: health.healthy ? 'healthy' : 'unhealthy',
-      mode: '0g-network',
-      timestamp: new Date().toISOString(),
-      rpc: STORAGE_CONFIG.rpcUrl,
-      indexer: STORAGE_CONFIG.indexerUrl,
-      network: health
-    });
+      return NextResponse.json({
+        success: true,
+        status: health.healthy ? 'healthy' : 'unhealthy',
+        mode: '0g-network',
+        timestamp: new Date().toISOString(),
+        rpc: STORAGE_CONFIG.rpcUrl,
+        indexer: STORAGE_CONFIG.indexerUrl,
+        network: health
+      });
+    } catch (error) {
+      // Return unhealthy status if SDK initialization or health check fails
+      console.warn('[0G Store] Status check failed:', (error as Error).message);
+      return NextResponse.json({
+        success: false,
+        status: 'unhealthy',
+        mode: '0g-network',
+        timestamp: new Date().toISOString(),
+        rpc: STORAGE_CONFIG.rpcUrl,
+        indexer: STORAGE_CONFIG.indexerUrl,
+        network: {
+          healthy: false,
+          connectedPeers: 0,
+          error: (error as Error).message,
+        }
+      });
+    }
   },
 ], { errorContext: 'API:0G:Store:PUT' });
