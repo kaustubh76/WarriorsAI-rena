@@ -121,7 +121,7 @@ class KalshiWebSocketManager {
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(
-          `wss://trading-api.kalshi.com/trade-api/ws/v2`
+          `wss://api.elections.kalshi.com/trade-api/ws/v2`
         );
 
         this.ws.onopen = () => {

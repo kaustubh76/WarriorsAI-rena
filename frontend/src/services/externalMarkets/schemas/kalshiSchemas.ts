@@ -26,7 +26,7 @@ export const KalshiMarketSchema = z.object({
   close_time: z.string().optional(),
   expiration_time: z.string().optional(),
   expected_expiration_time: z.string().optional(),
-  status: z.enum(['open', 'closed', 'settled', 'unopened']).optional(),
+  status: z.enum(['open', 'active', 'closed', 'settled', 'unopened']).optional(),
   result: z.enum(['yes', 'no', 'all_no', 'all_yes', '']).optional(),
   yes_bid: z.number().optional().default(0),
   yes_ask: z.number().optional().default(100),

@@ -32,7 +32,7 @@ import { fetchWithTimeout } from './utils';
 // CONSTANTS
 // ============================================
 
-const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 
 // ============================================
 // TYPES

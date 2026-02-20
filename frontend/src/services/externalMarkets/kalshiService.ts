@@ -2,7 +2,7 @@
  * Kalshi Service
  * Integrates with Kalshi Trade API for market data and trading
  *
- * API: https://trading-api.kalshi.com/trade-api/v2
+ * API: https://api.elections.kalshi.com/trade-api/v2
  * Docs: https://docs.kalshi.com
  *
  * Authentication: RSA-PSS per-request signing (3 headers on every request)
@@ -42,7 +42,7 @@ import { fetchWithTimeout } from './utils';
 // CONSTANTS
 // ============================================
 
-const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 const WHALE_THRESHOLD = 10000; // $10k USD
 
 // ============================================
@@ -381,6 +381,7 @@ class KalshiService {
     let status: ExternalMarketStatus;
     switch (kalshi.status) {
       case 'open':
+      case 'active':
         status = ExternalMarketStatus.ACTIVE;
         break;
       case 'closed':
