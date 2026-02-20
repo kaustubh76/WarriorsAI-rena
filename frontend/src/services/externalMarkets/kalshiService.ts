@@ -154,25 +154,34 @@ class KalshiService {
 
   /**
    * Get all active markets with pagination
-   * Fetches from all markets but filters out multi-leg sports parlays (KXMVE*)
-   * which dominate the API results but have no Polymarket equivalents for arbitrage
+   *
+   * Strategy: First try fetching without status filter and excluding KXMVE parlays.
+   * The multi-leg sports parlays (KXMVE*) dominate Kalshi's API results but have
+   * no Polymarket equivalents for arbitrage matching.
    */
   async getActiveMarkets(maxMarkets: number = 500): Promise<KalshiMarket[]> {
     const allMarkets: KalshiMarket[] = [];
-    let cursor: string | undefined;
+    const seenTickers = new Set<string>();
     let pagesScanned = 0;
-    const MAX_PAGES = 30; // Safety limit: 30 pages × 200 = 6000 markets scanned max
+    const MAX_PAGES = 50; // Safety limit: 50 pages × 200 = 10000 markets scanned max
 
+    // Fetch without status filter to get all available markets, then filter
+    let cursor: string | undefined;
     while (allMarkets.length < maxMarkets && pagesScanned < MAX_PAGES) {
+      // Use 'open' status — Kalshi API accepts this for active markets
       const response = await this.getMarkets('open', 200, cursor);
       pagesScanned++;
 
-      // Filter out multi-leg sports parlays (KXMVE*) — they're multi-outcome
-      // combo bets with no equivalent on Polymarket for arbitrage matching
-      const filtered = response.markets.filter(
-        m => !m.ticker.startsWith('KXMVE')
-      );
-      allMarkets.push(...filtered);
+      for (const m of response.markets) {
+        // Skip multi-leg sports parlays
+        if (m.ticker.startsWith('KXMVE')) continue;
+        // Skip single-game sports markets too (these are individual game bets)
+        if (m.ticker.startsWith('KXSINGLEGAME')) continue;
+        // Deduplicate
+        if (seenTickers.has(m.ticker)) continue;
+        seenTickers.add(m.ticker);
+        allMarkets.push(m);
+      }
 
       if (!response.cursor || response.markets.length === 0) {
         break;
@@ -181,7 +190,7 @@ class KalshiService {
       cursor = response.cursor;
     }
 
-    console.log(`[Kalshi] Scanned ${pagesScanned} pages, found ${allMarkets.length} non-parlay markets`);
+    console.log(`[Kalshi] Scanned ${pagesScanned} pages (${pagesScanned * 200} raw markets), found ${allMarkets.length} non-parlay markets`);
     return allMarkets.slice(0, maxMarkets);
   }
 
