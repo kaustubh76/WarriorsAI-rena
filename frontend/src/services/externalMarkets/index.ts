@@ -526,8 +526,11 @@ class ExternalMarketsService {
             market2.question
           );
 
-          if (similarity > 0.7) {
-            const spread = Math.abs(market1.yesPrice - market2.yesPrice);
+          if (similarity > 0.45) {
+            // Check both YES spread and cross-spread (YES vs NO) for arbitrage
+            const yesSpread = Math.abs(market1.yesPrice - market2.yesPrice);
+            const crossSpread = Math.abs(market1.yesPrice - (10000 - market2.yesPrice));
+            const spread = Math.max(yesSpread, crossSpread);
 
             if (spread >= minSpread) {
               // Check for arbitrage opportunity
@@ -552,10 +555,11 @@ class ExternalMarketsService {
     market1: UnifiedMarket,
     market2: UnifiedMarket
   ): ArbitrageOpportunity | null {
-    const price1Yes = market1.yesPrice / 100;
-    const price1No = market1.noPrice / 100;
-    const price2Yes = market2.yesPrice / 100;
-    const price2No = market2.noPrice / 100;
+    // Prices from DB are 0-10000 (basis points), convert to 0-1 decimal
+    const price1Yes = market1.yesPrice / 10000;
+    const price1No = market1.noPrice / 10000;
+    const price2Yes = market2.yesPrice / 10000;
+    const price2No = market2.noPrice / 10000;
 
     // Check if buying YES on market1 and NO on market2 creates arbitrage
     const cost1 = price1Yes + price2No;
@@ -600,13 +604,32 @@ class ExternalMarketsService {
   }
 
   /**
-   * Simple text similarity calculation (Jaccard)
+   * Text similarity with stop-word filtering (Jaccard on cleaned words)
    */
   private calculateSimilarity(text1: string, text2: string): number {
-    const words1 = new Set(text1.toLowerCase().split(/\s+/));
-    const words2 = new Set(text2.toLowerCase().split(/\s+/));
+    const stopWords = new Set([
+      'will', 'the', 'a', 'an', 'of', 'in', 'on', 'is', 'be', 'to',
+      'by', 'at', 'or', 'and', 'for', 'it', 'its', 'this', 'that',
+      'what', 'who', 'how', 'do', 'does', 'did', 'has', 'have', 'had',
+      'was', 'were', 'are', 'been', 'being', 'win', 'wins', 'before',
+      'after', 'above', 'below', 'more', 'than', 'over', 'under',
+    ]);
 
-    const intersection = new Set([...words1].filter((x) => words2.has(x)));
+    const normalize = (text: string): Set<string> => {
+      const words = text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 1 && !stopWords.has(w));
+      return new Set(words);
+    };
+
+    const words1 = normalize(text1);
+    const words2 = normalize(text2);
+
+    if (words1.size === 0 || words2.size === 0) return 0;
+
+    const intersection = new Set([...words1].filter(x => words2.has(x)));
     const union = new Set([...words1, ...words2]);
 
     return intersection.size / union.size;

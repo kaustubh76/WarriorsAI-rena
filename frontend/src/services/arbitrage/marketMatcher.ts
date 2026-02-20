@@ -130,6 +130,8 @@ export class ArbitrageMarketMatcher {
     const isMarket1Poly = opp.market1.source === 'polymarket';
     const polymarketId = isMarket1Poly ? market1Id : market2Id;
     const kalshiId = isMarket1Poly ? market2Id : market1Id;
+    const polyMarket = isMarket1Poly ? opp.market1 : opp.market2;
+    const kalshiMarket = isMarket1Poly ? opp.market2 : opp.market1;
 
     // Calculate similarity (from the opportunity's confidence)
     const similarity = opp.confidence || 0.8;
@@ -142,6 +144,18 @@ export class ArbitrageMarketMatcher {
       side2: opp.market1.yesPrice < opp.market2.yesPrice ? 'NO' : 'YES',
       expectedProfit: opp.potentialProfit,
       spread: opp.spread
+    };
+
+    // Market data fields required by Prisma schema
+    const marketData = {
+      polymarketQuestion: polyMarket.question,
+      polymarketYesPrice: polyMarket.yesPrice,
+      polymarketNoPrice: polyMarket.noPrice,
+      polymarketVolume: polyMarket.volume || '0',
+      kalshiQuestion: kalshiMarket.question,
+      kalshiYesPrice: kalshiMarket.yesPrice,
+      kalshiNoPrice: kalshiMarket.noPrice,
+      kalshiVolume: kalshiMarket.volume || '0',
     };
 
     // Check if pair already exists
@@ -160,6 +174,7 @@ export class ArbitrageMarketMatcher {
         data: {
           polymarketId,
           kalshiId,
+          ...marketData,
           similarity,
           priceDifference: opp.spread,
           hasArbitrage: true,
@@ -172,7 +187,7 @@ export class ArbitrageMarketMatcher {
 
       return 'created';
     } else {
-      // Update existing pair
+      // Update existing pair with fresh prices
       await prisma.matchedMarketPair.update({
         where: {
           polymarketId_kalshiId: {
@@ -181,6 +196,7 @@ export class ArbitrageMarketMatcher {
           }
         },
         data: {
+          ...marketData,
           similarity,
           priceDifference: opp.spread,
           hasArbitrage: true,
