@@ -1,29 +1,16 @@
 /**
  * Kalshi Authentication Manager
- * Handles JWT token lifecycle for Kalshi Trade API
+ * RSA-PSS per-request signing for Kalshi Trade API v2
  *
- * Features:
- * - Token storage and validation
- * - Proactive token refresh (before expiry)
- * - Concurrent authentication prevention
- * - Auth header generation
+ * Every request requires 3 headers:
+ * - KALSHI-ACCESS-KEY: API key ID
+ * - KALSHI-ACCESS-TIMESTAMP: Unix epoch milliseconds
+ * - KALSHI-ACCESS-SIGNATURE: RSA-PSS SHA-256 signature (base64)
+ *
+ * Signature message = timestamp + method + path (no query params)
  */
 
-import { kalshiAdaptiveRateLimiter } from '@/lib/adaptiveRateLimiter';
-import { monitoredCall } from './monitoring';
-import {
-  KalshiAuthResponseSchema,
-  validateKalshiResponse,
-} from './schemas/kalshiSchemas';
-import { fetchWithTimeout } from './utils';
-
-// ============================================
-// CONSTANTS
-// ============================================
-
-const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
-const TOKEN_LIFETIME_MS = 25 * 60 * 1000; // 25 minutes
-const TOKEN_REFRESH_BUFFER_MS = 3 * 60 * 1000; // Refresh 3 minutes before expiry
+import * as crypto from 'crypto';
 
 // ============================================
 // TYPES
@@ -34,10 +21,11 @@ export interface KalshiCredentials {
   privateKey: string;
 }
 
-interface AuthToken {
-  token: string;
-  expiresAt: number;
-  userId: string;
+export interface KalshiAuthHeaders {
+  'KALSHI-ACCESS-KEY': string;
+  'KALSHI-ACCESS-TIMESTAMP': string;
+  'KALSHI-ACCESS-SIGNATURE': string;
+  'Content-Type': string;
 }
 
 // ============================================
@@ -45,213 +33,158 @@ interface AuthToken {
 // ============================================
 
 class KalshiAuthManager {
-  private token: AuthToken | null = null;
-  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private isRefreshing = false;
-  private refreshPromise: Promise<void> | null = null;
-  private credentials: KalshiCredentials | null = null;
+  private apiKeyId: string | null = null;
+  private privateKey: crypto.KeyObject | null = null;
+  private rawPrivateKey: string | null = null;
 
-  /**
-   * Set credentials for authentication
-   * Call this before attempting to get a token
-   */
-  setCredentials(credentials: KalshiCredentials): void {
-    this.credentials = credentials;
-    // Clear existing token when credentials change
-    this.invalidateToken();
+  constructor() {
+    this.loadFromEnv();
   }
 
   /**
-   * Check if credentials are configured
+   * Load credentials from environment variables
    */
-  hasCredentials(): boolean {
-    return !!this.credentials?.apiKeyId && !!this.credentials?.privateKey;
-  }
+  private loadFromEnv(): void {
+    const keyId = process.env.KALSHI_API_KEY_ID || process.env.KALSHI_API_KEY;
+    let rawKey = process.env.KALSHI_PRIVATE_KEY;
 
-  /**
-   * Get a valid token, authenticating if necessary
-   */
-  async getValidToken(): Promise<string> {
-    // If currently refreshing, wait for it
-    if (this.refreshPromise) {
-      await this.refreshPromise;
+    if (!keyId || !rawKey) {
+      console.warn('[KalshiAuth] Missing KALSHI_API_KEY_ID or KALSHI_PRIVATE_KEY env vars');
+      return;
     }
 
-    // Check if token exists and is valid
-    if (this.token && this.isTokenValid()) {
-      return this.token.token;
-    }
+    // Handle escaped newlines from env vars (Vercel stores them as literal \n)
+    rawKey = rawKey.replace(/\\n/g, '\n');
 
-    // Need to authenticate
-    await this.authenticate();
-
-    if (!this.token) {
-      throw new KalshiAuthError('Authentication failed - no token received');
-    }
-
-    return this.token.token;
-  }
-
-  /**
-   * Check if current token is valid (not expired)
-   */
-  private isTokenValid(): boolean {
-    if (!this.token) return false;
-    return Date.now() < this.token.expiresAt - TOKEN_REFRESH_BUFFER_MS;
-  }
-
-  /**
-   * Perform authentication with Kalshi API
-   */
-  async authenticate(): Promise<void> {
-    if (!this.credentials) {
-      throw new KalshiAuthError('Kalshi credentials not configured');
-    }
-
-    // Prevent concurrent auth attempts
-    if (this.isRefreshing) {
-      return this.refreshPromise!;
-    }
-
-    this.isRefreshing = true;
-    this.refreshPromise = this.performAuthentication();
+    this.apiKeyId = keyId;
+    this.rawPrivateKey = rawKey;
 
     try {
-      await this.refreshPromise;
-    } finally {
-      this.isRefreshing = false;
-      this.refreshPromise = null;
+      this.privateKey = crypto.createPrivateKey({
+        key: rawKey,
+        format: 'pem',
+      });
+      console.log('[KalshiAuth] RSA private key loaded successfully');
+    } catch (err) {
+      console.error('[KalshiAuth] Failed to parse RSA private key:', err instanceof Error ? err.message : err);
+      this.privateKey = null;
     }
   }
 
   /**
-   * Internal authentication implementation
+   * Set credentials programmatically
    */
-  private async performAuthentication(): Promise<void> {
-    return monitoredCall(
-      'kalshi',
-      'authenticate',
-      async () => {
-        await kalshiAdaptiveRateLimiter.acquire();
+  setCredentials(credentials: KalshiCredentials): void {
+    this.apiKeyId = credentials.apiKeyId;
 
-        const response = await fetchWithTimeout(`${KALSHI_API_BASE}/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: this.credentials!.apiKeyId,
-            password: this.credentials!.privateKey,
-          }),
-        });
+    let rawKey = credentials.privateKey;
+    rawKey = rawKey.replace(/\\n/g, '\n');
+    this.rawPrivateKey = rawKey;
 
-        kalshiAdaptiveRateLimiter.updateFromHeaders(response.headers);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new KalshiAuthError(
-            `Authentication failed: ${response.status} - ${errorText}`,
-            response.status
-          );
-        }
-
-        const data = await validateKalshiResponse(
-          response,
-          KalshiAuthResponseSchema,
-          'KalshiAuth.authenticate'
-        );
-
-        this.token = {
-          token: data.token,
-          expiresAt: Date.now() + TOKEN_LIFETIME_MS,
-          userId: data.member_id,
-        };
-
-        // Schedule proactive refresh
-        this.scheduleTokenRefresh();
-
-        console.log('[KalshiAuth] Authentication successful');
-      }
-    );
-  }
-
-  /**
-   * Schedule proactive token refresh before expiry
-   */
-  private scheduleTokenRefresh(): void {
-    // Clear existing timer
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-
-    if (!this.token) return;
-
-    const refreshIn =
-      this.token.expiresAt - Date.now() - TOKEN_REFRESH_BUFFER_MS;
-
-    if (refreshIn > 0) {
-      this.refreshTimer = setTimeout(async () => {
-        console.log('[KalshiAuth] Proactive token refresh');
-        try {
-          await this.authenticate();
-        } catch (err) {
-          console.error('[KalshiAuth] Proactive refresh failed:', err);
-          // Will retry on next API call
-        }
-      }, refreshIn);
+    try {
+      this.privateKey = crypto.createPrivateKey({
+        key: rawKey,
+        format: 'pem',
+      });
+    } catch (err) {
+      console.error('[KalshiAuth] Failed to parse RSA private key:', err instanceof Error ? err.message : err);
+      this.privateKey = null;
     }
   }
 
   /**
-   * Get authorization headers for authenticated requests
+   * Check if credentials are configured and key is loaded
    */
-  async getAuthHeaders(): Promise<Record<string, string>> {
-    const token = await this.getValidToken();
+  hasCredentials(): boolean {
+    return !!this.apiKeyId && !!this.privateKey;
+  }
+
+  /**
+   * Sign a request and return auth headers
+   *
+   * @param method - HTTP method (GET, POST, DELETE, etc.)
+   * @param path - API path WITHOUT query params (e.g., /trade-api/v2/markets)
+   * @returns Headers object with KALSHI-ACCESS-KEY, KALSHI-ACCESS-TIMESTAMP, KALSHI-ACCESS-SIGNATURE
+   */
+  signRequest(method: string, path: string): KalshiAuthHeaders {
+    if (!this.apiKeyId || !this.privateKey) {
+      throw new KalshiAuthError(
+        'Kalshi credentials not configured — set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY env vars'
+      );
+    }
+
+    // Timestamp as unix epoch milliseconds (string)
+    const timestamp = Date.now().toString();
+
+    // Message to sign: timestamp + METHOD + path
+    const message = timestamp + method.toUpperCase() + path;
+
+    // RSA-PSS SHA-256 signature with salt length 32
+    const signature = crypto.sign('sha256', Buffer.from(message), {
+      key: this.privateKey,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: 32,
+    });
+
     return {
-      Authorization: `Bearer ${token}`,
+      'KALSHI-ACCESS-KEY': this.apiKeyId,
+      'KALSHI-ACCESS-TIMESTAMP': timestamp,
+      'KALSHI-ACCESS-SIGNATURE': signature.toString('base64'),
       'Content-Type': 'application/json',
     };
   }
 
   /**
-   * Get current user ID (if authenticated)
+   * Get authorization headers for a request (backward compat wrapper)
+   * For trading endpoints that previously used getAuthHeaders()
    */
-  getUserId(): string | null {
-    return this.token?.userId || null;
+  async getAuthHeaders(method: string = 'GET', path: string = '/trade-api/v2/portfolio/orders'): Promise<Record<string, string>> {
+    return this.signRequest(method, path);
   }
 
   /**
-   * Invalidate current token
-   * Call this on 401 responses or when credentials change
-   */
-  invalidateToken(): void {
-    this.token = null;
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-  }
-
-  /**
-   * Check if currently authenticated
+   * Check if currently "authenticated" (has valid credentials loaded)
    */
   isAuthenticated(): boolean {
-    return !!this.token && this.isTokenValid();
+    return this.hasCredentials();
   }
 
   /**
-   * Get time until token expires (in ms)
+   * Get the API key ID (user identifier)
    */
-  getTokenExpiresIn(): number {
-    if (!this.token) return 0;
-    return Math.max(0, this.token.expiresAt - Date.now());
+  getUserId(): string | null {
+    return this.apiKeyId;
   }
 
   /**
-   * Clean shutdown - clear all state
+   * Invalidate credentials (no-op for RSA-PSS, kept for backward compat)
+   */
+  invalidateToken(): void {
+    // No token to invalidate with RSA-PSS signing
+    // Kept for backward compatibility
+  }
+
+  /**
+   * Get debug info (safe to log — no secrets)
+   */
+  getDebugInfo(): Record<string, unknown> {
+    return {
+      hasApiKeyId: !!this.apiKeyId,
+      apiKeyIdPrefix: this.apiKeyId?.slice(0, 8) || null,
+      hasPrivateKey: !!this.privateKey,
+      hasRawKey: !!this.rawPrivateKey,
+      rawKeyLength: this.rawPrivateKey?.length || 0,
+      rawKeyStartsWith: this.rawPrivateKey?.slice(0, 30) || null,
+    };
+  }
+
+  /**
+   * Clean shutdown
    */
   destroy(): void {
-    this.invalidateToken();
-    this.credentials = null;
+    this.apiKeyId = null;
+    this.privateKey = null;
+    this.rawPrivateKey = null;
   }
 }
 

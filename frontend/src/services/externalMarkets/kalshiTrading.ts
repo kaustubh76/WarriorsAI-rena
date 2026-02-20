@@ -8,6 +8,8 @@
  * - Order status tracking
  * - Position management
  * - Balance queries
+ *
+ * Auth: RSA-PSS per-request signing via kalshiAuth.signRequest()
  */
 
 import { kalshiAuth, KalshiAuthError } from './kalshiAuth';
@@ -78,18 +80,17 @@ class KalshiTradingService {
       'kalshi',
       'placeOrder',
       async () => {
-        // Validate order
         this.validateOrder(order);
 
         await kalshiAdaptiveRateLimiter.acquire();
-        const headers = await kalshiAuth.getAuthHeaders();
+        const headers = kalshiAuth.signRequest('POST', '/trade-api/v2/portfolio/orders');
 
         const response = await fetchWithTimeout(`${KALSHI_API_BASE}/portfolio/orders`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
             ticker: order.ticker,
-            action: 'buy', // Kalshi uses buy/sell for action
+            action: 'buy',
             side: order.side,
             type: order.type,
             count: order.count,
@@ -125,7 +126,7 @@ class KalshiTradingService {
   async cancelOrder(orderId: string): Promise<void> {
     return monitoredCall('kalshi', 'cancelOrder', async () => {
       await kalshiAdaptiveRateLimiter.acquire();
-      const headers = await kalshiAuth.getAuthHeaders();
+      const headers = kalshiAuth.signRequest('DELETE', `/trade-api/v2/portfolio/orders/${orderId}`);
 
       const response = await fetchWithTimeout(
         `${KALSHI_API_BASE}/portfolio/orders/${orderId}`,
@@ -154,7 +155,7 @@ class KalshiTradingService {
   async getOrder(orderId: string): Promise<KalshiOrder> {
     return monitoredCall('kalshi', 'getOrder', async () => {
       await kalshiAdaptiveRateLimiter.acquire();
-      const headers = await kalshiAuth.getAuthHeaders();
+      const headers = kalshiAuth.signRequest('GET', `/trade-api/v2/portfolio/orders/${orderId}`);
 
       const response = await fetchWithTimeout(
         `${KALSHI_API_BASE}/portfolio/orders/${orderId}`,
@@ -190,7 +191,7 @@ class KalshiTradingService {
   async getOpenOrders(ticker?: string): Promise<KalshiOrder[]> {
     return monitoredCall('kalshi', 'getOpenOrders', async () => {
       await kalshiAdaptiveRateLimiter.acquire();
-      const headers = await kalshiAuth.getAuthHeaders();
+      const headers = kalshiAuth.signRequest('GET', '/trade-api/v2/portfolio/orders');
 
       const params = new URLSearchParams({ status: 'resting' });
       if (ticker) params.set('ticker', ticker);
@@ -232,7 +233,7 @@ class KalshiTradingService {
   ): Promise<KalshiOrder[]> {
     return monitoredCall('kalshi', 'getAllOrders', async () => {
       await kalshiAdaptiveRateLimiter.acquire();
-      const headers = await kalshiAuth.getAuthHeaders();
+      const headers = kalshiAuth.signRequest('GET', '/trade-api/v2/portfolio/orders');
 
       const params = new URLSearchParams({ limit: limit.toString() });
       if (status) params.set('status', status);
@@ -271,7 +272,7 @@ class KalshiTradingService {
   async getPositions(): Promise<KalshiPosition[]> {
     return monitoredCall('kalshi', 'getPositions', async () => {
       await kalshiAdaptiveRateLimiter.acquire();
-      const headers = await kalshiAuth.getAuthHeaders();
+      const headers = kalshiAuth.signRequest('GET', '/trade-api/v2/portfolio/positions');
 
       const response = await fetchWithTimeout(`${KALSHI_API_BASE}/portfolio/positions`, {
         method: 'GET',
@@ -312,7 +313,7 @@ class KalshiTradingService {
   async getBalance(): Promise<KalshiBalance> {
     return monitoredCall('kalshi', 'getBalance', async () => {
       await kalshiAdaptiveRateLimiter.acquire();
-      const headers = await kalshiAuth.getAuthHeaders();
+      const headers = kalshiAuth.signRequest('GET', '/trade-api/v2/portfolio/balance');
 
       const response = await fetchWithTimeout(`${KALSHI_API_BASE}/portfolio/balance`, {
         method: 'GET',
@@ -404,13 +405,11 @@ class KalshiTradingService {
       const errorData = await response.json();
       errorMessage = errorData.message || errorData.error || errorMessage;
 
-      // Handle specific error codes
       if (response.status === 400) {
         errorCode = 'INVALID_ORDER';
       } else if (response.status === 401) {
-        kalshiAuth.invalidateToken();
-        errorCode = 'AUTH_EXPIRED';
-        errorMessage = 'Authentication expired';
+        errorCode = 'AUTH_FAILED';
+        errorMessage = 'RSA-PSS authentication failed';
       } else if (response.status === 403) {
         errorCode = 'FORBIDDEN';
         errorMessage = 'Not authorized for this operation';

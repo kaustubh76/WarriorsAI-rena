@@ -5,12 +5,12 @@
  * API: https://trading-api.kalshi.com/trade-api/v2
  * Docs: https://docs.kalshi.com
  *
- * Authentication: API key + JWT (30-min expiry with auto-refresh)
+ * Authentication: RSA-PSS per-request signing (3 headers on every request)
  *
  * Robustness Features:
  * - Schema validation with Zod
  * - Adaptive rate limiting with header parsing
- * - Automatic token refresh
+ * - RSA-PSS per-request signing
  * - Monitoring integration
  * - Full trading API support
  */
@@ -49,11 +49,6 @@ const WHALE_THRESHOLD = 10000; // $10k USD
 // TYPES
 // ============================================
 
-interface KalshiAuthResponse {
-  token: string;
-  member_id: string;
-}
-
 interface KalshiMarketsResponse {
   markets: KalshiMarket[];
   cursor?: string;
@@ -69,83 +64,32 @@ interface KalshiTradesResponse {
 // ============================================
 
 class KalshiService {
-  // Legacy auth state (kept for backward compatibility)
-  private authToken: string | null = null;
-  private tokenExpiry: number = 0;
-  private memberId: string | null = null;
-
   // ============================================
   // AUTHENTICATION
   // ============================================
 
   /**
-   * Authenticate with Kalshi API using API key
-   * Uses the robust KalshiAuthManager with auto-refresh
-   * Note: For server-side use only - never expose API keys client-side
-   */
-  async authenticate(apiKeyId: string, privateKey: string): Promise<void> {
-    // Use the robust auth manager
-    kalshiAuth.setCredentials({ apiKeyId, privateKey });
-    await kalshiAuth.authenticate();
-
-    // Also set legacy state for backward compatibility
-    const token = await kalshiAuth.getValidToken();
-    this.authToken = token;
-    this.memberId = kalshiAuth.getUserId();
-    this.tokenExpiry = Date.now() + 25 * 60 * 1000;
-  }
-
-  /**
-   * Refresh token if expired (now uses robust auth manager)
-   */
-  async refreshToken(): Promise<void> {
-    if (!kalshiAuth.hasCredentials()) {
-      throw new Error('No credentials configured - please authenticate first');
-    }
-
-    // Auth manager handles refresh automatically
-    await kalshiAuth.authenticate();
-
-    // Update legacy state
-    this.authToken = await kalshiAuth.getValidToken();
-    this.tokenExpiry = Date.now() + 25 * 60 * 1000;
-  }
-
-  /**
-   * Check if authenticated
+   * Check if authenticated (credentials loaded)
    */
   isAuthenticated(): boolean {
     return kalshiAuth.isAuthenticated();
   }
 
   /**
-   * Get authorization headers
+   * Get signed headers for a request
+   * @param method - HTTP method
+   * @param path - API path (without query params)
    */
-  private getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
+  private getSignedHeaders(method: string, path: string): Record<string, string> {
+    if (!kalshiAuth.hasCredentials()) {
+      // Return basic headers if no credentials (will fail with 401)
+      return { 'Content-Type': 'application/json' };
     }
-
-    return headers;
-  }
-
-  /**
-   * Get authorization headers using robust auth manager
-   * Preferred method for new code
-   */
-  async getAuthHeaders(): Promise<Record<string, string>> {
-    if (kalshiAuth.isAuthenticated()) {
-      return kalshiAuth.getAuthHeaders();
-    }
-    return this.getHeaders();
+    return kalshiAuth.signRequest(method, path);
   }
 
   // ============================================
-  // MARKET DATA (Public - No Auth Required)
+  // MARKET DATA
   // ============================================
 
   /**
@@ -171,9 +115,12 @@ class KalshiService {
           if (status) params.append('status', status);
           if (cursor) params.append('cursor', cursor);
 
+          // Sign with path only (no query params)
+          const headers = this.getSignedHeaders('GET', '/trade-api/v2/markets');
+
           const response = await withRetry(() =>
             fetchWithTimeout(`${KALSHI_API_BASE}/markets?${params}`, {
-              headers: this.getHeaders(),
+              headers,
             })
           );
 
@@ -185,7 +132,7 @@ class KalshiService {
 
           const data = await response.json();
 
-          // Validate response — throw on schema mismatch instead of falling back to raw data
+          // Validate response
           const validated = safeValidateKalshi(
             data,
             KalshiMarketsResponseSchema,
@@ -231,9 +178,12 @@ class KalshiService {
     return kalshiCircuit.execute(async () => {
       await kalshiRateLimiter.acquire();
 
+      const path = `/trade-api/v2/markets/${ticker}`;
+      const headers = this.getSignedHeaders('GET', path);
+
       const response = await withRetry(() =>
         fetchWithTimeout(`${KALSHI_API_BASE}/markets/${ticker}`, {
-          headers: this.getHeaders(),
+          headers,
         })
       );
 
@@ -252,7 +202,6 @@ class KalshiService {
 
   /**
    * Get market with outcome details for resolved markets
-   * Kalshi already includes outcome in market.result
    */
   async getMarketWithOutcome(ticker: string): Promise<{
     market: KalshiMarket | null;
@@ -269,12 +218,10 @@ class KalshiService {
           return { market: null };
         }
 
-        // Check if market is settled
         if (market.status !== 'settled') {
           return { market, outcome: undefined };
         }
 
-        // Kalshi result field contains the outcome
         let outcome: 'yes' | 'no' | undefined;
         if (market.result === 'yes') {
           outcome = 'yes';
@@ -282,7 +229,6 @@ class KalshiService {
           outcome = 'no';
         }
 
-        // Use close_time as resolution timestamp
         const resolvedAt = market.close_time ? new Date(market.close_time) : undefined;
 
         return {
@@ -299,7 +245,6 @@ class KalshiService {
    * Search markets
    */
   async searchMarkets(query: string): Promise<KalshiMarket[]> {
-    // Kalshi doesn't have a direct search API, so we filter locally
     const { markets } = await this.getMarkets('open', 500);
 
     const queryLower = query.toLowerCase();
@@ -322,9 +267,12 @@ class KalshiService {
     return kalshiCircuit.execute(async () => {
       await kalshiRateLimiter.acquire();
 
+      const path = `/trade-api/v2/markets/${ticker}/orderbook`;
+      const headers = this.getSignedHeaders('GET', path);
+
       const response = await withRetry(() =>
         fetchWithTimeout(`${KALSHI_API_BASE}/markets/${ticker}/orderbook`, {
-          headers: this.getHeaders(),
+          headers,
         })
       );
 
@@ -339,13 +287,11 @@ class KalshiService {
 
   /**
    * Get midpoint price for a market
-   * @returns Price as 0-100 percentage (matching UnifiedMarket.yesPrice convention)
    */
   async getMidpoint(ticker: string): Promise<number> {
     const market = await this.getMarket(ticker);
     if (!market) return 50;
 
-    // yes_bid and yes_ask are in cents (0-100), return midpoint in same scale
     return (market.yes_bid + market.yes_ask) / 2;
   }
 
@@ -363,11 +309,14 @@ class KalshiService {
     return kalshiCircuit.execute(async () => {
       await kalshiRateLimiter.acquire();
 
+      const path = `/trade-api/v2/markets/${ticker}/trades`;
+      const headers = this.getSignedHeaders('GET', path);
+
       const response = await withRetry(() =>
         fetchWithTimeout(
           `${KALSHI_API_BASE}/markets/${ticker}/trades?limit=${limit}`,
           {
-            headers: this.getHeaders(),
+            headers,
           }
         )
       );
@@ -392,9 +341,7 @@ class KalshiService {
     const whaleTrades: WhaleTrade[] = [];
 
     for (const trade of trades) {
-      // Kalshi price is in cents (0-100)
       const price = trade.price / 100;
-      // Count is number of contracts, each contract is $1 at settlement
       const amountUsd = trade.count * price;
 
       if (amountUsd >= thresholdUsd) {
@@ -403,12 +350,12 @@ class KalshiService {
           source: MarketSource.KALSHI,
           marketId: `kalshi_${ticker}`,
           marketQuestion: market.title,
-          traderAddress: undefined, // Kalshi doesn't expose trader addresses
+          traderAddress: undefined,
           side: trade.taker_side === 'yes' ? 'buy' : 'sell',
           outcome: trade.side,
           amountUsd: amountUsd.toFixed(2),
           shares: trade.count.toString(),
-          price: trade.price * 100, // Store as basis points
+          price: trade.price * 100,
           timestamp: new Date(trade.created_time).getTime(),
           txHash: undefined,
         });
@@ -426,13 +373,11 @@ class KalshiService {
    * Convert Kalshi market to unified format
    */
   normalizeMarket(kalshi: KalshiMarket): UnifiedMarket {
-    // Kalshi prices are in cents (0-100)
     const yesPrice = kalshi.yes_bid
       ? (kalshi.yes_bid + kalshi.yes_ask) / 2
       : kalshi.last_price;
     const noPrice = 100 - yesPrice;
 
-    // Determine status
     let status: ExternalMarketStatus;
     switch (kalshi.status) {
       case 'open':
@@ -465,7 +410,7 @@ class KalshiService {
       liquidity: kalshi.open_interest.toString(),
 
       endTime: new Date(kalshi.close_time).getTime(),
-      createdAt: Date.now(), // Kalshi doesn't expose creation time
+      createdAt: Date.now(),
 
       status,
       outcome: kalshi.result,
@@ -524,9 +469,11 @@ class KalshiService {
 
       if (status) params.append('status', status);
 
+      const headers = this.getSignedHeaders('GET', '/trade-api/v2/events');
+
       const response = await withRetry(() =>
         fetchWithTimeout(`${KALSHI_API_BASE}/events?${params}`, {
-          headers: this.getHeaders(),
+          headers,
         })
       );
 
@@ -543,10 +490,6 @@ class KalshiService {
   // TRADING API (via kalshiTrading)
   // ============================================
 
-  /**
-   * Get trading service for order management
-   * Use this for placing/canceling orders
-   */
   get trading() {
     return kalshiTrading;
   }
@@ -555,9 +498,6 @@ class KalshiService {
   // WEBSOCKET (via kalshiWS)
   // ============================================
 
-  /**
-   * Subscribe to orderbook updates
-   */
   subscribeToOrderbook(
     ticker: string,
     callback: (msg: KalshiWSMessage) => void
@@ -565,9 +505,6 @@ class KalshiService {
     return kalshiWS.subscribeToOrderbook(ticker, callback);
   }
 
-  /**
-   * Subscribe to trade updates
-   */
   subscribeToTrades(
     ticker: string,
     callback: (msg: KalshiWSMessage) => void
@@ -575,23 +512,14 @@ class KalshiService {
     return kalshiWS.subscribeToTrades(ticker, callback);
   }
 
-  /**
-   * Connect to WebSocket
-   */
   async connectWebSocket(): Promise<void> {
     return kalshiWS.connect();
   }
 
-  /**
-   * Disconnect WebSocket
-   */
   disconnectWebSocket(): void {
     kalshiWS.disconnect();
   }
 
-  /**
-   * Check WebSocket connection state
-   */
   isWebSocketConnected(): boolean {
     return kalshiWS.isConnected();
   }

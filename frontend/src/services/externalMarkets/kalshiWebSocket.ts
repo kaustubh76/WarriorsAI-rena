@@ -109,8 +109,14 @@ class KalshiWebSocketManager {
     this.connectionState = 'connecting';
     this.isAuthenticated = false;
 
-    // Get auth token first
-    const token = await kalshiAuth.getValidToken();
+    // Generate RSA-PSS signed auth headers for WebSocket handshake
+    if (!kalshiAuth.hasCredentials()) {
+      this.connectionState = 'disconnected';
+      throw new Error('Kalshi credentials not configured for WebSocket');
+    }
+
+    // Sign for the WebSocket auth command
+    const authHeaders = kalshiAuth.signRequest('GET', '/trade-api/ws/v2');
 
     return new Promise((resolve, reject) => {
       try {
@@ -121,11 +127,16 @@ class KalshiWebSocketManager {
         this.ws.onopen = () => {
           console.log('[Kalshi WS] Connected, authenticating...');
 
-          // Send authentication message
+          // Send RSA-PSS signed authentication command
           this.ws!.send(
             JSON.stringify({
-              type: 'auth',
-              token: token,
+              id: 1,
+              cmd: 'login',
+              params: {
+                api_key: authHeaders['KALSHI-ACCESS-KEY'],
+                timestamp: parseInt(authHeaders['KALSHI-ACCESS-TIMESTAMP']),
+                signature: authHeaders['KALSHI-ACCESS-SIGNATURE'],
+              },
             })
           );
         };
