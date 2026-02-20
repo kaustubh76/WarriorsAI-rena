@@ -6,6 +6,11 @@
   "devCommand": "npm run dev:next",
   "outputDirectory": ".next",
   "regions": ["iad1"],
+  "functions": {
+    "app/api/**/*": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/execute-battles",
