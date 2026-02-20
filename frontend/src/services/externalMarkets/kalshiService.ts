@@ -99,7 +99,8 @@ class KalshiService {
   async getMarkets(
     status?: string,
     limit: number = 100,
-    cursor?: string
+    cursor?: string,
+    seriesTicker?: string
   ): Promise<KalshiMarketsResponse> {
     return monitoredCall(
       'kalshi',
@@ -114,6 +115,7 @@ class KalshiService {
 
           if (status) params.append('status', status);
           if (cursor) params.append('cursor', cursor);
+          if (seriesTicker) params.append('series_ticker', seriesTicker);
 
           // Sign with path only (no query params)
           const headers = this.getSignedHeaders('GET', '/trade-api/v2/markets');
@@ -152,14 +154,25 @@ class KalshiService {
 
   /**
    * Get all active markets with pagination
+   * Fetches from all markets but filters out multi-leg sports parlays (KXMVE*)
+   * which dominate the API results but have no Polymarket equivalents for arbitrage
    */
   async getActiveMarkets(maxMarkets: number = 500): Promise<KalshiMarket[]> {
     const allMarkets: KalshiMarket[] = [];
     let cursor: string | undefined;
+    let pagesScanned = 0;
+    const MAX_PAGES = 30; // Safety limit: 30 pages × 200 = 6000 markets scanned max
 
-    while (allMarkets.length < maxMarkets) {
-      const response = await this.getMarkets('open', 100, cursor);
-      allMarkets.push(...response.markets);
+    while (allMarkets.length < maxMarkets && pagesScanned < MAX_PAGES) {
+      const response = await this.getMarkets('open', 200, cursor);
+      pagesScanned++;
+
+      // Filter out multi-leg sports parlays (KXMVE*) — they're multi-outcome
+      // combo bets with no equivalent on Polymarket for arbitrage matching
+      const filtered = response.markets.filter(
+        m => !m.ticker.startsWith('KXMVE')
+      );
+      allMarkets.push(...filtered);
 
       if (!response.cursor || response.markets.length === 0) {
         break;
@@ -168,6 +181,7 @@ class KalshiService {
       cursor = response.cursor;
     }
 
+    console.log(`[Kalshi] Scanned ${pagesScanned} pages, found ${allMarkets.length} non-parlay markets`);
     return allMarkets.slice(0, maxMarkets);
   }
 
