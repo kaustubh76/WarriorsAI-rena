@@ -7,7 +7,7 @@
   "outputDirectory": ".next",
   "regions": ["iad1"],
   "functions": {
-    "app/api/**/*": {
+    "src/app/api/**/route.ts": {
       "maxDuration": 60
     }
   },
