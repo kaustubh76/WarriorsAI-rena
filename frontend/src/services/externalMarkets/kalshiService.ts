@@ -373,9 +373,11 @@ class KalshiService {
    * Convert Kalshi market to unified format
    */
   normalizeMarket(kalshi: KalshiMarket): UnifiedMarket {
-    const yesPrice = kalshi.yes_bid
+    // yes_bid defaults to 0 via Zod schema — use explicit null check, not truthy
+    const hasBidAsk = kalshi.yes_bid != null && kalshi.yes_ask != null && (kalshi.yes_bid > 0 || kalshi.yes_ask < 100);
+    const yesPrice = hasBidAsk
       ? (kalshi.yes_bid + kalshi.yes_ask) / 2
-      : kalshi.last_price;
+      : (kalshi.last_price ?? 50);  // fallback to 50 (even odds) if no price data
     const noPrice = 100 - yesPrice;
 
     let status: ExternalMarketStatus;

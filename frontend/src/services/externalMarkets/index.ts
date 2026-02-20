@@ -493,19 +493,22 @@ class ExternalMarketsService {
   ): Promise<ArbitrageOpportunity[]> {
     const opportunities: ArbitrageOpportunity[] = [];
 
-    // Get active markets from all sources
+    // Get ALL active markets from each source (override default pageSize of 50)
     const [polyMarkets, kalshiMarkets, opinionMarkets] = await Promise.all([
       this.getAllMarkets({
         source: MarketSource.POLYMARKET,
         status: ExternalMarketStatus.ACTIVE,
+        pageSize: 2000,
       }),
       this.getAllMarkets({
         source: MarketSource.KALSHI,
         status: ExternalMarketStatus.ACTIVE,
+        pageSize: 2000,
       }),
       this.getAllMarkets({
         source: MarketSource.OPINION,
         status: ExternalMarketStatus.ACTIVE,
+        pageSize: 2000,
       }),
     ]);
 
@@ -528,8 +531,9 @@ class ExternalMarketsService {
 
           if (similarity > 0.45) {
             // Check both YES spread and cross-spread (YES vs NO) for arbitrage
+            // Prices are 0-100 (percentages) after dbToUnified()
             const yesSpread = Math.abs(market1.yesPrice - market2.yesPrice);
-            const crossSpread = Math.abs(market1.yesPrice - (10000 - market2.yesPrice));
+            const crossSpread = Math.abs(market1.yesPrice - (100 - market2.yesPrice));
             const spread = Math.max(yesSpread, crossSpread);
 
             if (spread >= minSpread) {
@@ -555,11 +559,11 @@ class ExternalMarketsService {
     market1: UnifiedMarket,
     market2: UnifiedMarket
   ): ArbitrageOpportunity | null {
-    // Prices from DB are 0-10000 (basis points), convert to 0-1 decimal
-    const price1Yes = market1.yesPrice / 10000;
-    const price1No = market1.noPrice / 10000;
-    const price2Yes = market2.yesPrice / 10000;
-    const price2No = market2.noPrice / 10000;
+    // Prices from dbToUnified() are 0-100 (percentages), convert to 0-1 decimal
+    const price1Yes = market1.yesPrice / 100;
+    const price1No = market1.noPrice / 100;
+    const price2Yes = market2.yesPrice / 100;
+    const price2No = market2.noPrice / 100;
 
     // Check if buying YES on market1 and NO on market2 creates arbitrage
     const cost1 = price1Yes + price2No;
