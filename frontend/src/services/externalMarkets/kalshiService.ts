@@ -183,32 +183,26 @@ class KalshiService {
       return [];
     }
 
-    // Phase 2: Fetch markets by event_ticker in batches of 10
-    // Kalshi API supports comma-separated event_ticker param (max 10)
+    // Phase 2: Fetch markets by series_ticker (one series at a time)
+    // Series tickers are derived from events (e.g., KXNEWPOPE from KXNEWPOPE-70)
     const allMarkets: KalshiMarket[] = [];
+    const seriesTickers = [...new Set(events.map(e => e.series_ticker))];
 
-    const eventTickers = events.map(e => e.event_ticker);
-    for (let i = 0; i < eventTickers.length; i += 10) {
+    console.log(`[Kalshi] Fetching markets for ${seriesTickers.length} unique series: ${seriesTickers.slice(0, 10).join(', ')}...`);
+
+    for (const series of seriesTickers) {
       if (allMarkets.length >= maxMarkets) break;
 
-      const batch = eventTickers.slice(i, i + 10).join(',');
       try {
-        let cursor: string | undefined;
-        let pages = 0;
-        while (pages < 5 && allMarkets.length < maxMarkets) {
-          const response = await this.getMarkets(undefined, 200, cursor, undefined, batch);
-          pages++;
-          allMarkets.push(...response.markets);
-
-          if (!response.cursor || response.markets.length === 0) break;
-          cursor = response.cursor;
-        }
+        const response = await this.getMarkets(undefined, 200, undefined, series);
+        console.log(`[Kalshi] Series ${series}: ${response.markets.length} markets`);
+        allMarkets.push(...response.markets);
       } catch (err) {
-        console.error(`[Kalshi] Failed to fetch markets for batch starting at index ${i}:`, err);
+        console.error(`[Kalshi] Failed to fetch markets for series ${series}:`, err);
       }
     }
 
-    console.log(`[Kalshi] Fetched ${allMarkets.length} non-sports markets from ${events.length} events`);
+    console.log(`[Kalshi] Fetched ${allMarkets.length} non-sports markets from ${seriesTickers.length} series`);
     return allMarkets.slice(0, maxMarkets);
   }
 
