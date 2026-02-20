@@ -100,7 +100,8 @@ class KalshiService {
     status?: string,
     limit: number = 100,
     cursor?: string,
-    seriesTicker?: string
+    seriesTicker?: string,
+    eventTicker?: string
   ): Promise<KalshiMarketsResponse> {
     return monitoredCall(
       'kalshi',
@@ -116,6 +117,7 @@ class KalshiService {
           if (status) params.append('status', status);
           if (cursor) params.append('cursor', cursor);
           if (seriesTicker) params.append('series_ticker', seriesTicker);
+          if (eventTicker) params.append('event_ticker', eventTicker);
 
           // Sign with path only (no query params)
           const headers = this.getSignedHeaders('GET', '/trade-api/v2/markets');
@@ -155,42 +157,83 @@ class KalshiService {
   /**
    * Get all active markets with pagination
    *
-   * Strategy: First try fetching without status filter and excluding KXMVE parlays.
-   * The multi-leg sports parlays (KXMVE*) dominate Kalshi's API results but have
-   * no Polymarket equivalents for arbitrage matching.
+   * Strategy: Fetch events first, identify non-sports event tickers,
+   * then fetch markets by event_ticker to avoid the KXMVE sports parlay
+   * flood that dominates the unfiltered /markets endpoint.
    */
   async getActiveMarkets(maxMarkets: number = 500): Promise<KalshiMarket[]> {
-    const allMarkets: KalshiMarket[] = [];
-    const seenTickers = new Set<string>();
-    let pagesScanned = 0;
-    const MAX_PAGES = 50; // Safety limit: 50 pages × 200 = 10000 markets scanned max
+    // Sports categories to exclude — these are parlay-heavy and don't match Polymarket
+    const SPORTS_CATEGORIES = new Set(['Sports', 'Sports MVP']);
 
-    // Fetch without status filter to get all available markets, then filter
+    // Phase 1: Get events and filter to non-sports
+    let events: Array<{ event_ticker: string; category: string; title: string }>;
+    try {
+      const rawEvents = await this.getEvents('open', 200);
+      events = (rawEvents as Array<{ event_ticker: string; category: string; title: string }>)
+        .filter(e => !SPORTS_CATEGORIES.has(e.category));
+      console.log(`[Kalshi] Found ${events.length} non-sports events (out of ${rawEvents.length} total)`);
+    } catch (err) {
+      console.error('[Kalshi] Failed to fetch events, falling back to direct market scan:', err);
+      // Fallback: scan markets directly with parlay filter
+      return this.getActiveMarketsFallback(maxMarkets);
+    }
+
+    if (events.length === 0) {
+      console.log('[Kalshi] No non-sports events found');
+      return [];
+    }
+
+    // Phase 2: Fetch markets by event_ticker in batches of 10
+    // Kalshi API supports comma-separated event_ticker param (max 10)
+    const allMarkets: KalshiMarket[] = [];
+
+    const eventTickers = events.map(e => e.event_ticker);
+    for (let i = 0; i < eventTickers.length; i += 10) {
+      if (allMarkets.length >= maxMarkets) break;
+
+      const batch = eventTickers.slice(i, i + 10).join(',');
+      try {
+        let cursor: string | undefined;
+        let pages = 0;
+        while (pages < 5 && allMarkets.length < maxMarkets) {
+          const response = await this.getMarkets(undefined, 200, cursor, undefined, batch);
+          pages++;
+          allMarkets.push(...response.markets);
+
+          if (!response.cursor || response.markets.length === 0) break;
+          cursor = response.cursor;
+        }
+      } catch (err) {
+        console.error(`[Kalshi] Failed to fetch markets for batch starting at index ${i}:`, err);
+      }
+    }
+
+    console.log(`[Kalshi] Fetched ${allMarkets.length} non-sports markets from ${events.length} events`);
+    return allMarkets.slice(0, maxMarkets);
+  }
+
+  /**
+   * Fallback: scan markets directly with parlay filter
+   */
+  private async getActiveMarketsFallback(maxMarkets: number): Promise<KalshiMarket[]> {
+    const allMarkets: KalshiMarket[] = [];
     let cursor: string | undefined;
-    while (allMarkets.length < maxMarkets && pagesScanned < MAX_PAGES) {
-      // Use 'open' status — Kalshi API accepts this for active markets
+    let pagesScanned = 0;
+
+    while (allMarkets.length < maxMarkets && pagesScanned < 30) {
       const response = await this.getMarkets('open', 200, cursor);
       pagesScanned++;
 
       for (const m of response.markets) {
-        // Skip multi-leg sports parlays
-        if (m.ticker.startsWith('KXMVE')) continue;
-        // Skip single-game sports markets too (these are individual game bets)
-        if (m.ticker.startsWith('KXSINGLEGAME')) continue;
-        // Deduplicate
-        if (seenTickers.has(m.ticker)) continue;
-        seenTickers.add(m.ticker);
-        allMarkets.push(m);
+        if (!m.ticker.startsWith('KXMVE') && !m.ticker.startsWith('KXSINGLEGAME')) {
+          allMarkets.push(m);
+        }
       }
 
-      if (!response.cursor || response.markets.length === 0) {
-        break;
-      }
-
+      if (!response.cursor || response.markets.length === 0) break;
       cursor = response.cursor;
     }
 
-    console.log(`[Kalshi] Scanned ${pagesScanned} pages (${pagesScanned * 200} raw markets), found ${allMarkets.length} non-parlay markets`);
     return allMarkets.slice(0, maxMarkets);
   }
 
