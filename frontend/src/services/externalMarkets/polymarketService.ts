@@ -98,7 +98,7 @@ class PolymarketService {
 
           const data = await response.json();
 
-          // Validate each market individually — skip invalid items instead of falling back to raw data
+          // Gamma API returns a direct array; validate each market individually
           const markets = Array.isArray(data) ? data : data.markets || [];
           const validated: PolymarketMarket[] = [];
           for (const m of markets) {
@@ -106,7 +106,7 @@ class PolymarketService {
             if (result) {
               validated.push(result as unknown as PolymarketMarket);
             } else {
-              console.warn('[getActiveMarkets] Dropping invalid market item:', (m as any)?.id || 'unknown');
+              console.warn('[getActiveMarkets] Dropping invalid market item:', (m as any)?.conditionId || 'unknown');
             }
           }
           return validated;

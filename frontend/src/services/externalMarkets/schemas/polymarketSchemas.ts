@@ -8,6 +8,22 @@
 import { z } from 'zod';
 
 // ============================================
+// HELPERS
+// ============================================
+
+/**
+ * Gamma API returns some array fields as JSON-encoded strings.
+ * This preprocessor parses them before Zod validation.
+ */
+const jsonStringArray = z.preprocess((val) => {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch { return undefined; }
+  }
+  return undefined;
+}, z.array(z.string()).optional());
+
+// ============================================
 // MARKET SCHEMAS
 // ============================================
 
@@ -19,8 +35,8 @@ export const PolymarketMarketSchema = z.object({
   questionId: z.string().optional(),
   question: z.string(),
   description: z.string().optional().default(''),
-  outcomes: z.array(z.string()).optional().default(['Yes', 'No']),
-  outcomePrices: z.array(z.string()).optional(),
+  outcomes: jsonStringArray.default(['Yes', 'No']),
+  outcomePrices: jsonStringArray,
   volume: z.string().optional().default('0'),
   volume24h: z.string().optional().default('0'),
   liquidity: z.string().optional().default('0'),
@@ -30,8 +46,8 @@ export const PolymarketMarketSchema = z.object({
   resolutionSource: z.string().optional(),
   image: z.string().optional(),
   icon: z.string().optional(),
-  tags: z.array(z.string()).optional().default([]),
-  clobTokenIds: z.array(z.string()).optional(),
+  tags: jsonStringArray.default([]),
+  clobTokenIds: jsonStringArray,
   slug: z.string().optional(),
   active: z.boolean().optional().default(true),
   enableOrderBook: z.boolean().optional().default(true),
