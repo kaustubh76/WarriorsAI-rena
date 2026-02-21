@@ -186,26 +186,34 @@ class KalshiService {
       return [];
     }
 
-    // Phase 2: Fetch markets by series_ticker (one series at a time)
-    // Series tickers are derived from events (e.g., KXNEWPOPE from KXNEWPOPE-70)
+    // Phase 2: Fetch markets by event_ticker in batches of 10
+    // Kalshi API supports comma-separated event_ticker (max 10 per request)
     const allMarkets: KalshiMarket[] = [];
-    const seriesTickers = [...new Set(events.map(e => e.series_ticker))];
+    const eventTickers = [...new Set(events.map(e => e.event_ticker))];
 
-    console.log(`[Kalshi] Fetching markets for ${seriesTickers.length} unique series`);
+    console.log(`[Kalshi] Fetching markets for ${eventTickers.length} events in batches of 10`);
 
-    let failedSeries = 0;
-    for (const series of seriesTickers) {
+    let failedBatches = 0;
+    for (let i = 0; i < eventTickers.length; i += 10) {
       if (allMarkets.length >= maxMarkets) break;
 
+      const batch = eventTickers.slice(i, i + 10).join(',');
       try {
-        const response = await this.getMarkets(undefined, 200, undefined, series);
-        allMarkets.push(...response.markets);
+        let cursor: string | undefined;
+        let pages = 0;
+        while (pages < 3 && allMarkets.length < maxMarkets) {
+          const response = await this.getMarkets(undefined, 200, cursor, undefined, batch);
+          pages++;
+          allMarkets.push(...response.markets);
+          if (!response.cursor || response.markets.length === 0) break;
+          cursor = response.cursor;
+        }
       } catch (err) {
-        failedSeries++;
+        failedBatches++;
       }
     }
 
-    console.log(`[Kalshi] Fetched ${allMarkets.length} markets from ${seriesTickers.length} series (${failedSeries} failed)`);
+    console.log(`[Kalshi] Fetched ${allMarkets.length} markets in ${Math.ceil(eventTickers.length / 10)} batches (${failedBatches} failed)`);
     return allMarkets.slice(0, maxMarkets);
   }
 
