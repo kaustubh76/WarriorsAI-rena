@@ -186,34 +186,32 @@ class KalshiService {
       return [];
     }
 
-    // Phase 2: Fetch markets by event_ticker in batches of 10
-    // Kalshi API supports comma-separated event_ticker (max 10 per request)
+    // Phase 2: Fetch markets by series_ticker
+    // Process series in parallel batches of 5 to stay within rate limits
     const allMarkets: KalshiMarket[] = [];
-    const eventTickers = [...new Set(events.map(e => e.event_ticker))];
+    const seriesTickers = [...new Set(events.map(e => e.series_ticker))];
 
-    console.log(`[Kalshi] Fetching markets for ${eventTickers.length} events in batches of 10`);
+    console.log(`[Kalshi] Fetching markets for ${seriesTickers.length} series in parallel batches of 5`);
 
-    let failedBatches = 0;
-    for (let i = 0; i < eventTickers.length; i += 10) {
+    let failedSeries = 0;
+    for (let i = 0; i < seriesTickers.length; i += 5) {
       if (allMarkets.length >= maxMarkets) break;
 
-      const batch = eventTickers.slice(i, i + 10).join(',');
-      try {
-        let cursor: string | undefined;
-        let pages = 0;
-        while (pages < 3 && allMarkets.length < maxMarkets) {
-          const response = await this.getMarkets(undefined, 200, cursor, undefined, batch);
-          pages++;
-          allMarkets.push(...response.markets);
-          if (!response.cursor || response.markets.length === 0) break;
-          cursor = response.cursor;
+      const batch = seriesTickers.slice(i, i + 5);
+      const results = await Promise.allSettled(
+        batch.map(series => this.getMarkets(undefined, 200, undefined, series))
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          allMarkets.push(...result.value.markets);
+        } else {
+          failedSeries++;
         }
-      } catch (err) {
-        failedBatches++;
       }
     }
 
-    console.log(`[Kalshi] Fetched ${allMarkets.length} markets in ${Math.ceil(eventTickers.length / 10)} batches (${failedBatches} failed)`);
+    console.log(`[Kalshi] Fetched ${allMarkets.length} markets from ${seriesTickers.length} series (${failedSeries} failed)`);
     return allMarkets.slice(0, maxMarkets);
   }
 
