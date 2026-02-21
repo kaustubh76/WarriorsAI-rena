@@ -18,10 +18,6 @@ import { useNotifications } from '@/contexts/NotificationContext';
 import { useIntersectionObserver } from '@/hooks/useIntersectionObserver';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { useKeySequence } from '@/hooks/useKeyPress';
-import { useSounds } from '@/hooks/useSounds';
-import { useGamification } from '@/hooks/useGamification';
-import { CompactStreak } from '@/components/gamification/StreakIndicator';
-import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import './home-glass.css';
 
@@ -404,8 +400,6 @@ export default function HomePage() {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const prefersReducedMotion = useReducedMotion();
-  const { play: playUiSound } = useSounds();
-  const gamification = useGamification();
 
   // Scroll-triggered section reveals
   const [statsRef, statsVisible] = useIntersectionObserver<HTMLDivElement>({ threshold: 0.2, once: true });
@@ -451,6 +445,13 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  const playSound = useCallback(() => {
+    try {
+      const audio = new Audio('/sounds/click.mp3');
+      audio.volume = 0.3;
+      audio.play().catch(() => {});
+    } catch { /* ignore */ }
+  }, []);
 
   return (
     <div className="home-page min-h-screen relative overflow-hidden">
@@ -571,8 +572,8 @@ export default function HomePage() {
 
         {/* Live Stats Bar */}
         {isMounted && (
-          <div ref={statsRef} aria-label="Platform statistics" className={`max-w-5xl mx-auto mb-12 transition-all duration-700 ease-out ${statsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-            <div className={`grid gap-4 ${isConnected ? 'grid-cols-3 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}>
+          <div ref={statsRef} aria-label="Platform statistics" className={`max-w-4xl mx-auto mb-12 transition-all duration-700 ease-out ${statsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="home-stat-card stat-card text-center hover:scale-105 transition-all duration-200 cursor-default">
                 <div className="home-stat-value stat-card-value">
                   {agentLoading ? (
@@ -621,29 +622,6 @@ export default function HomePage() {
                   style={{fontFamily: 'Press Start 2P, monospace'}}
                 >ACTIVE <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse ml-1"></span></p>
               </div>
-              {/* Gamification stats — connected users only */}
-              {isConnected && (
-                <>
-                  <div className="home-stat-card stat-card text-center hover:scale-105 transition-all duration-200 cursor-default">
-                    <div className="home-stat-value stat-card-value">
-                      <AnimatedCounter value={gamification.stats.level} decimals={0} duration={800} size="lg" showDirection={false} className="home-stat-value" />
-                    </div>
-                    <p className="home-stat-label stat-card-label"
-                      style={{fontFamily: 'Press Start 2P, monospace'}}
-                    >LEVEL</p>
-                    <Progress value={gamification.stats.xpProgress.percent} className="mt-1 h-1" />
-                  </div>
-                  <div className="home-stat-card stat-card text-center hover:scale-105 transition-all duration-200 cursor-default">
-                    <div className="home-stat-value stat-card-value flex items-center justify-center gap-1">
-                      <AnimatedCounter value={gamification.streaks.streaks.currentWinStreak} decimals={0} duration={800} size="lg" showDirection={false} className="home-stat-value" />
-                      <CompactStreak streak={gamification.streaks.streaks.currentWinStreak} />
-                    </div>
-                    <p className="home-stat-label stat-card-label"
-                      style={{fontFamily: 'Press Start 2P, monospace'}}
-                    >STREAK</p>
-                  </div>
-                </>
-              )}
             </div>
           </div>
         )}
@@ -707,7 +685,7 @@ export default function HomePage() {
                   borderImage: 'none !important',
                   padding: '2rem',
                 }}
-                onClick={() => playUiSound('click')}
+                onClick={() => playSound()}
               >
                 <Image
                   src="/WarriorsNFT_landing.png"
@@ -806,7 +784,7 @@ export default function HomePage() {
                   borderImage: 'none !important',
                   padding: '2rem',
                 }}
-                onClick={() => playUiSound('click')}
+                onClick={() => playSound()}
               >
                 <Image
                   src="/Arena_landing.png"
@@ -1167,7 +1145,7 @@ export default function HomePage() {
                     borderRadius: '12px',
                     boxShadow: '0 0 12px rgba(220, 38, 38, 0.3)',
                   }}
-                  onClick={() => playUiSound('click')}
+                  onClick={() => playSound()}
                 >
                   ENTER ARENA
                 </Link>

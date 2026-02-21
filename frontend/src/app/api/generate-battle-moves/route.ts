@@ -43,7 +43,18 @@ Respond with JSON only: {"agent_1": "<move>", "agent_2": "<move>"}`,
     });
 
     if (!inferenceResponse.ok) {
-      throw new Error(`0G inference failed: ${inferenceResponse.statusText}`);
+      let errorData;
+      try {
+        errorData = await inferenceResponse.json();
+      } catch {
+        errorData = { error: inferenceResponse.statusText };
+      }
+      return NextResponse.json({
+        success: false,
+        error: errorData.message || errorData.error || '0G inference failed',
+        errorCode: errorData.errorCode,
+        diagnosticUrl: errorData.diagnosticUrl,
+      }, { status: inferenceResponse.status });
     }
 
     const inferenceResult = await inferenceResponse.json();

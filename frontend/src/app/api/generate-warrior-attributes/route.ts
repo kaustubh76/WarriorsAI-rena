@@ -50,9 +50,21 @@ Respond with valid JSON only, no explanation.`,
     });
 
     if (!inferenceResponse.ok) {
-      const errorText = await inferenceResponse.text();
-      logger.error('0G inference failed:', errorText);
-      throw new Error(`0G inference failed: ${inferenceResponse.statusText}`);
+      // Forward the 0G error response with its diagnostic info
+      let errorData;
+      try {
+        errorData = await inferenceResponse.json();
+      } catch {
+        errorData = { error: inferenceResponse.statusText };
+      }
+      logger.error('0G inference failed:', errorData);
+      return NextResponse.json({
+        success: false,
+        error: errorData.message || errorData.error || '0G inference failed',
+        errorCode: errorData.errorCode,
+        walletAddress: errorData.walletAddress,
+        diagnosticUrl: errorData.diagnosticUrl,
+      }, { status: inferenceResponse.status });
     }
 
     const inferenceResult = await inferenceResponse.json();
