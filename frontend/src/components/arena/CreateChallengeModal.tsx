@@ -177,9 +177,17 @@ export function CreateChallengeModal({ isOpen, onClose, onSuccess }: CreateChall
             {loadingWarriors ? (
               <div className="h-12 bg-gray-700 rounded-lg animate-pulse" aria-busy="true" aria-label="Loading warriors" />
             ) : warriors.length === 0 ? (
-              <p className="text-gray-500 text-sm">
-                No warriors found. Mint a warrior to participate!
-              </p>
+              <div className="text-center py-3">
+                <p className="text-gray-500 text-sm mb-2">
+                  No warriors found. Mint a warrior to participate!
+                </p>
+                <a
+                  href="/warriorsMinter"
+                  className="inline-block px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-500 transition-colors"
+                >
+                  Mint a Warrior
+                </a>
+              </div>
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {warriors.map((warrior) => (
@@ -416,21 +424,32 @@ export function CreateChallengeModal({ isOpen, onClose, onSuccess }: CreateChall
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-700 bg-gray-900/30 flex gap-4">
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="flex-1 py-3 bg-gray-700 rounded-xl font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !selectedWarrior || !selectedMarket || !address}
-            className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-white hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 transition-all"
-          >
-            {loading ? 'Creating...' : 'Create Challenge'}
-          </button>
+        <div className="p-6 border-t border-gray-700 bg-gray-900/30">
+          {!loading && (!address || !selectedWarrior || !selectedMarket) && (
+            <p className="text-yellow-400/80 text-xs text-center mb-3">
+              {!address
+                ? 'Connect your wallet to create a challenge'
+                : !selectedWarrior
+                ? 'Select a warrior above to continue'
+                : 'Select a market topic above to continue'}
+            </p>
+          )}
+          <div className="flex gap-4">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="flex-1 py-3 bg-gray-700 rounded-xl font-medium text-gray-300 hover:bg-gray-600 disabled:opacity-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={loading || !selectedWarrior || !selectedMarket || !address}
+              className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-white hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {loading ? 'Creating...' : 'Create Challenge'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

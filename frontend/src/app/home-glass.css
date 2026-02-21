@@ -1009,8 +1009,27 @@ div.home-page .home-leaderboard-card.arcade-card,
   }
 }
 
+/* Scroll-reveal fade-in-up — purely additive, never hides content */
+@keyframes fade-in-up {
+  from {
+    opacity: 0.3;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.home-page .animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
+
 /* Scroll-reveal sections - reduce motion override */
 @media (prefers-reduced-motion: reduce) {
+  .home-page .animate-fade-in-up {
+    animation: none !important;
+  }
   .home-page .transition-all {
     transition: none !important;
   }

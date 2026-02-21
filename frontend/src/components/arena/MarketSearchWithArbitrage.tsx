@@ -33,7 +33,7 @@ interface ArbitrageOpportunity {
 }
 
 interface MarketSearchWithArbitrageProps {
-  onSelectMarket: (polyId: string, kalshiId: string, opportunity: ArbitrageOpportunity) => void;
+  onSelect: (opportunity: ArbitrageOpportunity) => void;
   minSpread?: number;
 }
 
@@ -42,7 +42,7 @@ interface MarketSearchWithArbitrageProps {
 // ============================================
 
 export default function MarketSearchWithArbitrage({
-  onSelectMarket,
+  onSelect,
   minSpread = 5,
 }: MarketSearchWithArbitrageProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -159,7 +159,7 @@ export default function MarketSearchWithArbitrage({
           {opportunities.map((opp) => (
             <div
               key={opp.id}
-              onClick={() => onSelectMarket(opp.polymarket.id, opp.kalshi.id, opp)}
+              onClick={() => onSelect(opp)}
               className="border border-gray-200 rounded-lg p-4 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer bg-white"
             >
               {/* Question */}

@@ -412,7 +412,13 @@ export default function CreateArbitrageBattleModal({
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            {!loading && (
+              <span className="text-xs text-gray-500">
+                {step === 1 && !selectedOpportunity && 'Select an opportunity above'}
+                {step === 2 && (!selectedWarrior1 || !selectedWarrior2) && (!address ? 'Connect your wallet' : !hasEnoughWarriors ? 'You need at least 2 warriors' : 'Select 2 warriors above')}
+              </span>
+            )}
             <button
               onClick={onClose}
               disabled={loading}

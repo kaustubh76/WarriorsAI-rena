@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
-import { UnifiedMarket } from '@/types/externalMarket';
+import { externalMarketsService } from '@/services/externalMarkets';
+import { UnifiedMarket, MarketSource, ExternalMarketStatus } from '@/types/externalMarket';
 import { RateLimitPresets, validateEnum } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { marketDataCache } from '@/lib/cache/hashedCache';
@@ -104,6 +105,37 @@ export const GET = composeMiddleware([
     allMarkets.push(...kalshiResult.markets);
     if (kalshiResult.error) {
       errors.push(kalshiResult.error);
+    }
+
+    // If live APIs returned no markets, fall back to database
+    if (allMarkets.length === 0) {
+      console.log('[API] Live APIs returned no markets, falling back to database');
+      const sourceFilters: MarketSource[] | undefined =
+        source === 'all' ? undefined : [source as MarketSource];
+      // Fetch a larger pool since DB sorts volume as string (lexicographic);
+      // we re-sort numerically in memory then slice to requested limit
+      const dbMarkets = await externalMarketsService.getAllMarkets({
+        search: search,
+        source: sourceFilters,
+        status: ExternalMarketStatus.ACTIVE,
+        pageSize: Math.max(limit, 200),
+      });
+      if (dbMarkets.length > 0) {
+        // Sort by numeric volume descending (DB stores volume as string)
+        dbMarkets.sort((a, b) => parseFloat(b.volume) - parseFloat(a.volume));
+        const sliced = dbMarkets.slice(0, limit);
+        marketDataCache.set(cacheKey, sliced);
+        return NextResponse.json({
+          success: true,
+          data: {
+            markets: sliced,
+            total: dbMarkets.length,
+            cached: false,
+            fallback: true,
+            sources: getSourcesFromMarkets(sliced),
+          },
+        });
+      }
     }
 
     // Sort by volume (descending) for relevance
