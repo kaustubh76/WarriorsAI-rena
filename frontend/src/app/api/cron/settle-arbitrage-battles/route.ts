@@ -9,6 +9,7 @@ import { arbitrageBattleSettlementService } from '@/services/arena/arbitrageBatt
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
+import { sendAlert } from '@/lib/monitoring/alerts';
 
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'cron-settle-arbitrage', ...RateLimitPresets.cronJobs }),
@@ -34,6 +35,25 @@ export const POST = composeMiddleware([
 
     if (results.errors.length > 0) {
       console.error('[Cron] Settlement errors:', results.errors);
+    }
+
+    // Alert on settlement failures
+    if (results.failed > 0) {
+      try {
+        await sendAlert(
+          'Arbitrage Settlement Failures',
+          `${results.failed} battles failed to settle during cron job`,
+          results.failed >= 3 ? 'critical' : 'warning',
+          {
+            settled: results.settled,
+            failed: results.failed,
+            errors: results.errors,
+            duration,
+          }
+        );
+      } catch (alertError) {
+        console.error('[Cron] Failed to send settlement alert:', alertError);
+      }
     }
 
     return NextResponse.json({

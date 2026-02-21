@@ -100,6 +100,21 @@ class ArbitrageBattleSettlementService {
     try {
       const trade = battle.arbitrageTrade;
 
+      // Idempotency guard: prevent double-settlement
+      const freshTrade = await prisma.arbitrageTrade.findUnique({
+        where: { id: trade.id },
+      });
+      if (freshTrade?.settled) {
+        console.log(`[ArbitrageBattleSettlement] Trade ${freshTrade.id} already settled, skipping`);
+        return {
+          success: true,
+          warrior1Payout: 0n,
+          warrior2Payout: 0n,
+          arbitrageProfit: 0n,
+          debateBonus: 0n,
+        };
+      }
+
       // 1. Get market outcomes
       const [market1, market2] = await Promise.all([
         prisma.externalMarket.findUnique({

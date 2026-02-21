@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
+import { resolveMirrorMarket } from '@/services/mirror/mirrorExecutionService';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
@@ -468,29 +469,13 @@ export const PUT = composeMiddleware([
         },
       });
 
-      // If has mirror market, attempt to resolve it
+      // If has mirror market, resolve it directly (no fragile HTTP self-call)
       let mirrorResolutionStatus = null;
-      if (resolution.mirrorMarket) {
+      if (resolution.mirrorMarket && resolution.mirrorKey) {
         try {
-          const mirrorResponse = await fetch(
-            `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/flow/execute`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                action: 'resolve',
-                mirrorKey: resolution.mirrorKey,
-                yesWon: outcome,
-              }),
-            }
-          );
-
-          if (mirrorResponse.ok) {
-            mirrorResolutionStatus = 'success';
-          } else {
-            mirrorResolutionStatus = 'failed';
-            console.error('[Scheduled Resolutions] Mirror resolution failed:', await mirrorResponse.text());
-          }
+          const mirrorResult = await resolveMirrorMarket(resolution.mirrorKey, outcome);
+          mirrorResolutionStatus = 'success';
+          console.log(`[Scheduled Resolutions] Mirror market resolved: tx=${mirrorResult.txHash}`);
         } catch (mirrorError) {
           mirrorResolutionStatus = 'error';
           console.error('[Scheduled Resolutions] Failed to resolve mirror market:', mirrorError);

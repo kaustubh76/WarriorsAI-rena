@@ -23,11 +23,12 @@
 | **Blockchain (Cadence)** | Cadence 1.0 on Flow Testnet | Scheduled transactions, market resolution, EVM bridge |
 | **AI Layer** | 0G Network AI Agents | Battle decisions, market predictions, debate AI |
 | **Storage** | 0G Decentralized Storage + Pinata IPFS | Encrypted metadata, battle history |
-| **Backend** | Express.js + Node.js | Arena orchestration and automation |
-| **Database** | Prisma ORM + SQLite (dev) / PostgreSQL (prod) | 40+ models for markets, trades, arbitrage |
+| **Backend** | Next.js API Routes (96 endpoints) | Serverless arena orchestration and automation |
+| **Database** | Prisma ORM + SQLite (dev) / PostgreSQL (prod) | 41 models for markets, trades, arbitrage |
 | **External Markets** | Polymarket + Kalshi APIs | External prediction market data feeds |
-| **Wallet** | FCL (Flow Client Library) | Flow wallet connection and transaction signing |
-| **Deployment** | Vercel + Vercel Cron | CI/CD with 5 automated cron jobs |
+| **Infrastructure** | Rate limiting + consistent hashing + distributed cache | Serverless-optimized performance layer |
+| **Wallet** | FCL + RainbowKit + wagmi | Flow + 0G wallet connection and signing |
+| **Deployment** | Vercel + Vercel Cron | CI/CD with 6 automated cron jobs |
 
 ---
 
@@ -38,19 +39,27 @@ graph TB
     subgraph "Client Layer"
         UI[Next.js 15 Frontend]
         FCL[FCL Wallet Connection]
+        RK[RainbowKit + wagmi]
         FW[Flow Wallet]
     end
 
-    subgraph "API Layer"
-        ARENA["/api/arena/*"]
-        MKT["/api/markets/*"]
-        EXT["/api/external/*"]
-        FLW["/api/flow/*"]
-        AGT["/api/agents/*"]
-        WHL["/api/whale-alerts/*"]
-        ARB["/api/arbitrage/*"]
-        ZG["/api/0g/*"]
-        CRON["/api/cron/*"]
+    subgraph "Infrastructure Layer"
+        RL[Rate Limiting<br/>Sliding Window + Token Bucket]
+        HR[Hash Ring<br/>FNV-1a Consistent Hashing]
+        HC[Hashed Cache<br/>LRU + TTL Distributed Buckets]
+        MW[Composable Middleware<br/>14 Functions + 4 Presets]
+    end
+
+    subgraph "API Layer - 96 Routes"
+        ARENA["/api/arena/* - 11 routes"]
+        MKT["/api/markets/* - 6 routes"]
+        EXT["/api/external/* - 6 routes"]
+        FLW["/api/flow/* - 5 routes"]
+        AGT["/api/agents/* - 13 routes"]
+        WHL["/api/whale-alerts/* - 10 routes"]
+        ARB["/api/arbitrage/* - 4 routes"]
+        ZG["/api/0g/* - 11 routes"]
+        CRON["/api/cron/* - 6 crons"]
     end
 
     subgraph "Service Layer"
@@ -98,7 +107,13 @@ graph TB
     end
 
     UI --> FCL --> FW
+    UI --> RK
     UI --> ARENA & MKT & EXT & FLW & AGT & WHL & ARB & ZG
+
+    ARENA & MKT & EXT & FLW & AGT & WHL & ARB & ZG --> RL
+    RL --> MW
+    MW --> HR
+    HR --> HC
 
     ARENA --> AS --> AF & WNFT & CT
     MKT --> PMS --> AMM & CT
@@ -108,7 +123,7 @@ graph TB
     WHL --> WTS
     ARB --> AMatcher & ABS
     ZG --> ZG_AI & ZG_ST
-    CRON --> SB & SMR & EMS & AMatcher & ABS
+    CRON --> SB & SMR & EMS & AMatcher & ABS & WTS
 
     EMS --> PRISMA
     AMatcher --> PRISMA
@@ -119,6 +134,132 @@ graph TB
     SMR --> EVMB
     EVMB --> AF & AMM & EMM
 ```
+
+---
+
+## Infrastructure & Performance Layer
+
+The platform includes a production-grade infrastructure layer optimized for Vercel serverless.
+
+### Rate Limiting
+
+All 96 API routes + 6 cron routes are protected with **100% named preset coverage**.
+
+```mermaid
+flowchart LR
+    subgraph "Algorithms"
+        SWC[Sliding Window Counter<br/>Prevents 2x burst at boundaries]
+        TB[Token Bucket<br/>Controlled burst allowance]
+    end
+
+    subgraph "15 Named Presets"
+        P1[battleCreation: 5/min]
+        P2[betting: 20/min]
+        P3[readOperations: 120/min]
+        P4[apiQueries: 60/min]
+        P5[cronJobs: 5/min]
+        P6[inference: 20/min]
+        P7["... 9 more presets"]
+    end
+
+    subgraph "Serverless Safety"
+        M1[In-memory Maps]
+        M2[Lazy cleanup every 500 accesses]
+        M3[50K entry hard cap]
+        M4[10% emergency eviction]
+    end
+
+    SWC --> P1 & P2 & P3 & P4 & P5 & P6 & P7
+    P1 & P2 & P3 & P4 & P5 & P6 & P7 --> M1
+    M1 --> M2 --> M3 --> M4
+```
+
+**Key files**: `lib/api/rateLimit.ts`, `lib/api/middleware.ts`
+
+### Consistent Hashing & RPC Routing
+
+FNV-1a hash ring distributes requests across weighted RPC nodes for deterministic routing and node-level caching.
+
+```mermaid
+flowchart TB
+    subgraph "Request Routing"
+        REQ["API Request with routing key<br/>e.g. market:0x1234"]
+        FNV[FNV-1a Hash Function<br/>32-bit, ~3x faster than MD5]
+        RING[Hash Ring<br/>150 virtual nodes per physical node]
+    end
+
+    subgraph "Flow RPC Nodes"
+        F1["flow-primary (weight: 3)<br/>FLOW_TESTNET_RPC"]
+        F2["flow-public (weight: 1)<br/>testnet.evm.nodes.onflow.org"]
+        F3["flow-tatum (fallback)<br/>Automatic timeout fallback"]
+    end
+
+    subgraph "0G RPC Nodes"
+        Z1["0g-primary (weight: 3)<br/>NEXT_PUBLIC_0G_RPC"]
+        Z2["0g-public (weight: 1)<br/>evmrpc-testnet.0g.ai"]
+    end
+
+    REQ --> FNV --> RING
+    RING --> F1 & F2
+    F1 & F2 -->|timeout| F3
+    RING --> Z1 & Z2
+```
+
+- Same routing key always maps to same RPC node (cache-friendly)
+- `createFlowPublicClientForKey(key)` / `executeWithFlowFallbackForKey(key, fn)` for hash-routed requests
+- Shared `isTimeoutError()` exported from `flowClient.ts` (no inline copies)
+- 0G chain defined once in `zeroGClient.ts` (zero inline `defineChain` calls)
+
+**Key files**: `lib/hashing/consistentHash.ts`, `lib/flowClient.ts`, `lib/zeroGClient.ts`, `lib/apiConfig.ts`
+
+### Distributed Caching
+
+Hash-distributed LRU cache with 3 specialized instances.
+
+```mermaid
+flowchart LR
+    subgraph "HashedCache Instances"
+        MC["marketDataCache<br/>8 buckets x 200 entries<br/>TTL: 5 min"]
+        RC["rpcResponseCache<br/>4 buckets x 500 entries<br/>TTL: 30 sec"]
+        UC["userDataCache<br/>4 buckets x 100 entries<br/>TTL: 10 min"]
+    end
+
+    subgraph "Per Bucket"
+        LRU[LRU Eviction]
+        TTL[TTL Expiration]
+        STATS[Distribution Stats]
+    end
+
+    MC & RC & UC --> LRU
+    LRU --> TTL --> STATS
+```
+
+Wired into 15+ routes: whale-alerts, hot-markets, top-whales, agents, arena/markets, metrics, health, arbitrage, leaderboard, portfolio.
+
+**Key files**: `lib/cache/hashedCache.ts`, `lib/cache/index.ts`
+
+### Composable Middleware
+
+All routes use a composable middleware pipeline with automatic error handling.
+
+```mermaid
+flowchart LR
+    REQ[Incoming Request] --> MW1[withRateLimit]
+    MW1 --> MW2[withRequestId]
+    MW2 --> MW3[withValidation]
+    MW3 --> MW4[withLogging]
+    MW4 --> HANDLER[Route Handler]
+    HANDLER --> ERR{Error?}
+    ERR -->|Yes| HE[handleAPIError<br/>APIError + Prisma + Flow mapping]
+    ERR -->|No| RES[NextResponse]
+    HE --> RES
+```
+
+**14 middleware functions**: `withRateLimit`, `withCronAuth`, `withInternalAuth`, `withCORS`, `withLogging`, `withValidation`, `withCache`, `withRequestId`, `withTimeout`, `onlyMethods`, `forMethods`, `createHandler`
+
+**4 presets**: `presets.api(prefix, preset)`, `presets.publicApi(prefix, preset)`, `presets.cron(prefix)`, `presets.internal(prefix)`
+
+**Key files**: `lib/api/middleware.ts`, `lib/api/errorHandler.ts`, `lib/api/cronAuth.ts`
 
 ---
 
@@ -236,26 +377,48 @@ graph TB
 
 WarriorsAI-rena mirrors prediction markets from Polymarket and Kalshi onto Flow, enabling cross-platform trading and arbitrage.
 
+### Polymarket Integration
+
+- **API**: Gamma API (`gamma-api.polymarket.com`) for market discovery, CLOB API for trading
+- **Price format**: Returns 0-1 decimal (e.g., `0.52`) -> normalized to 0-100
+- **Quirk**: Returns JSON-encoded string arrays for `outcomes`, `outcomePrices`, `clobTokenIds`, `tags` — handled by `jsonStringArray` Zod preprocessor in `polymarketSchemas.ts`
+- **Volume**: ~1000 active markets synced per cycle
+
+### Kalshi Integration
+
+- **Auth**: RSA-PSS per-request signing via `kalshiAuth.ts` (Node.js `crypto.sign()` with SHA-256, salt length 32)
+- **API domain**: `api.elections.kalshi.com/trade-api/v2`
+- **2-Phase market fetch** (avoids 10,000+ KXMVE* sports parlays):
+  1. Fetch events via `/events?status=open`, filter to relevant categories (Politics, Economics, Climate, Science, etc.)
+  2. Parallel fetch markets by `series_ticker` in **batches of 5** using `Promise.allSettled()`
+- **Result**: ~500 non-sports markets from ~55 unique series in ~0.75s
+- **Price format**: Returns 0-100 cents (bid/ask) -> midpoint -> normalized to 0-100
+
 ```mermaid
 sequenceDiagram
     participant CRON as Vercel Cron - sync-markets
     participant EMS as ExternalMarketsService
-    participant POLY as Polymarket API
-    participant KALSHI as Kalshi API
+    participant POLY as Polymarket Gamma API
+    participant KALSHI as Kalshi Events + Markets API
     participant DB as Prisma Database
     participant EMM as ExternalMarketMirror.sol
     participant AMM as PredictionMarketAMM
 
-    Note over CRON,AMM: Phase 1 - Market Sync (Every 6 hours)
+    Note over CRON,AMM: Phase 1 - Market Sync (Daily at 06:00 UTC)
     CRON->>EMS: syncAllMarkets()
     par Parallel Sync
-        EMS->>POLY: GET /markets (batch 100)
-        POLY-->>EMS: Market data + prices
-        EMS->>KALSHI: GET /markets (batch 500)
-        KALSHI-->>EMS: Market data + prices
+        EMS->>POLY: GET /markets (batch 100, ~1000 markets)
+        POLY-->>EMS: Market data + JSON string prices
+        Note over EMS: jsonStringArray Zod preprocessor
+        EMS->>KALSHI: Phase 1: GET /events?status=open
+        KALSHI-->>EMS: Events with series_tickers
+        Note over EMS: Filter: Politics, Economics,<br/>Climate, Science (exclude Sports)
+        EMS->>KALSHI: Phase 2: GET /markets?series_ticker=X<br/>Parallel batches of 5
+        KALSHI-->>EMS: ~500 markets from ~55 series
     end
-    EMS->>DB: Upsert ExternalMarket records
-    EMS->>DB: Create SyncLog entry
+    EMS->>EMS: Normalize prices to 0-100
+    EMS->>DB: unifiedToDb() stores as 0-10000 basis points
+    EMS->>DB: Upsert ExternalMarket records + SyncLog
 
     Note over CRON,AMM: Phase 2 - Mirror Market Creation
     EMS->>EMM: mirrorMarket(externalId, source, initialPrice)
@@ -276,15 +439,26 @@ sequenceDiagram
 
 ## Arbitrage Detection & Execution Flow
 
+### Price Pipeline
+
+```
+Polymarket API (0-1 decimal)  -->  x100  -->  Unified (0-100)  -->  x100  -->  DB (0-10000 basis points)
+Kalshi API (0-100 cents)      -->  mid   -->  Unified (0-100)  -->  x100  -->  DB (0-10000 basis points)
+
+DB (0-10000)  -->  dbToUnified() /100  -->  Unified (0-100)  -->  /100  -->  calculateArbitrage (0-1 decimal)
+```
+
+### Detection & Execution
+
 ```mermaid
 flowchart TB
-    subgraph "Detection - Cron Every 10 min"
+    subgraph "Detection - Cron Daily at 06:30 UTC"
         D1["api/cron/detect-arbitrage"] --> D2[ArbitrageMarketMatcher]
-        D2 --> D3[Fetch Polymarket Markets]
-        D2 --> D4[Fetch Kalshi Markets]
-        D3 & D4 --> D5[Jaccard Similarity Matching - Threshold 0.7]
+        D2 --> D3[Fetch Polymarket Markets from DB]
+        D2 --> D4[Fetch Kalshi Markets from DB]
+        D3 & D4 --> D5["Jaccard Similarity Matching<br/>Stop-word filtered, Threshold 0.35"]
         D5 --> D6{"Spread >= 5% ?"}
-        D6 -->|Yes| D7[Calculate Arbitrage - cost = price1_yes + price2_no]
+        D6 -->|Yes| D7["Calculate Arbitrage<br/>cost = price1_yes + price2_no<br/>(values in 0-1 decimal)"]
         D6 -->|No| D8[Skip]
         D7 --> D9{"cost < 1.0 ?"}
         D9 -->|Yes| D10[Upsert MatchedMarketPair]
@@ -301,7 +475,7 @@ flowchart TB
         E5 & E6 --> E7[Create ArbitrageTrade record]
     end
 
-    subgraph "Settlement - Cron Every 5 min"
+    subgraph "Settlement - Cron Daily at 12:00 UTC"
         S1["api/cron/settle-arbitrage-battles"] --> S2[ArbitrageBattleSettlement]
         S2 --> S3[Find completed battles with resolved markets]
         S3 --> S4[Calculate actual P and L]
@@ -311,6 +485,10 @@ flowchart TB
         S7 --> S8[Log to TradeAuditLog]
     end
 ```
+
+**Matching algorithm**: Jaccard similarity on cleaned word sets (lowercase, non-alphanumeric removed, 40+ stop words filtered, minimum word length > 1). Threshold: **0.35** (balances precision vs recall).
+
+**Result**: ~557 arbitrage opportunities detected across Polymarket vs Kalshi (Fed chair, GDP, climate, elections, etc.)
 
 ---
 
@@ -395,48 +573,57 @@ graph LR
 
 ## Cron Job Automation Pipeline
 
-Five Vercel cron jobs run automated operations across the platform.
+Six Vercel cron jobs run automated operations across the platform.
 
 | Cron Job | Schedule | Route | Purpose |
 |----------|----------|-------|---------|
-| Execute Battles | Every 1 minute | `/api/cron/execute-battles` | Execute ready scheduled battles |
-| Execute Resolutions | Every 5 minutes | `/api/cron/execute-resolutions` | Resolve markets with oracle data |
-| Settle Arbitrage | Every 5 minutes | `/api/cron/settle-arbitrage-battles` | Settle completed arbitrage trades |
-| Detect Arbitrage | Every 10 minutes | `/api/cron/detect-arbitrage` | Find cross-market opportunities |
-| Sync Markets | Every 6 hours | `/api/cron/sync-markets` | Sync Polymarket and Kalshi data |
+| Execute Battles | Daily at 00:00 UTC | `/api/cron/execute-battles` | Execute ready scheduled battles |
+| Execute Resolutions | Daily at 04:00 UTC | `/api/cron/execute-resolutions` | Resolve markets with oracle data |
+| Sync Markets | Daily at 06:00 UTC | `/api/cron/sync-markets` | Sync Polymarket and Kalshi data |
+| Detect Arbitrage | Daily at 06:30 UTC | `/api/cron/detect-arbitrage` | Find cross-market opportunities |
+| Settle Arbitrage | Daily at 12:00 UTC | `/api/cron/settle-arbitrage-battles` | Settle completed arbitrage trades |
+| Sync Whale Trades | Daily at 18:00 UTC | `/api/cron/sync-whale-trades` | Sync whale trade data from platforms |
 
 ```mermaid
 flowchart LR
-    subgraph "execute-battles - 1 min"
+    subgraph "execute-battles - 00:00 UTC"
         EB1[Verify CRON_SECRET] --> EB2[Query ready battles<br/>ScheduledBattle.cdc]
         EB2 --> EB3[Server ECDSA P256 auth]
         EB3 --> EB4[fcl.mutate executeBattle]
     end
 
-    subgraph "execute-resolutions - 5 min"
+    subgraph "execute-resolutions - 04:00 UTC"
         ER1[Verify CRON_SECRET] --> ER2[Prisma: pending resolutions]
         ER2 --> ER3[Fetch outcome from<br/>Polymarket/Kalshi API]
         ER3 --> ER4[resolveMarketServerSide<br/>via FCL + ECDSA P256]
     end
 
-    subgraph "detect-arbitrage - 10 min"
-        DA1[Verify CRON_SECRET] --> DA2[ArbitrageMarketMatcher]
-        DA2 --> DA3[Cross-platform comparison]
-        DA3 --> DA4[Upsert MatchedMarketPair]
-    end
-
-    subgraph "sync-markets - 6 hours"
+    subgraph "sync-markets - 06:00 UTC"
         SM1[Verify CRON_SECRET] --> SM2[ExternalMarketsService]
-        SM2 --> SM3[Sync Polymarket + Kalshi]
+        SM2 --> SM3[Sync Polymarket + Kalshi<br/>2-phase Kalshi fetch]
         SM3 --> SM4[Upsert ExternalMarket records]
     end
 
-    subgraph "settle-arbitrage - 5 min"
+    subgraph "detect-arbitrage - 06:30 UTC"
+        DA1[Verify CRON_SECRET] --> DA2[ArbitrageMarketMatcher]
+        DA2 --> DA3[Jaccard cross-platform matching]
+        DA3 --> DA4[Upsert MatchedMarketPair]
+    end
+
+    subgraph "settle-arbitrage - 12:00 UTC"
         SA1[Verify CRON_SECRET] --> SA2[ArbitrageBattleSettlement]
         SA2 --> SA3[Find settled battles]
         SA3 --> SA4["Calculate PnL + release escrow"]
     end
+
+    subgraph "sync-whale-trades - 18:00 UTC"
+        SW1[Verify CRON_SECRET] --> SW2[WhaleTrackerService]
+        SW2 --> SW3[Fetch whale trades<br/>from Polymarket + Kalshi]
+        SW3 --> SW4[Upsert WhaleTrade records]
+    end
 ```
+
+All cron routes use `withCronAuth` middleware requiring `CRON_SECRET` Bearer token (minimum 32 characters). Configurable timeouts via `withCronTimeout()` (default 240s).
 
 ---
 
@@ -483,7 +670,7 @@ sequenceDiagram
 
 ## Database Schema
 
-Core entity relationships across the 40+ Prisma models:
+Core entity relationships across the 41 Prisma models:
 
 ```mermaid
 erDiagram
@@ -506,8 +693,8 @@ erDiagram
         string id PK
         string source
         string question
-        int yesPrice
-        int noPrice
+        int yesPrice "0-10000 basis points"
+        int noPrice "0-10000 basis points"
         string volume
         string status
         string outcome
@@ -653,24 +840,25 @@ flowchart LR
 
 ## API Architecture Overview
 
-The platform exposes 90+ API routes organized by domain:
+The platform exposes 96 API routes organized by domain:
 
 | Category | Route Pattern | Count | Key Operations |
 |----------|--------------|-------|----------------|
-| **Arena/Battles** | `/api/arena/*` | 10 | Create battles, execute, bet, leaderboard, warrior stats |
-| **Markets** | `/api/markets/*` | 5 | Bet, settle, claim winnings, user-created markets |
-| **External Markets** | `/api/external/*` | 7 | Polymarket, Kalshi, sync, arbitrage detection |
-| **Flow/Cadence** | `/api/flow/*` | 5 | Scheduled TX, resolutions, VRF trades |
-| **AI Agents** | `/api/agents/*` | 11 | Trading, copy trade, authorization, external trades |
-| **Whale Tracking** | `/api/whale-alerts/*` | 10 | Alerts, follow/unfollow, stats, hot markets, history |
-| **Arbitrage** | `/api/arbitrage/*` | 3 | Execute trades, trade history |
-| **0G Network** | `/api/0g/*` | 11 | Store, query, inference, upload, deposit, balance |
-| **Cron Jobs** | `/api/cron/*` | 5 | Execute battles, resolutions, sync, arbitrage |
-| **AI/Debate** | `/api/ai/*` | 2 | AI debate creation and rounds |
+| **Arena/Battles** | `/api/arena/*` | 11 | Create battles, execute, bet, leaderboard, warrior stats, matched markets, arbitrage opportunities |
+| **AI Agents** | `/api/agents/*` | 13 | Trading, authorization, external trades, copy trade, auto-predict, transfer, decrypt |
+| **0G Network** | `/api/0g/*` | 11 | Store, query, inference, upload, deposit, balance, health, market-context, reencrypt |
+| **Whale Tracking** | `/api/whale-alerts/*` | 10 | Alerts, follow/unfollow, stats, hot markets, top whales, history, traders |
+| **External Markets** | `/api/external/*` | 6 | Polymarket, Kalshi, sync, sync-history, arbitrage detection |
+| **Markets** | `/api/markets/*` | 6 | Bet, settle, claim winnings, user-created markets, bet history |
+| **Cron Jobs** | `/api/cron/*` | 6 | Execute battles, resolutions, sync markets, detect arbitrage, settle, sync whales |
+| **Flow/Cadence** | `/api/flow/*` | 5 | Scheduled TX, resolutions, VRF trades, agent positions |
+| **Arbitrage** | `/api/arbitrage/*` | 4 | Execute trades, trade history, trade details |
 | **Copy Trading** | `/api/copy-trade/*` | 3 | Execute, mirror history, P&L |
+| **AI/Debate** | `/api/ai/*` | 2 | AI debate creation and rounds |
 | **Contract** | `/api/contract/*` | 2 | Read, batch-read smart contracts |
 | **Portfolio** | `/api/portfolio/*` | 2 | Native and mirror portfolio |
-| **Other** | Various | 10+ | Health, metrics, oracle, admin, creator, game master |
+| **Events** | `/api/events/*` | 3 | Start, stop, status for event listeners |
+| **Other** | Various | 12 | Health, metrics, RPC health, oracle, admin, creator, game master, file upload, battle generation |
 
 ---
 
@@ -701,39 +889,64 @@ WarriorsAI-rena/
 ├── frontend/                         # Next.js application
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── api/                  # 90+ API route handlers
-│   │   │   │   ├── arena/            # Battle routes
-│   │   │   │   ├── markets/          # Market routes
-│   │   │   │   ├── external/         # External market routes
-│   │   │   │   ├── cron/             # 5 cron jobs
-│   │   │   │   ├── flow/             # Cadence integration
-│   │   │   │   ├── agents/           # AI agent routes
-│   │   │   │   ├── whale-alerts/     # Whale tracking
-│   │   │   │   ├── arbitrage/        # Arbitrage routes
-│   │   │   │   └── 0g/              # 0G storage/compute
+│   │   │   ├── api/                  # 96 API route handlers
+│   │   │   │   ├── arena/            # Battle routes (11)
+│   │   │   │   ├── markets/          # Market routes (6)
+│   │   │   │   ├── external/         # External market routes (6)
+│   │   │   │   ├── cron/             # 6 cron jobs
+│   │   │   │   ├── flow/             # Cadence integration (5)
+│   │   │   │   ├── agents/           # AI agent routes (13)
+│   │   │   │   ├── whale-alerts/     # Whale tracking (10)
+│   │   │   │   ├── arbitrage/        # Arbitrage routes (4)
+│   │   │   │   ├── 0g/              # 0G storage/compute (11)
+│   │   │   │   └── ...              # ai, copy-trade, portfolio, etc.
 │   │   │   ├── prediction-arena/     # AI debate UI
 │   │   │   ├── markets/              # Market UI
 │   │   │   ├── whale-tracker/        # Whale tracker UI
 │   │   │   └── leaderboard/          # Rankings
-│   │   ├── components/               # React components
+│   │   ├── components/               # 80+ React components
+│   │   │   ├── 0g/                   # 0G network components
+│   │   │   ├── agents/               # Agent management
+│   │   │   ├── ai/                   # AI debate UI
+│   │   │   ├── arbitrage/            # Arbitrage opportunities
+│   │   │   ├── arena/                # Battle arena
+│   │   │   ├── creator/              # Creator economy
+│   │   │   ├── debate/               # Debate system
 │   │   │   ├── flow/                 # Flow wallet UI
-│   │   │   ├── arena/                # Battle components
+│   │   │   ├── gamification/         # Gamification overlays
 │   │   │   ├── markets/              # Market components
-│   │   │   └── ui/                   # Shared UI components
-│   │   ├── hooks/                    # 58+ custom React hooks
-│   │   ├── lib/                      # Utilities
+│   │   │   ├── micro-markets/        # Micro markets
+│   │   │   ├── portfolio/            # Portfolio views
+│   │   │   ├── whale/                # Whale tracking
+│   │   │   └── ui/                   # Shared UI primitives
+│   │   ├── hooks/                    # 75+ custom React hooks
+│   │   ├── lib/                      # Infrastructure & utilities
+│   │   │   ├── api/                  # Rate limiting, middleware, error handling, cron auth
+│   │   │   ├── cache/                # LRU cache, hashed cache (3 instances)
+│   │   │   ├── hashing/              # FNV-1a consistent hash ring
+│   │   │   ├── queue/                # Request queues, battle execution queue
 │   │   │   ├── flow/                 # FCL client, serverAuth
-│   │   │   ├── auth/                 # Auth utilities
-│   │   │   └── monitoring/           # Battle monitoring
-│   │   ├── services/                 # Business logic
-│   │   │   ├── externalMarkets/      # Polymarket, Kalshi
-│   │   │   └── arbitrage/            # Market matcher
+│   │   │   ├── auth/                 # Auth utilities, Kalshi RSA-PSS
+│   │   │   ├── monitoring/           # Battle monitoring, alerts
+│   │   │   ├── eventListeners/       # Scheduled resolution + market events
+│   │   │   ├── flowClient.ts         # Shared Flow RPC with hash-ring routing
+│   │   │   ├── zeroGClient.ts        # Centralized 0G chain + client factories
+│   │   │   ├── apiConfig.ts          # RPC nodes, contract addresses, hash ring init
+│   │   │   └── ...                   # prisma, logger, metrics, analytics
+│   │   ├── services/                 # Business logic (55+ services)
+│   │   │   ├── externalMarkets/      # Polymarket, Kalshi, whale tracking
+│   │   │   │   └── schemas/          # Zod validation schemas
+│   │   │   ├── arbitrage/            # Market matcher
+│   │   │   ├── arena/                # Arena services
+│   │   │   ├── betting/              # Market betting, order execution
+│   │   │   ├── escrow/               # Escrow service
+│   │   │   └── config/               # Trading config
 │   │   ├── contexts/                 # React contexts
 │   │   └── types/                    # TypeScript types
 │   ├── prisma/
-│   │   └── schema.prisma             # 40+ database models
-│   └── vercel.json                   # Cron job configuration
-├── arena-backend/                    # Express.js backend
+│   │   └── schema.prisma             # 41 database models
+│   └── vercel.json                   # 6 cron jobs + Vercel config
+├── arena-backend/                    # Express.js backend (legacy)
 │   └── src/
 │       ├── index.ts                  # Express app
 │       └── routes/                   # Backend routes
@@ -869,6 +1082,12 @@ forge test
 - **Time Locks**: Betting periods and battle intervals prevent manipulation
 - **Oracle Verification**: VRF-based randomness from Flow's native Cadence randomness
 
+### Infrastructure Security
+- **100% Rate Limiting**: All 96 API routes + 6 cron routes protected with named presets
+- **Composable Middleware**: Automatic error handling prevents information leakage in production
+- **Cron Authentication**: Bearer token validation (min 32 chars) on all automated endpoints
+- **Circuit Breakers**: Trading circuit breaker prevents cascade failures
+
 ### Economic Security
 - **Defluence Limits**: One defluence per player per game prevents griefing
 - **1:1 FLOW Backing**: CRwN token fully backed, preventing death spirals
@@ -877,7 +1096,7 @@ forge test
 
 ### Authentication Security
 - **Dual Auth Model**: Client-side FCL wallet + server-side ECDSA P256 for cron jobs
-- **CRON_SECRET**: Bearer token validation on all automated endpoints
+- **Kalshi RSA-PSS**: Per-request cryptographic signing for Kalshi API access
 - **Private Key Isolation**: Server-side keys never exposed to client
 
 ---

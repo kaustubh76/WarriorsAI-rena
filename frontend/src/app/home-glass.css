@@ -568,6 +568,412 @@ div.home-page .home-leaderboard-card.arcade-card,
     0 0 3px currentColor !important;
 }
 
+/* ===== Feature Hub & Prediction Arena Spotlight Overrides ===== */
+
+/* Purple section headers & card labels */
+.home-page .text-purple-400,
+.home-page h2.text-purple-400,
+.home-page h3.text-purple-400 {
+  color: #7c3aed !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8),
+    0 0 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+.home-page .text-purple-300,
+.home-page span.text-purple-300 {
+  color: #8b5cf6 !important;
+}
+
+/* Cyan section headers & card labels */
+.home-page .text-cyan-400,
+.home-page h3.text-cyan-400 {
+  color: #0891b2 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8),
+    0 0 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+.home-page .text-cyan-300,
+.home-page span.text-cyan-300 {
+  color: #06b6d4 !important;
+}
+
+/* Orange section header text (already has text-orange-400 rule but add h3 specificity) */
+.home-page h3.text-orange-400 {
+  color: #dd6b20 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8),
+    0 0 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+.home-page .text-orange-300,
+.home-page span.text-orange-300 {
+  color: #ed8936 !important;
+}
+
+/* Blue section header (already handled at line 50) - add h3 specificity */
+.home-page h3.text-blue-400 {
+  color: #1e4d72 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8),
+    0 0 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+.home-page .text-blue-300,
+.home-page span.text-blue-300 {
+  color: #2b6cb0 !important;
+}
+
+/* Feature Hub card backgrounds with glassmorphism */
+.home-page .bg-purple-900\/20 {
+  background: rgba(124, 58, 237, 0.12) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+.home-page .bg-cyan-900\/20 {
+  background: rgba(8, 145, 178, 0.12) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+.home-page .bg-blue-900\/20 {
+  background: rgba(30, 77, 114, 0.12) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+.home-page .bg-orange-900\/20 {
+  background: rgba(221, 107, 32, 0.12) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* Feature Hub card borders */
+.home-page .border-purple-500\/30 {
+  border-color: rgba(124, 58, 237, 0.3) !important;
+}
+
+.home-page .border-cyan-500\/30 {
+  border-color: rgba(8, 145, 178, 0.3) !important;
+}
+
+.home-page .border-blue-500\/30 {
+  border-color: rgba(30, 77, 114, 0.3) !important;
+}
+
+.home-page .border-orange-500\/30 {
+  border-color: rgba(221, 107, 32, 0.3) !important;
+}
+
+/* Prediction Arena spotlight card */
+.home-page .prediction-arena-spotlight {
+  background: radial-gradient(circle at top left, rgba(168, 85, 247, 0.15), rgba(139, 92, 246, 0.1) 50%),
+    linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.15) 30%, rgba(168, 85, 247, 0.2) 100%) !important;
+  border: 3px solid rgba(168, 85, 247, 0.5) !important;
+  border-image: none !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(168, 85, 247, 0.2) !important;
+}
+
+.home-page .prediction-arena-spotlight:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15), 0 0 16px rgba(168, 85, 247, 0.3) !important;
+}
+
+/* ===== Hero Card Text Overrides ===== */
+.home-page .home-hero-title {
+  color: #ffd700 !important;
+  text-shadow:
+    2px 2px 4px rgba(0, 0, 0, 0.9),
+    0 0 8px rgba(255, 215, 0, 0.4) !important;
+}
+
+.home-page .home-hero-subtitle {
+  color: #e2e8f0 !important;
+  text-shadow:
+    1px 1px 3px rgba(0, 0, 0, 0.9),
+    0 0 4px rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Lock text override for light theme */
+.home-page .home-lock-text {
+  color: #c53030 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8) !important;
+}
+
+/* ===== Stats Bar Overrides ===== */
+.home-page .home-stat-card {
+  background: rgba(120, 160, 200, 0.15) !important;
+  border: 1px solid rgba(45, 90, 39, 0.3) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+.home-page .home-stat-value {
+  color: #2d5a27 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8) !important;
+}
+
+.home-page .home-stat-label {
+  color: #4a5568 !important;
+}
+
+/* ===== How It Works Overrides ===== */
+.home-page .home-how-step-circle {
+  background: rgba(124, 58, 237, 0.15) !important;
+  border-color: rgba(124, 58, 237, 0.3) !important;
+}
+
+.home-page .home-how-title {
+  color: #2d5a27 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.6) !important;
+}
+
+.home-page .home-how-desc {
+  color: #4a5568 !important;
+}
+
+/* Section dividers */
+.home-page .home-section-divider {
+  border-color: rgba(45, 90, 39, 0.15) !important;
+}
+
+/* ===== CTA Section Overrides ===== */
+.home-page .home-cta-title {
+  color: #c53030 !important;
+  text-shadow:
+    1px 1px 2px rgba(255, 255, 255, 0.8),
+    0 0 3px rgba(255, 255, 255, 0.6) !important;
+}
+
+.home-page .home-cta-subtitle {
+  color: #4a5568 !important;
+}
+
+/* ===== Feature Card Badges ===== */
+.home-page .home-feature-badge {
+  z-index: 20;
+  letter-spacing: 0.05em;
+}
+
+/* ===== Stat Card Hover Glow ===== */
+.home-page .home-stat-card:hover {
+  box-shadow: 0 4px 12px rgba(45, 90, 39, 0.25), 0 0 8px rgba(45, 90, 39, 0.15) !important;
+}
+
+/* AnimatedCounter override for light theme */
+.home-page .home-stat-value .animated-counter,
+.home-page .home-stat-value span {
+  color: #2d5a27 !important;
+}
+
+/* Skeleton override for light theme */
+.home-page .skeleton {
+  background: rgba(45, 90, 39, 0.15) !important;
+}
+
+/* ===== Phase 4: Typewriter, Sparkles, Scroll, Steps ===== */
+
+/* Typewriter animation for main title */
+@keyframes typewriter-reveal {
+  from { max-width: 0; }
+  to { max-width: 100%; }
+}
+
+@keyframes blink-caret {
+  0%, 100% { border-color: transparent; }
+  50% { border-color: currentColor; }
+}
+
+.home-page .home-typewriter {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 0;
+  animation: typewriter-reveal 1.6s steps(18, end) 0.3s forwards;
+  border-right: 3px solid transparent;
+}
+
+.home-page .home-typewriter {
+  animation:
+    typewriter-reveal 1.6s steps(18, end) 0.3s forwards,
+    blink-caret 0.6s step-end 0.3s 4;
+}
+
+/* Tagline override */
+.home-page .home-tagline {
+  color: #4a5568 !important;
+  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.6) !important;
+  opacity: 0;
+  animation: fade-in 0.3s ease-out 1.8s forwards !important;
+}
+
+/* Sparkle particles */
+.home-page .home-sparkle {
+  box-shadow: 0 0 4px rgba(255, 215, 0, 0.6), 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+/* Feature card descriptions */
+.home-page .home-feature-desc {
+  color: #718096 !important;
+}
+
+/* Scroll progress bar */
+.home-page .home-scroll-progress {
+  box-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+}
+
+/* Scroll-to-top button */
+.home-page .home-scroll-top-btn:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25), 0 0 12px rgba(45, 90, 39, 0.4) !important;
+}
+
+/* Step connector arrows */
+.home-page .home-step-connector {
+  color: rgba(124, 58, 237, 0.4) !important;
+}
+
+/* Step number badges */
+.home-page .home-step-badge {
+  color: #ffffff !important;
+  box-shadow: 0 0 6px rgba(124, 58, 237, 0.4);
+}
+
+/* ===== Phase 5: Micro-Interactions & Motion ===== */
+
+/* Wallet warning pulsing glow border */
+@keyframes pulse-glow-border {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 215, 0, 0.3); }
+  50% { box-shadow: 0 0 16px rgba(255, 215, 0, 0.6), 0 0 24px rgba(255, 215, 0, 0.2); }
+}
+
+.home-page .home-wallet-warning {
+  animation: pulse-glow-border 2s ease-in-out infinite;
+}
+
+/* Hero card floating idle effect */
+@keyframes hero-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.home-page .home-hero-card {
+  animation: hero-float 3s ease-in-out infinite;
+  transition: box-shadow 0.3s ease, transform 0.2s ease !important;
+}
+
+.home-page .home-hero-card:hover {
+  animation-play-state: paused;
+  transform: scale(1.05) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 16px rgba(255, 215, 0, 0.3) !important;
+}
+
+/* Token exchange card shimmer - mint (green upward) */
+@keyframes shimmer-up {
+  0% { transform: translateY(100%) rotate(-45deg); }
+  100% { transform: translateY(-100%) rotate(-45deg); }
+}
+
+/* Token exchange card shimmer - burn (red downward) */
+@keyframes shimmer-down {
+  0% { transform: translateY(-100%) rotate(45deg); }
+  100% { transform: translateY(100%) rotate(45deg); }
+}
+
+.home-page .home-token-mint-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.home-page .home-token-mint-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 40%, rgba(34, 197, 94, 0.08) 50%, transparent 60%);
+  animation: shimmer-up 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.home-page .home-token-burn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.home-page .home-token-burn-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, transparent 40%, rgba(239, 68, 68, 0.08) 50%, transparent 60%);
+  animation: shimmer-down 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Prediction Arena sword wiggle */
+@keyframes sword-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  75% { transform: rotate(8deg); }
+}
+
+.home-page .home-prediction-sword {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.home-page .prediction-arena-spotlight:hover .home-prediction-sword {
+  animation: sword-wiggle 0.5s ease-in-out 2;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .home-page .home-typewriter {
+    animation: none !important;
+    max-width: 100% !important;
+    border-right: none !important;
+  }
+
+  .home-page .home-tagline {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .home-page .animate-sparkle {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  .home-page .home-hero-card {
+    animation: none !important;
+  }
+
+  .home-page .home-wallet-warning {
+    animation: none !important;
+  }
+
+  .home-page .home-token-mint-shimmer::after,
+  .home-page .home-token-burn-shimmer::after {
+    animation: none !important;
+  }
+
+  .home-page .home-feature-badge {
+    animation: none !important;
+  }
+
+  .home-page .home-scroll-progress {
+    transition: none !important;
+  }
+
+  .home-page .home-prediction-sword {
+    animation: none !important;
+  }
+}
+
 /* Loading Spinner */
 .loading-spinner {
   width: 40px;
@@ -581,4 +987,75 @@ div.home-page .home-leaderboard-card.arcade-card,
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* ===== Phase 6: Gradient Text & Scroll Reveals ===== */
+
+/* Gradient text override - bypasses nuclear color rule */
+.home-page .home-gradient-text {
+  background: linear-gradient(135deg, #2d5a27, #38a169, #ffd700) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+
+/* Fallback for browsers without background-clip: text */
+@supports not (-webkit-background-clip: text) {
+  .home-page .home-gradient-text {
+    color: #2d5a27 !important;
+    background: none !important;
+    -webkit-text-fill-color: unset !important;
+  }
+}
+
+/* Scroll-reveal sections - reduce motion override */
+@media (prefers-reduced-motion: reduce) {
+  .home-page .transition-all {
+    transition: none !important;
+  }
+}
+
+/* ===== Phase 7: Focus Indicators ===== */
+
+/* Golden glow focus ring for keyboard navigation — matches arcade theme */
+.home-page a:focus-visible,
+.home-page button:focus-visible,
+.home-page [role="button"]:focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.8), 0 0 8px rgba(250, 204, 21, 0.4) !important;
+}
+
+/* ===== Phase 8: Tabbed Hub & Gamification ===== */
+
+/* Tab list override for home page glass theme */
+.home-page .home-tab-list {
+  background: rgba(120, 160, 200, 0.1) !important;
+  border: 2px solid rgba(45, 90, 39, 0.3) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(10px) !important;
+  height: auto !important;
+}
+
+/* Tab trigger text color overrides (nuclear color rule) */
+.home-page .home-tab-list button {
+  color: rgba(45, 90, 39, 0.7) !important;
+  font-size: 8px !important;
+  padding: 8px 12px !important;
+}
+
+/* Active tab trigger — dark text on gold bg */
+.home-page .home-tab-list button[class*="from-yellow"] {
+  color: #000 !important;
+}
+
+/* XP progress bar override */
+.home-page .relative.h-1 {
+  background: rgba(45, 90, 39, 0.2) !important;
+  border-radius: 4px !important;
+}
+
+.home-page .relative.h-1 > div {
+  background: linear-gradient(90deg, #2d5a27, #ffd700) !important;
+  border-radius: 4px !important;
 }

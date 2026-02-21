@@ -6,10 +6,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveMarketServerSide, waitForSealed } from '@/lib/flow/marketResolutionClient';
+import { resolveMirrorMarket } from '@/services/mirror/mirrorExecutionService';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
+import { sendAlert } from '@/lib/monitoring/alerts';
+
+const MAX_RESOLUTION_ATTEMPTS = 10;
+const SEAL_TIMEOUT_MS = 30000;
 
 export const maxDuration = 300; // 5 minutes max execution time
 export const dynamic = 'force-dynamic';
@@ -43,7 +48,25 @@ export const POST = composeMiddleware([
       const resolutionStartTime = Date.now();
 
       try {
-        console.log(`[Cron: Execute Resolutions] Processing resolution ${resolution.id}`);
+        // Max-attempts guard: prevent infinite retries
+        if (resolution.attempts >= MAX_RESOLUTION_ATTEMPTS) {
+          await prisma.scheduledResolution.update({
+            where: { id: resolution.id },
+            data: {
+              status: 'failed',
+              lastError: `Exceeded max attempts (${MAX_RESOLUTION_ATTEMPTS})`,
+            },
+          });
+          results.push({
+            id: resolution.id,
+            status: 'max_attempts_exceeded',
+            duration: Date.now() - resolutionStartTime,
+          });
+          console.warn(`[Cron: Execute Resolutions] Resolution ${resolution.id} exceeded ${MAX_RESOLUTION_ATTEMPTS} attempts, marking as failed`);
+          continue;
+        }
+
+        console.log(`[Cron: Execute Resolutions] Processing resolution ${resolution.id} (attempt ${resolution.attempts + 1})`);
 
         // Update status to executing
         await prisma.scheduledResolution.update({
@@ -122,8 +145,13 @@ export const POST = composeMiddleware([
             outcome
           );
 
-          // Wait for transaction to be sealed
-          await waitForSealed(txId);
+          // Wait for transaction to be sealed (with timeout protection)
+          await Promise.race([
+            waitForSealed(txId),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error(`Transaction seal timeout after ${SEAL_TIMEOUT_MS / 1000}s`)), SEAL_TIMEOUT_MS)
+            ),
+          ]);
           console.log(`[Cron: Execute Resolutions] Transaction sealed: ${txId}`);
         } else {
           console.log(`[Cron: Execute Resolutions] Resolution ${resolution.id} is DB-only (no flowResolutionId), updating directly`);
@@ -149,32 +177,16 @@ export const POST = composeMiddleware([
           },
         });
 
-        // If has mirror market, resolve it too
-        if (resolution.mirrorMarket && !resolution.mirrorMarket.resolved) {
+        // If has mirror market, resolve it directly (no fragile HTTP self-call)
+        if (resolution.mirrorMarket && !resolution.mirrorMarket.resolved && resolution.mirrorKey) {
           try {
             console.log(`[Cron: Execute Resolutions] Resolving mirror market ${resolution.mirrorKey}`);
 
-            const mirrorResponse = await fetch(
-              `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/flow/execute`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'resolve',
-                  mirrorKey: resolution.mirrorKey,
-                  yesWon: outcome,
-                }),
-              }
-            );
-
-            if (mirrorResponse.ok) {
-              console.log(`[Cron: Execute Resolutions] Mirror market resolved successfully`);
-            } else {
-              const errorText = await mirrorResponse.text();
-              console.error(`[Cron: Execute Resolutions] Mirror market resolution failed: ${errorText}`);
-            }
+            const mirrorResult = await resolveMirrorMarket(resolution.mirrorKey, outcome);
+            console.log(`[Cron: Execute Resolutions] Mirror market resolved: tx=${mirrorResult.txHash}`);
           } catch (error) {
             console.error('[Cron: Execute Resolutions] Failed to resolve mirror market:', error);
+            // Mirror resolution failure is non-fatal — DB resolution still succeeded
           }
         }
 
@@ -210,8 +222,28 @@ export const POST = composeMiddleware([
     }
 
     const totalDuration = Date.now() - startTime;
+    const failedCount = results.filter(r => r.status === 'failed').length;
 
     console.log(`[Cron: Execute Resolutions] Completed in ${totalDuration}ms`);
+
+    // Alert on failures
+    if (failedCount > 0) {
+      try {
+        await sendAlert(
+          'Resolution Execution Failures',
+          `${failedCount} out of ${results.length} resolutions failed during cron job`,
+          failedCount >= 3 ? 'critical' : 'warning',
+          {
+            failedCount,
+            total: results.length,
+            failedIds: results.filter(r => r.status === 'failed').map(r => r.id),
+            duration: totalDuration,
+          }
+        );
+      } catch (alertError) {
+        console.error('[Cron: Execute Resolutions] Failed to send alert:', alertError);
+      }
+    }
 
     return NextResponse.json({
       success: true,

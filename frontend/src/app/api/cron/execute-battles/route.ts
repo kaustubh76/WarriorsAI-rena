@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ErrorResponses } from '@/lib/api/errorHandler';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
+import { cronConfig } from '@/lib/api/cronAuth';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
 import { alertHighQueueDepth, sendAlert } from '@/lib/monitoring/alerts';
 import * as fcl from '@onflow/fcl';
@@ -90,6 +91,13 @@ export const POST = composeMiddleware([
 
     console.log(`[Execute Battles Cron] Found ${readyBattles.length} battles ready for execution`);
 
+    // Batch size limit: prevent exceeding Vercel timeout (60s)
+    const battlesToProcess = readyBattles.slice(0, cronConfig.maxBatchSize);
+    const skipped = readyBattles.length - battlesToProcess.length;
+    if (skipped > 0) {
+      console.warn(`[Execute Battles Cron] Processing ${battlesToProcess.length} of ${readyBattles.length} battles (${skipped} deferred to next run)`);
+    }
+
     // Get monitor for tracking
     const monitor = getBattleMonitor();
 
@@ -106,8 +114,8 @@ export const POST = composeMiddleware([
     let successCount = 0;
     let failureCount = 0;
 
-    // Execute each ready battle
-    for (const battle of readyBattles) {
+    // Execute each ready battle (batch-limited)
+    for (const battle of battlesToProcess) {
       const startTime = Date.now();
       try {
         const battleId = parseInt(battle.id);
@@ -218,7 +226,9 @@ export const POST = composeMiddleware([
         message: `Executed ${successCount} battles, ${failureCount} failed`,
         executed: successCount,
         failed: failureCount,
-        total: readyBattles.length,
+        processed: battlesToProcess.length,
+        totalReady: readyBattles.length,
+        skipped,
         queueDepth: readyBattles.length - successCount,
         results,
         timestamp: new Date().toISOString(),

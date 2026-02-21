@@ -1,6 +1,9 @@
 /**
  * Scheduled Market Resolution Event Listeners
  * Tracks ScheduledMarketResolver contract events
+ *
+ * Hardened with consecutive failure tracking and env var validation
+ * (matches robustness of externalMarketEvents.ts)
  */
 
 import { decodeEventLog, type Log, type PublicClient } from 'viem';
@@ -8,6 +11,15 @@ import { createFlowPublicClient } from '@/lib/flowClient';
 import { prisma } from '@/lib/prisma';
 
 const SCHEDULED_MARKET_RESOLVER_ADDRESS = process.env.NEXT_PUBLIC_SCHEDULED_MARKET_RESOLVER_ADDRESS as `0x${string}`;
+
+// Warn if contract address is missing (skip during build)
+const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
+if (!isBuildTime && !SCHEDULED_MARKET_RESOLVER_ADDRESS) {
+  console.warn(
+    '[ScheduledResolutionEventListener] NEXT_PUBLIC_SCHEDULED_MARKET_RESOLVER_ADDRESS not set. ' +
+    'Event listener will not be able to poll for contract events.'
+  );
+}
 
 // ABI for ScheduledMarketResolver events
 const SCHEDULED_MARKET_RESOLVER_ABI = [
@@ -81,6 +93,8 @@ export class ScheduledResolutionEventListener {
   private isListening = false;
   private lastProcessedBlock: bigint = 0n;
   private pollInterval?: ReturnType<typeof setInterval>;
+  private consecutiveFailures = 0;
+  private eventsProcessed = 0;
 
   constructor() {
     this.client = createFlowPublicClient();
@@ -92,6 +106,11 @@ export class ScheduledResolutionEventListener {
   async start(fromBlock?: bigint): Promise<void> {
     if (this.isListening) {
       console.warn('[ScheduledResolutionEventListener] Already listening');
+      return;
+    }
+
+    if (!SCHEDULED_MARKET_RESOLVER_ADDRESS) {
+      console.error('[ScheduledResolutionEventListener] Cannot start: contract address not configured');
       return;
     }
 
@@ -143,6 +162,14 @@ export class ScheduledResolutionEventListener {
         return; // No new blocks
       }
 
+      // Alert if falling behind
+      const blocksBehind = Number(currentBlock - this.lastProcessedBlock);
+      if (blocksBehind > 100) {
+        console.warn(
+          `[ScheduledResolutionEventListener] ${blocksBehind} blocks behind current block`
+        );
+      }
+
       // Get logs for all events
       const logs = await this.client.getLogs({
         address: SCHEDULED_MARKET_RESOLVER_ADDRESS,
@@ -153,11 +180,23 @@ export class ScheduledResolutionEventListener {
       // Process each log
       for (const log of logs) {
         await this.processLog(log);
+        this.eventsProcessed++;
       }
 
       this.lastProcessedBlock = currentBlock;
+      this.consecutiveFailures = 0; // Reset on successful poll
     } catch (error) {
-      console.error('[ScheduledResolutionEventListener] Error polling events:', error);
+      this.consecutiveFailures++;
+      console.error(
+        `[ScheduledResolutionEventListener] Error polling events (failure ${this.consecutiveFailures}):`,
+        error
+      );
+
+      if (this.consecutiveFailures > 5) {
+        console.error(
+          `[ScheduledResolutionEventListener] ${this.consecutiveFailures} consecutive poll failures — listener may be degraded`
+        );
+      }
     }
   }
 
@@ -297,10 +336,14 @@ export class ScheduledResolutionEventListener {
   getStatus(): {
     isListening: boolean;
     lastProcessedBlock: string;
+    consecutiveFailures: number;
+    eventsProcessed: number;
   } {
     return {
       isListening: this.isListening,
       lastProcessedBlock: this.lastProcessedBlock.toString(),
+      consecutiveFailures: this.consecutiveFailures,
+      eventsProcessed: this.eventsProcessed,
     };
   }
 }
