@@ -10,7 +10,7 @@ import {
   type Address,
 } from 'viem';
 import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
-import { chainsToContracts, AIAgentRegistryAbi, crownTokenAbi , getChainId } from '../constants';
+import { getContracts, AIAgentRegistryAbi, crownTokenAbi , getChainId } from '../constants';
 import type {
   AIAgent,
   AgentPerformance,
@@ -48,7 +48,7 @@ class AIAgentService {
   private chainId: number = getChainId(); // Flow Testnet
 
   constructor() {
-    const contracts = chainsToContracts[this.chainId];
+    const contracts = getContracts();
     this.aiAgentRegistryAddress = contracts.aiAgentRegistry as Address;
     this.crownTokenAddress = contracts.crownToken as Address;
   }

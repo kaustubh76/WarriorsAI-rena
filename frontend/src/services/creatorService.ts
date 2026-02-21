@@ -10,7 +10,7 @@ import {
   type Address,
 } from 'viem';
 import { readContractWithRateLimit } from '../lib/rpcClient';
-import { chainsToContracts, CreatorRevenueShareAbi, crownTokenAbi , getChainId } from '../constants';
+import { getContracts, CreatorRevenueShareAbi, crownTokenAbi , getChainId } from '../constants';
 import type {
   Creator,
   RevenueEntry,
@@ -55,7 +55,7 @@ class CreatorService {
   private chainId: number = getChainId();
 
   constructor() {
-    const contracts = chainsToContracts[this.chainId];
+    const contracts = getContracts();
     this.creatorRevenueAddress = contracts.creatorRevenueShare as Address;
     this.crownTokenAddress = contracts.crownToken as Address;
   }

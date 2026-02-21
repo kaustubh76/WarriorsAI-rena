@@ -10,7 +10,7 @@ import {
   type Address,
 } from 'viem';
 import { readContractWithRateLimit, batchReadContractsWithRateLimit } from '../lib/rpcClient';
-import { chainsToContracts, AIDebateOracleAbi, crownTokenAbi , getChainId } from '../constants';
+import { getContracts, AIDebateOracleAbi, crownTokenAbi , getChainId } from '../constants';
 import type {
   DebateAgent,
   Prediction,
@@ -50,7 +50,7 @@ class DebateService {
   private chainId: number = getChainId();
 
   constructor() {
-    const contracts = chainsToContracts[this.chainId];
+    const contracts = getContracts();
     this.debateOracleAddress = contracts.aiDebateOracle as Address;
     this.crownTokenAddress = contracts.crownToken as Address;
   }
