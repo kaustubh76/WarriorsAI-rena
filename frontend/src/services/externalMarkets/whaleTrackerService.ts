@@ -22,6 +22,7 @@ import { monitoredCall, externalMarketMonitor } from './monitoring';
 import { polymarketWS } from './polymarketWebSocket';
 import { kalshiWS } from './kalshiWebSocket';
 import { fetchWithTimeout } from './utils';
+import { createWhaleTriggeredBattle } from '@/services/arena/whaleAutoBattleService';
 
 // ============================================
 // CONSTANTS
@@ -339,7 +340,7 @@ class WhaleTrackerService {
   // ============================================
 
   /**
-   * Save whale trade to database
+   * Save whale trade to database and trigger auto-battle if applicable
    */
   private async saveTrade(trade: WhaleTrade): Promise<void> {
     try {
@@ -361,6 +362,19 @@ class WhaleTrackerService {
         },
         update: {},
       });
+
+      // Trigger whale auto-battle (non-fatal — errors don't block trade saving)
+      try {
+        const battleResult = await createWhaleTriggeredBattle(trade);
+        if (battleResult) {
+          console.log(
+            `[WhaleTracker] Auto-battle created: ${battleResult.battleId} ` +
+            `(${battleResult.rounds} rounds, winner: ${battleResult.winner})`
+          );
+        }
+      } catch (autoBattleError) {
+        console.warn('[WhaleTracker] Auto-battle creation failed (non-fatal):', autoBattleError);
+      }
     } catch (error) {
       console.error('[WhaleTracker] Error saving trade:', error);
     }

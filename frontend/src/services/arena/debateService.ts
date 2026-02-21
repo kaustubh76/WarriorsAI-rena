@@ -12,6 +12,7 @@ import {
   RoundResult,
   PredictionRound,
   MarketSource,
+  RealMarketData,
 } from '../../types/predictionArena';
 
 import {
@@ -88,19 +89,226 @@ const ARGUMENT_TEMPLATES = {
 // ============================================
 
 /**
- * Generate mock evidence based on market context and luck trait
- * In production, this would call real data APIs
+ * Generate evidence for a warrior's argument.
+ * When real market data is available, produces evidence grounded in actual prices and volume.
+ * Falls back to generic templates when no market data is present.
  */
 function generateEvidence(
+  context: DebateContext,
+  traits: WarriorTraits,
+  count: number = 2
+): DebateEvidence[] {
+  if (context.marketData) {
+    return generateMarketEvidence(context, traits, count);
+  }
+  return generateFallbackEvidence(context, traits.luck, count);
+}
+
+/**
+ * Generate evidence using real market data, styled by warrior traits.
+ * High WIT → analytical price data. High CHA → persuasive sentiment framing.
+ * High STR → forceful conviction from volume. High DEF → cautious risk framing.
+ */
+function generateMarketEvidence(
+  context: DebateContext,
+  traits: WarriorTraits,
+  count: number
+): DebateEvidence[] {
+  const md = context.marketData!;
+  const side = context.side;
+  const price = side === 'yes' ? md.yesPrice : md.noPrice;
+  const opposingPrice = side === 'yes' ? md.noPrice : md.yesPrice;
+  const sourceName = md.source === 'polymarket' ? 'Polymarket' : 'Kalshi';
+  const qualityBonus = (traits.luck / 10000) * 20;
+
+  // Calculate days remaining
+  const msRemaining = new Date(md.endTime).getTime() - Date.now();
+  const daysRemaining = Math.max(0, Math.round(msRemaining / (1000 * 60 * 60 * 24)));
+
+  // Determine dominant trait for style selection
+  const traitScores = {
+    wit: traits.wit,
+    charisma: traits.charisma,
+    strength: traits.strength,
+    defence: traits.defence,
+  };
+  const dominantTrait = (Object.entries(traitScores) as [string, number][])
+    .sort((a, b) => b[1] - a[1])[0][0];
+
+  const evidence: DebateEvidence[] = [];
+
+  // Evidence piece 1: Price-based (always include real price data)
+  const priceEvidence = buildPriceEvidence(
+    dominantTrait, side, price, opposingPrice, sourceName, md, qualityBonus
+  );
+  evidence.push(priceEvidence);
+
+  // Evidence piece 2: Volume/spread/time-based (varies by what data is available)
+  if (count >= 2) {
+    const secondaryEvidence = buildSecondaryEvidence(
+      dominantTrait, side, md, daysRemaining, qualityBonus
+    );
+    evidence.push(secondaryEvidence);
+  }
+
+  // Additional evidence pieces if requested
+  for (let i = 2; i < count; i++) {
+    evidence.push(buildContextEvidence(side, md, context.marketQuestion, qualityBonus));
+  }
+
+  return evidence.sort((a, b) => b.relevance - a.relevance);
+}
+
+/** Build price-focused evidence styled by dominant trait */
+function buildPriceEvidence(
+  dominantTrait: string,
+  side: 'yes' | 'no',
+  price: number,
+  opposingPrice: number,
+  sourceName: string,
+  md: RealMarketData,
+  qualityBonus: number,
+): DebateEvidence {
+  const priceFormatted = price.toFixed(1);
+  const oppFormatted = opposingPrice.toFixed(1);
+
+  let snippet: string;
+  switch (dominantTrait) {
+    case 'wit':
+      snippet = side === 'yes'
+        ? `The ${priceFormatted}% implied probability on ${sourceName} reflects the weight of evidence. With ${oppFormatted}% pricing in the downside, the market is allocating a ${priceFormatted}-to-${oppFormatted} odds ratio in favor of YES.`
+        : `At ${priceFormatted}% NO probability, the market is signaling substantial doubt. The ${oppFormatted}% YES price means nearly ${Math.round(100 - parseFloat(oppFormatted))} cents on the dollar disagree with the YES thesis.`;
+      break;
+    case 'charisma':
+      snippet = side === 'yes'
+        ? `${sourceName} traders have spoken — ${priceFormatted}% are backing YES. That's not a coin flip, that's conviction from thousands of market participants putting real money on the line.`
+        : `Only ${oppFormatted}% of ${sourceName} money is on YES — that means the majority of traders see this failing. The crowd wisdom is clear: NO at ${priceFormatted}%.`;
+      break;
+    case 'strength':
+      snippet = side === 'yes'
+        ? `${priceFormatted}% YES on ${sourceName}. The numbers don't lie and they don't negotiate. The market has priced this in and the direction is clear.`
+        : `${priceFormatted}% NO on ${sourceName}. That's the hard reality — the market has weighed the evidence and it's not even close. YES is trading at a mere ${oppFormatted}%.`;
+      break;
+    default: // defence
+      snippet = side === 'yes'
+        ? `The current ${priceFormatted}% YES price on ${sourceName} accounts for known risks while still favoring this outcome. Even factoring in uncertainty, the probability-weighted case supports YES.`
+        : `At ${priceFormatted}% NO, the market has already priced in the optimistic scenarios and still leans against. The ${oppFormatted}% YES price represents an upper bound that may not hold.`;
+  }
+
+  // Add cross-platform data if available
+  if (md.crossPlatformPrice !== undefined && md.crossPlatformSource) {
+    const crossName = md.crossPlatformSource === 'polymarket' ? 'Polymarket' : 'Kalshi';
+    snippet += ` Cross-platform: ${crossName} prices this at ${md.crossPlatformPrice.toFixed(1)}% YES.`;
+  }
+
+  return {
+    type: 'market',
+    source: `${sourceName} Live Data`,
+    title: `${sourceName} market pricing: ${priceFormatted}% ${side.toUpperCase()}`,
+    snippet,
+    relevance: Math.round(75 + qualityBonus + Math.random() * 10),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** Build secondary evidence from volume, spread, or time data */
+function buildSecondaryEvidence(
+  dominantTrait: string,
+  side: 'yes' | 'no',
+  md: RealMarketData,
+  daysRemaining: number,
+  qualityBonus: number,
+): DebateEvidence {
+  // Prefer cross-platform spread data if available (arbitrage context)
+  if (md.spread !== undefined && md.crossPlatformSource) {
+    const spreadFormatted = md.spread.toFixed(1);
+    const crossName = md.crossPlatformSource === 'polymarket' ? 'Polymarket' : 'Kalshi';
+    const sourceName = md.source === 'polymarket' ? 'Polymarket' : 'Kalshi';
+
+    return {
+      type: 'data',
+      source: 'Cross-Platform Analysis',
+      title: `${spreadFormatted}% price spread between ${sourceName} and ${crossName}`,
+      snippet: side === 'yes'
+        ? `A ${spreadFormatted}% spread between ${sourceName} (${md.yesPrice.toFixed(1)}% YES) and ${crossName} (${md.crossPlatformPrice!.toFixed(1)}% YES) reveals the market hasn't converged — suggesting underpricing of the YES outcome on at least one platform.`
+        : `The ${spreadFormatted}% cross-platform spread shows disagreement between ${sourceName} and ${crossName}. This divergence indicates the YES case is far from settled, and the NO position exploits this uncertainty.`,
+      relevance: Math.round(70 + qualityBonus + Math.random() * 15),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Volume-based evidence
+  const volume = md.volume;
+  const hasSignificantVolume = parseFloat(volume) > 100000;
+
+  if (hasSignificantVolume) {
+    return {
+      type: 'data',
+      source: `${md.source === 'polymarket' ? 'Polymarket' : 'Kalshi'} Trading Data`,
+      title: `$${formatVolume(volume)} in trading volume`,
+      snippet: dominantTrait === 'strength'
+        ? `$${formatVolume(volume)} in volume — that's serious capital backing this market. ${side === 'yes' ? 'Smart money' : 'Sophisticated traders'} don't deploy this kind of capital on a whim.`
+        : `With $${formatVolume(volume)} traded, this market has deep liquidity and genuine price discovery. The ${side === 'yes' ? 'YES' : 'NO'} price reflects real conviction from informed participants.`,
+      relevance: Math.round(65 + qualityBonus + Math.random() * 15),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Time-based evidence
+  return {
+    type: 'data',
+    source: 'Market Timeline Analysis',
+    title: `${daysRemaining} days until resolution`,
+    snippet: daysRemaining > 30
+      ? `With ${daysRemaining} days remaining, there's ample time for the ${side === 'yes' ? 'positive' : 'negative'} thesis to play out. Early positioning at current prices offers an edge.`
+      : `Only ${daysRemaining} days remain. The market is in its final pricing phase — current prices at this stage are highly informative and strongly favor ${side.toUpperCase()}.`,
+    relevance: Math.round(60 + qualityBonus + Math.random() * 15),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** Build additional context evidence from category and question */
+function buildContextEvidence(
+  side: 'yes' | 'no',
+  md: RealMarketData,
+  question: string,
+  qualityBonus: number,
+): DebateEvidence {
+  const keywords = question.split(' ').filter(w => w.length > 4).slice(0, 3).join(' ');
+  const category = md.category || 'General';
+
+  return {
+    type: 'expert',
+    source: `${category} Domain Analysis`,
+    title: `${category} sector signals on ${keywords}`,
+    snippet: side === 'yes'
+      ? `Domain analysis in the ${category} sector supports the YES outcome. Current market pricing aligns with sector-specific indicators and expert assessments.`
+      : `${category} sector analysis raises flags against the YES thesis. Historical patterns in this domain suggest the market may be overly optimistic.`,
+    relevance: Math.round(55 + qualityBonus + Math.random() * 15),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** Format volume for display (e.g., 1500000 → "1.5M") */
+function formatVolume(volume: string): string {
+  const num = parseFloat(volume);
+  if (isNaN(num)) return volume;
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(0)}K`;
+  return num.toFixed(0);
+}
+
+/**
+ * Fallback evidence generation (original behavior).
+ * Used when no real market data is available.
+ */
+function generateFallbackEvidence(
   context: DebateContext,
   luck: number,
   count: number = 2
 ): DebateEvidence[] {
   const evidenceTypes: DebateEvidence['type'][] = ['news', 'data', 'expert', 'historical', 'market'];
-
-  // Luck influences evidence quality
-  const qualityBonus = (luck / 10000) * 20; // 0-20 bonus
-
+  const qualityBonus = (luck / 10000) * 20;
   const evidence: DebateEvidence[] = [];
 
   for (let i = 0; i < count; i++) {
@@ -109,9 +317,9 @@ function generateEvidence(
 
     evidence.push({
       type,
-      source: getEvidenceSource(type, context.marketSource),
-      title: getEvidenceTitle(type, context.marketQuestion, context.side),
-      snippet: getEvidenceSnippet(type, context.side),
+      source: getFallbackSource(type, context.marketSource),
+      title: getFallbackTitle(type, context.marketQuestion, context.side),
+      snippet: getFallbackSnippet(context.side),
       relevance,
       timestamp: new Date().toISOString(),
     });
@@ -120,7 +328,7 @@ function generateEvidence(
   return evidence.sort((a, b) => b.relevance - a.relevance);
 }
 
-function getEvidenceSource(type: DebateEvidence['type'], marketSource: MarketSource): string {
+function getFallbackSource(type: DebateEvidence['type'], marketSource: MarketSource): string {
   const sources: Record<DebateEvidence['type'], string[]> = {
     news: ['Reuters', 'Bloomberg', 'AP News', 'WSJ', 'Financial Times'],
     data: ['Federal Reserve', 'Bureau of Labor Statistics', 'World Bank', 'IMF'],
@@ -133,8 +341,7 @@ function getEvidenceSource(type: DebateEvidence['type'], marketSource: MarketSou
   return options[Math.floor(Math.random() * options.length)];
 }
 
-function getEvidenceTitle(type: DebateEvidence['type'], question: string, side: 'yes' | 'no'): string {
-  // Extract keywords from question
+function getFallbackTitle(type: DebateEvidence['type'], question: string, side: 'yes' | 'no'): string {
   const keywords = question.split(' ').filter(w => w.length > 4).slice(0, 3).join(' ');
 
   const titles: Record<DebateEvidence['type'], string[]> = {
@@ -164,7 +371,7 @@ function getEvidenceTitle(type: DebateEvidence['type'], question: string, side: 
   return options[Math.floor(Math.random() * options.length)];
 }
 
-function getEvidenceSnippet(type: DebateEvidence['type'], side: 'yes' | 'no'): string {
+function getFallbackSnippet(side: 'yes' | 'no'): string {
   const snippets: Record<string, string[]> = {
     yes: [
       'Recent trends strongly support this outcome.',
@@ -206,8 +413,8 @@ export function generateWarriorArgument(
     previousMoves
   );
 
-  // 2. Generate evidence based on luck
-  const evidence = generateEvidence(context, traits.luck, 2);
+  // 2. Generate evidence (real market data when available, fallback otherwise)
+  const evidence = generateEvidence(context, traits, 2);
 
   // 3. Select argument template
   const templates = ARGUMENT_TEMPLATES[context.side][move];
@@ -260,6 +467,7 @@ export function executeDebateRound(
     marketSource: MarketSource;
     roundNumber: number;
     previousRounds: PredictionRound[];
+    marketData?: RealMarketData;
   }
 ): RoundResult {
   // Get previous moves for each warrior
@@ -285,6 +493,7 @@ export function executeDebateRound(
       roundNumber: context.roundNumber,
       previousRounds: context.previousRounds,
       opponentLastMove: w1OpponentLastMove,
+      marketData: context.marketData,
     },
     warrior1PrevMoves
   );
@@ -298,6 +507,7 @@ export function executeDebateRound(
       roundNumber: context.roundNumber,
       previousRounds: context.previousRounds,
       opponentLastMove: w2OpponentLastMove,
+      marketData: context.marketData,
     },
     warrior2PrevMoves
   );
@@ -405,7 +615,8 @@ export function executeFullBattle(
   warrior1Traits: WarriorTraits,
   warrior2Traits: WarriorTraits,
   marketQuestion: string,
-  marketSource: MarketSource
+  marketSource: MarketSource,
+  marketData?: RealMarketData
 ): {
   rounds: RoundResult[];
   finalWinner: 'warrior1' | 'warrior2' | 'draw';
@@ -424,6 +635,7 @@ export function executeFullBattle(
         marketSource,
         roundNumber: roundNum,
         previousRounds,
+        marketData,
       }
     );
 

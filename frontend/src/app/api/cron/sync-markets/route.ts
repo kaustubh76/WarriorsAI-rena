@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { externalMarketsService } from '@/services/externalMarkets';
+import { curateTopics } from '@/services/externalMarkets/topicCurationService';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
@@ -46,6 +47,15 @@ export const GET = composeMiddleware([
 
     console.log('[Cron] Sync complete:', summary);
 
+    // Run topic curation after sync
+    let curation = { flagged: 0, unflagged: 0, totalActive: 0 };
+    try {
+      curation = await curateTopics();
+      console.log('[Cron] Topic curation:', curation);
+    } catch (curationError) {
+      console.error('[Cron] Topic curation failed:', curationError);
+    }
+
     // Alert on sync failures
     if (summary.failureCount > 0) {
       try {
@@ -67,7 +77,7 @@ export const GET = composeMiddleware([
 
     return NextResponse.json({
       success: true,
-      data: summary,
+      data: { ...summary, curation },
     });
   },
 ], { errorContext: 'CRON:SyncMarkets' });

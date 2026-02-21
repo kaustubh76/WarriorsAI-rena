@@ -11,10 +11,12 @@ import { polymarketService } from '@/services/externalMarkets/polymarketService'
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert } from '@/lib/monitoring/alerts';
+import { sendAlert, alertBridgeFailure } from '@/lib/monitoring/alerts';
+import { isTimeoutError } from '@/lib/flowClient';
 
 const MAX_RESOLUTION_ATTEMPTS = 10;
 const SEAL_TIMEOUT_MS = 30000;
+const BRIDGE_RETRY_SEAL_TIMEOUT_MS = 60000; // doubled timeout for bridge retry
 
 export const maxDuration = 300; // 5 minutes max execution time
 export const dynamic = 'force-dynamic';
@@ -146,12 +148,45 @@ export const POST = composeMiddleware([
           );
 
           // Wait for transaction to be sealed (with timeout protection)
-          await Promise.race([
-            waitForSealed(txId),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error(`Transaction seal timeout after ${SEAL_TIMEOUT_MS / 1000}s`)), SEAL_TIMEOUT_MS)
-            ),
-          ]);
+          try {
+            await Promise.race([
+              waitForSealed(txId),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Transaction seal timeout after ${SEAL_TIMEOUT_MS / 1000}s`)), SEAL_TIMEOUT_MS)
+              ),
+            ]);
+          } catch (sealError: any) {
+            // Bridge-specific retry: if timeout, retry once with doubled timeout
+            if (isTimeoutError(sealError)) {
+              console.warn(`[Cron: Execute Resolutions] Seal timeout for ${resolution.id}, retrying with ${BRIDGE_RETRY_SEAL_TIMEOUT_MS / 1000}s timeout...`);
+              try {
+                await Promise.race([
+                  waitForSealed(txId),
+                  new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Bridge retry seal timeout after ${BRIDGE_RETRY_SEAL_TIMEOUT_MS / 1000}s`)), BRIDGE_RETRY_SEAL_TIMEOUT_MS)
+                  ),
+                ]);
+                console.log(`[Cron: Execute Resolutions] Bridge retry succeeded for ${resolution.id}`);
+              } catch (retryError: any) {
+                // Send bridge-specific alert on second failure
+                await alertBridgeFailure('resolution-seal', retryError.message, {
+                  resolutionId: resolution.id,
+                }).catch(() => {});
+                throw retryError;
+              }
+            } else {
+              // Non-timeout failure — check if bridge-related
+              const isBridgeError = sealError.message?.includes('COA') ||
+                sealError.message?.includes('EVM') ||
+                sealError.message?.includes('bridge');
+              if (isBridgeError) {
+                await alertBridgeFailure('resolution-execute', sealError.message, {
+                  resolutionId: resolution.id,
+                }).catch(() => {});
+              }
+              throw sealError;
+            }
+          }
           console.log(`[Cron: Execute Resolutions] Transaction sealed: ${txId}`);
         } else {
           console.log(`[Cron: Execute Resolutions] Resolution ${resolution.id} is DB-only (no flowResolutionId), updating directly`);

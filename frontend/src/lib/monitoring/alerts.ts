@@ -324,6 +324,27 @@ export async function alertIdempotencyViolation(
 }
 
 /**
+ * Alert for EVMBridge failures (always critical — blocks the core loop)
+ */
+export async function alertBridgeFailure(
+  operation: string,
+  error: string,
+  context?: { battleId?: string; resolutionId?: string; coaAddress?: string }
+): Promise<void> {
+  await sendAlert(
+    `EVMBridge Failure: ${operation}`,
+    `Bridge call failed: ${error}`,
+    'critical',
+    {
+      operation,
+      error,
+      ...context,
+      action: 'Check COA funding, gas limits, and EVM contract availability',
+    }
+  );
+}
+
+/**
  * Rate limiter to prevent alert spam
  */
 const alertCache = new Map<string, number>();

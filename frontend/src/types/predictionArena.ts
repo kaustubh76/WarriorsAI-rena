@@ -151,6 +151,21 @@ export interface AcceptChallengeParams {
 // AI DEBATE TYPES
 // ============================================
 
+/** Real market data from synced ExternalMarket records (prices in 0-100 range) */
+export interface RealMarketData {
+  yesPrice: number;        // 0-100 (converted from basis points via /100)
+  noPrice: number;         // 0-100
+  volume: string;
+  liquidity?: string;
+  endTime: string;         // ISO string
+  category?: string;
+  source: MarketSource;
+  // Cross-platform data (present for arbitrage battles)
+  crossPlatformPrice?: number;  // Other platform's YES price (0-100)
+  crossPlatformSource?: string;
+  spread?: number;              // Absolute price difference between platforms
+}
+
 export interface DebateContext {
   marketQuestion: string;
   marketSource: MarketSource;
@@ -159,6 +174,7 @@ export interface DebateContext {
   previousRounds: PredictionRound[];
   opponentLastArgument?: string;
   opponentLastMove?: DebateMove;
+  marketData?: RealMarketData;
 }
 
 export interface DebateEvidence {

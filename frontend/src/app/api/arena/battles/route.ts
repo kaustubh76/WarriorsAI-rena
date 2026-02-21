@@ -13,7 +13,7 @@ import { getConfig } from '@/rainbowKitConfig';
 import { getContracts, getChainId } from '@/constants';
 import { warriorsNFTAbi } from '@/constants';
 import { executeDebateRound } from '@/services/arena/debateService';
-import { WarriorTraits, MarketSource } from '@/types/predictionArena';
+import { WarriorTraits, MarketSource, RealMarketData } from '@/types/predictionArena';
 
 // Helper to determine round winner
 function determineRoundWinner(w1Score: number, w2Score: number): 'warrior1' | 'warrior2' | 'draw' {
@@ -284,6 +284,38 @@ export const POST = composeMiddleware([
 
         const marketSource = source === 'kalshi' ? MarketSource.KALSHI : MarketSource.POLYMARKET;
 
+        // Fetch real market data for context-enriched debate
+        let arbMarketData: RealMarketData | undefined;
+        try {
+          const [polyMarket, kalshiMarket] = await Promise.all([
+            prisma.externalMarket.findUnique({ where: { id: polymarketId } }),
+            prisma.externalMarket.findUnique({ where: { id: kalshiId } }),
+          ]);
+
+          if (polyMarket) {
+            arbMarketData = {
+              yesPrice: polyMarket.yesPrice / 100,
+              noPrice: polyMarket.noPrice / 100,
+              volume: polyMarket.volume,
+              liquidity: polyMarket.liquidity,
+              endTime: polyMarket.endTime.toISOString(),
+              category: polyMarket.category ?? undefined,
+              source: MarketSource.POLYMARKET,
+            };
+
+            if (kalshiMarket) {
+              arbMarketData.crossPlatformPrice = kalshiMarket.yesPrice / 100;
+              arbMarketData.crossPlatformSource = kalshiMarket.source;
+              arbMarketData.spread = Math.abs(
+                (polyMarket.yesPrice - kalshiMarket.yesPrice) / 100
+              );
+            }
+          }
+        } catch (mdErr) {
+          // Non-fatal: proceed with template-based evidence
+          console.warn('[Battles] Market data fetch for arbitrage round failed:', mdErr);
+        }
+
         const roundResult = executeDebateRound(
           defaultTraits,
           defaultTraits,
@@ -292,6 +324,7 @@ export const POST = composeMiddleware([
             marketSource,
             roundNumber: 1,
             previousRounds: [],
+            marketData: arbMarketData,
           }
         );
 

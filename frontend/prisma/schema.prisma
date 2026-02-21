@@ -46,6 +46,9 @@ model ExternalMarket {
   // Sync tracking
   lastSyncAt DateTime @default(now())
 
+  // Curation (P3 — battle-worthy markets flagged after sync)
+  curatedForArena Boolean @default(false)
+
   // Relations
   scheduledResolutions ScheduledResolution[]
   marketBets MarketBet[]
@@ -54,6 +57,7 @@ model ExternalMarket {
 
   @@unique([source, externalId])
   @@index([source])
+  @@index([curatedForArena, status])
 }
 
 // ============================================
@@ -832,6 +836,10 @@ model PredictionBattle {
   kalshiMarketId    String?           // Second market for arbitrage
   arbitrageTradeId  String?   @unique // Link to ArbitrageTrade
   isArbitrageBattle Boolean   @default(false) // Flag for special handling
+
+  // Whale-triggered auto battle fields (P5)
+  whaleTriggered      Boolean  @default(false)
+  triggerWhaleTradeId String?  // WhaleTrade.id that triggered this battle
 
   createdAt         DateTime @default(now())
   completedAt       DateTime?

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { executeDebateRound, executeFullBattle } from '../../../../../../services/arena/debateService';
-import { WarriorTraits, MarketSource, PredictionRound } from '../../../../../../types/predictionArena';
+import { WarriorTraits, MarketSource, PredictionRound, RealMarketData } from '../../../../../../types/predictionArena';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
@@ -88,6 +88,53 @@ async function storeBattleTo0G(
 }
 
 /**
+ * Fetch real market data from synced ExternalMarket records for context-enriched debates.
+ * Returns undefined if market data unavailable (graceful degradation to template-based evidence).
+ */
+async function fetchMarketData(
+  battle: { externalMarketId: string; source: string; isArbitrageBattle: boolean; kalshiMarketId: string | null }
+): Promise<RealMarketData | undefined> {
+  try {
+    const externalMarket = await prisma.externalMarket.findUnique({
+      where: { id: battle.externalMarketId },
+    });
+
+    if (!externalMarket) return undefined;
+
+    const marketData: RealMarketData = {
+      yesPrice: externalMarket.yesPrice / 100,  // basis points → 0-100
+      noPrice: externalMarket.noPrice / 100,
+      volume: externalMarket.volume,
+      liquidity: externalMarket.liquidity,
+      endTime: externalMarket.endTime.toISOString(),
+      category: externalMarket.category ?? undefined,
+      source: battle.source as MarketSource,
+    };
+
+    // For arbitrage battles, fetch cross-platform data
+    if (battle.isArbitrageBattle && battle.kalshiMarketId) {
+      const crossMarket = await prisma.externalMarket.findUnique({
+        where: { id: battle.kalshiMarketId },
+      });
+
+      if (crossMarket) {
+        marketData.crossPlatformPrice = crossMarket.yesPrice / 100;
+        marketData.crossPlatformSource = crossMarket.source;
+        marketData.spread = Math.abs(
+          (externalMarket.yesPrice - crossMarket.yesPrice) / 100
+        );
+      }
+    }
+
+    return marketData;
+  } catch (err) {
+    // Non-fatal: fall back to template-based evidence
+    console.warn(`[Battle Execute] Failed to fetch market data for ${battle.externalMarketId}:`, err);
+    return undefined;
+  }
+}
+
+/**
  * POST /api/arena/battles/[id]/execute
  * Execute a battle round or full battle
  */
@@ -142,13 +189,17 @@ export const POST = composeMiddleware([
 
     const marketSource = battle.source as MarketSource;
 
+    // Fetch real market data for context-enriched debates
+    const marketData = await fetchMarketData(battle);
+
     if (mode === 'full') {
       // Execute all remaining rounds
       const fullResult = executeFullBattle(
         w1Traits,
         w2Traits,
         battle.question,
-        marketSource
+        marketSource,
+        marketData
       );
 
       // Save all rounds to database
@@ -276,6 +327,7 @@ export const POST = composeMiddleware([
         marketSource,
         roundNumber,
         previousRounds,
+        marketData,
       }
     );
 

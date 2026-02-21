@@ -4,7 +4,7 @@ import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 import { cronConfig } from '@/lib/api/cronAuth';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
-import { alertHighQueueDepth, sendAlert } from '@/lib/monitoring/alerts';
+import { alertHighQueueDepth, sendAlert, alertBridgeFailure } from '@/lib/monitoring/alerts';
 import * as fcl from '@onflow/fcl';
 import * as types from '@onflow/types';
 import {
@@ -181,10 +181,28 @@ export const POST = composeMiddleware([
         // Record failure in monitor
         await monitor.recordFailure(error.message, parseInt(battle.id));
 
+        // Detect bridge-specific failures and alert immediately (critical)
+        const errMsg = error.message || '';
+        const isBridgeError = errMsg.includes('COA') ||
+          errMsg.includes('EVM') ||
+          errMsg.includes('bridge') ||
+          errMsg.includes('gas') ||
+          errMsg.includes('insufficient');
+        if (isBridgeError) {
+          try {
+            await alertBridgeFailure('battle-execute', errMsg, {
+              battleId: String(battle.id),
+            });
+          } catch {
+            // Alert failure is non-fatal
+          }
+        }
+
         results.push({
           battleId: parseInt(battle.id),
           status: 'failed',
           error: error.message,
+          isBridgeError,
         });
 
         failureCount++;
