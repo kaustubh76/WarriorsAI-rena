@@ -161,9 +161,12 @@ class ArbitrageBattleSettlementService {
       // 5. Calculate debate bonus from spectator betting pool
       const debateBonus = await this.calculateDebateBonus(battle.id, debateWinner);
 
-      // 6. Update trade status
-      await prisma.arbitrageTrade.update({
-        where: { id: trade.id },
+      // 6. Atomically claim settlement (prevents double-payout under concurrent execution)
+      const updated = await prisma.arbitrageTrade.updateMany({
+        where: {
+          id: trade.id,
+          settled: false,
+        },
         data: {
           market1Outcome: market1.outcome === 'yes',
           market2Outcome: market2.outcome === 'yes',
@@ -173,6 +176,17 @@ class ArbitrageBattleSettlementService {
           status: 'settled',
         },
       });
+
+      if (updated.count === 0) {
+        console.log(`[ArbitrageBattleSettlement] Trade ${trade.id} was settled by another process, skipping`);
+        return {
+          success: true,
+          warrior1Payout: 0n,
+          warrior2Payout: 0n,
+          arbitrageProfit: 0n,
+          debateBonus: 0n,
+        };
+      }
 
       // 7. Update battle status
       await prisma.predictionBattle.update({

@@ -571,8 +571,7 @@ export default function HomePage() {
         </div>
 
         {/* Live Stats Bar */}
-        {isMounted && (
-          <div ref={statsRef} aria-label="Platform statistics" className={`max-w-4xl mx-auto mb-12 transition-all duration-700 ease-out ${statsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div ref={statsRef} aria-label="Platform statistics" className={`max-w-4xl mx-auto mb-12 transition-all duration-700 ease-out ${statsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="home-stat-card stat-card text-center hover:scale-105 transition-all duration-200 cursor-default">
                 <div className="home-stat-value stat-card-value">
@@ -624,7 +623,6 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        )}
 
         {/* Wallet Connection Warning */}
         {isMounted && !isConnected && (
@@ -871,8 +869,7 @@ export default function HomePage() {
         </div>
 
         {/* Prediction Arena Spotlight */}
-        {isMounted && (
-          <div ref={predictionRef} className={`mt-16 max-w-4xl mx-auto transition-all duration-700 ease-out ${predictionVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div ref={predictionRef} className={`mt-16 max-w-4xl mx-auto transition-all duration-700 ease-out ${predictionVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <Link href="/prediction-arena" aria-label="Prediction Arena - AI warriors debate real markets">
               <div
                 className="prediction-arena-spotlight p-6 md:p-8 group cursor-pointer hover:scale-[1.02] transition-transform duration-200"
@@ -912,7 +909,6 @@ export default function HomePage() {
               </div>
             </Link>
           </div>
-        )}
 
         {/* Token Exchange Section */}
         {isMounted && isConnected && (
@@ -954,8 +950,7 @@ export default function HomePage() {
         )}
 
         {/* Arbitrage Opportunities Section */}
-        {isMounted && (
-          <div ref={arbitrageRef} className={`mt-20 max-w-6xl mx-auto transition-all duration-700 ease-out ${arbitrageVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div ref={arbitrageRef} className={`mt-20 max-w-6xl mx-auto transition-all duration-700 ease-out ${arbitrageVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <div className="text-center mb-8">
               <h2
                 className="text-3xl mb-4 tracking-wider arcade-glow home-gradient-text"
@@ -984,11 +979,9 @@ export default function HomePage() {
               </Link>
             </div>
           </div>
-        )}
 
         {/* Command Center Feature Hub */}
-        {isMounted && (
-          <div ref={commandRef} className={`mt-20 max-w-5xl mx-auto transition-all duration-700 ease-out ${commandVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div ref={commandRef} className={`mt-20 max-w-5xl mx-auto transition-all duration-700 ease-out ${commandVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <div className="text-center mb-10">
               <h2
                 className="text-2xl mb-2 tracking-wider arcade-glow home-gradient-text"
@@ -1024,11 +1017,9 @@ export default function HomePage() {
               </TabsContent>
             </Tabs>
           </div>
-        )}
 
         {/* How It Works */}
-        {isMounted && (
-          <div ref={howRef} className={`mt-20 max-w-5xl mx-auto transition-all duration-700 ease-out ${howVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div ref={howRef} className={`mt-20 max-w-5xl mx-auto transition-all duration-700 ease-out ${howVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <div
               className="p-6 md:p-8 rounded-2xl"
               style={{
@@ -1103,11 +1094,9 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        )}
 
         {/* Bottom CTA */}
-        {isMounted && (
-          <div ref={ctaRef} className={`mt-16 mb-8 max-w-3xl mx-auto text-center transition-all duration-700 ease-out ${ctaVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        <div ref={ctaRef} className={`mt-16 mb-8 max-w-3xl mx-auto text-center transition-all duration-700 ease-out ${ctaVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <div
               className="p-8 md:p-12 rounded-2xl"
               style={{
@@ -1159,7 +1148,6 @@ export default function HomePage() {
               )}
             </div>
           </div>
-        )}
       </div>
     </div>
   );

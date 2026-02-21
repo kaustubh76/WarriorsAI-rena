@@ -12,6 +12,7 @@ import { externalMarketsService } from '@/services/externalMarkets';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
+import { sendAlert } from '@/lib/monitoring/alerts';
 
 export const GET = composeMiddleware([
   withRateLimit({ prefix: 'cron-sync-markets', ...RateLimitPresets.cronJobs }),
@@ -44,6 +45,25 @@ export const GET = composeMiddleware([
     };
 
     console.log('[Cron] Sync complete:', summary);
+
+    // Alert on sync failures
+    if (summary.failureCount > 0) {
+      try {
+        await sendAlert(
+          'Market Sync Failures',
+          `${summary.failureCount} market source(s) failed to sync`,
+          summary.failureCount >= 2 ? 'critical' : 'warning',
+          {
+            failureCount: summary.failureCount,
+            successCount: summary.successCount,
+            failedSources: results.filter(r => !r.success).map(r => r.source).join(', '),
+            duration: summary.totalDuration,
+          }
+        );
+      } catch (alertError) {
+        console.error('[Cron] Failed to send sync alert:', alertError);
+      }
+    }
 
     return NextResponse.json({
       success: true,

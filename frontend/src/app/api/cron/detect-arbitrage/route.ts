@@ -18,6 +18,7 @@ import { arbitrageMarketMatcher } from '@/services/arbitrage/marketMatcher';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
+import { sendAlert } from '@/lib/monitoring/alerts';
 
 export const GET = composeMiddleware([
   withRateLimit({ prefix: 'cron-detect-arbitrage', ...RateLimitPresets.cronJobs }),
@@ -49,6 +50,25 @@ export const GET = composeMiddleware([
     };
 
     console.log('[Cron] Arbitrage detection complete:', summary);
+
+    // Alert on detection errors
+    if (results.errors.length > 0) {
+      try {
+        await sendAlert(
+          'Arbitrage Detection Errors',
+          `${results.errors.length} error(s) during arbitrage detection`,
+          results.errors.length >= 3 ? 'critical' : 'warning',
+          {
+            errorCount: results.errors.length,
+            opportunitiesFound: results.opportunitiesFound,
+            errors: results.errors.slice(0, 5).join('; '),
+            duration: results.duration,
+          }
+        );
+      } catch (alertError) {
+        console.error('[Cron] Failed to send detection alert:', alertError);
+      }
+    }
 
     return NextResponse.json({
       success: true,

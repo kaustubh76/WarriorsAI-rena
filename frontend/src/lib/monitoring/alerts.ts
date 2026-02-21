@@ -329,8 +329,11 @@ export async function alertIdempotencyViolation(
 const alertCache = new Map<string, number>();
 const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+let alertCleanupCounter = 0;
+
 /**
- * Send alert with rate limiting to prevent spam
+ * Send alert with rate limiting to prevent spam.
+ * Uses lazy cleanup (serverless-safe — no setInterval).
  */
 export async function sendAlertWithRateLimit(
   key: string,
@@ -339,6 +342,13 @@ export async function sendAlertWithRateLimit(
   severity: AlertSeverity = 'info',
   context?: Record<string, unknown>
 ): Promise<void> {
+  // Lazy cleanup every 50 calls (serverless-safe, no setInterval)
+  alertCleanupCounter++;
+  if (alertCleanupCounter >= 50) {
+    alertCleanupCounter = 0;
+    cleanupAlertCache();
+  }
+
   const now = Date.now();
   const lastSent = alertCache.get(key);
 
@@ -361,9 +371,4 @@ export function cleanupAlertCache(): void {
       alertCache.delete(key);
     }
   }
-}
-
-// Clean up alert cache every 10 minutes
-if (typeof setInterval !== 'undefined') {
-  setInterval(cleanupAlertCache, 10 * 60 * 1000);
 }
