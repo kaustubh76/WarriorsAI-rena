@@ -162,16 +162,19 @@ class KalshiService {
    * flood that dominates the unfiltered /markets endpoint.
    */
   async getActiveMarkets(maxMarkets: number = 500): Promise<KalshiMarket[]> {
-    // Sports categories to exclude — these are parlay-heavy and don't match Polymarket
-    const SPORTS_CATEGORIES = new Set(['Sports', 'Sports MVP']);
+    // Only include categories likely to overlap with Polymarket for arbitrage
+    const ARBITRAGE_CATEGORIES = new Set([
+      'Politics', 'Elections', 'Economics', 'Financials', 'Companies',
+      'Climate and Weather', 'Science and Technology', 'World', 'Health',
+    ]);
 
     // Phase 1: Get events and filter to non-sports
-    let events: Array<{ event_ticker: string; category: string; title: string }>;
+    let events: Array<{ event_ticker: string; category: string; title: string; series_ticker: string }>;
     try {
       const rawEvents = await this.getEvents('open', 200);
-      events = (rawEvents as Array<{ event_ticker: string; category: string; title: string }>)
-        .filter(e => !SPORTS_CATEGORIES.has(e.category));
-      console.log(`[Kalshi] Found ${events.length} non-sports events (out of ${rawEvents.length} total)`);
+      events = (rawEvents as Array<{ event_ticker: string; category: string; title: string; series_ticker: string }>)
+        .filter(e => ARBITRAGE_CATEGORIES.has(e.category));
+      console.log(`[Kalshi] Found ${events.length} arbitrage-relevant events (out of ${rawEvents.length} total)`);
     } catch (err) {
       console.error('[Kalshi] Failed to fetch events, falling back to direct market scan:', err);
       // Fallback: scan markets directly with parlay filter
@@ -188,21 +191,21 @@ class KalshiService {
     const allMarkets: KalshiMarket[] = [];
     const seriesTickers = [...new Set(events.map(e => e.series_ticker))];
 
-    console.log(`[Kalshi] Fetching markets for ${seriesTickers.length} unique series: ${seriesTickers.slice(0, 10).join(', ')}...`);
+    console.log(`[Kalshi] Fetching markets for ${seriesTickers.length} unique series`);
 
+    let failedSeries = 0;
     for (const series of seriesTickers) {
       if (allMarkets.length >= maxMarkets) break;
 
       try {
         const response = await this.getMarkets(undefined, 200, undefined, series);
-        console.log(`[Kalshi] Series ${series}: ${response.markets.length} markets`);
         allMarkets.push(...response.markets);
       } catch (err) {
-        console.error(`[Kalshi] Failed to fetch markets for series ${series}:`, err);
+        failedSeries++;
       }
     }
 
-    console.log(`[Kalshi] Fetched ${allMarkets.length} non-sports markets from ${seriesTickers.length} series`);
+    console.log(`[Kalshi] Fetched ${allMarkets.length} markets from ${seriesTickers.length} series (${failedSeries} failed)`);
     return allMarkets.slice(0, maxMarkets);
   }
 
