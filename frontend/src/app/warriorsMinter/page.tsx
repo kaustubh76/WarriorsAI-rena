@@ -12,10 +12,11 @@ import '../home-glass.css';
 
 // gameMasterSigningService moved to server-side /api/sign-traits
 import { ipfsService } from '../../services/ipfsService';
-import { getContracts, warriorsNFTAbi, getStorageApiUrl } from '../../constants';
+import { getContracts, chainsToContracts, warriorsNFTAbi, getStorageApiUrl } from '../../constants';
 import { useUserNFTs } from '../../hooks/useUserNFTs';
 import { useWarriorsMinterMessages } from '../../hooks/useWarriorsMinterMessages';
 import { usePromoteWarrior, getRankLabel, WarriorRank } from '../../hooks/usePromoteWarrior';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 // 0G Storage service URL - configured via environment variable
 const ZG_STORAGE_API_URL = getStorageApiUrl();
@@ -61,6 +62,8 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
 
   const [isMinting, setIsMinting] = useState(false);
   const [ipfsCid, setIpfsCid] = useState<string | null>(null);
+  const [mintStep, setMintStep] = useState<'uploading' | 'minting' | 'confirming' | null>(null);
+  const { success: showSuccess, error: showError, warning: showWarning } = useNotifications();
 
   // Image cropper state
   const [showCropper, setShowCropper] = useState(false);
@@ -84,7 +87,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     console.log('WarriorsMinter - chainId detected:', chainId, 'connectedAddress:', connectedAddress);
   }, [chainId, connectedAddress]);
   
-  const { writeContract, data: hash } = useWriteContract();
+  const { writeContractAsync, data: hash } = useWriteContract();
   const { isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   });
@@ -104,14 +107,15 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       if (isActivating) {
         setIsActivating(false);
         setSelectedWarriors(null);
-        alert("🎉 Warriors activation completed successfully! Your Warriors now has traits and moves assigned.");
+        showSuccess('Activation Complete', 'Your warrior now has traits and moves assigned.');
       }
-      
+
       // If we were minting, reset the minting state
       if (isMinting) {
         setIsMinting(false);
+        setMintStep(null);
         setActiveSection('manage');
-        alert("🎉 Warriors NFT minted successfully!");
+        showSuccess('NFT Minted!', 'Your warrior has been forged on the blockchain.');
       }
     }
   }, [isConfirmed, hash, clearCache, isActivating, isMinting]);
@@ -285,6 +289,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     }
 
     setIsMinting(true);
+    setMintStep('uploading');
     console.log('Starting Warriors NFT minting process...');
 
     // Trigger warrior message for minting start
@@ -295,8 +300,8 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     });
 
     try {
-      // Upload image and create JSON metadata on 0G Storage
-      console.log('🚀 Uploading warrior data to 0G Storage...');
+      // Step 1: Upload image and create JSON metadata on 0G Storage
+      console.log('Uploading warrior data to 0G Storage...');
       const uploadResult = await ipfsService.uploadWarriorsNFT({
         name: formData.name,
         bio: formData.bio,
@@ -305,47 +310,43 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
         knowledge_areas: formData.knowledge_areas,
         image: formData.image
       });
-      
+
       // Store the metadata root hash for future use (this will be used for NFT minting)
       setIpfsCid(uploadResult.metadataRootHash);
-      
-      console.log('🎯 === WARRIORS NFT UPLOAD COMPLETE ===');
-      console.log('📷 Image Root Hash:', uploadResult.imageRootHash);
-      console.log('📋 Metadata Root Hash:', uploadResult.metadataRootHash);
-      console.log('🔗 Image Transaction Hash:', uploadResult.imageTransactionHash);
-      console.log('🔗 Metadata Transaction Hash:', uploadResult.metadataTransactionHash);
-      console.log('📄 Generated Metadata:', uploadResult.metadata);
-      console.log('===================================');
+
+      console.log('=== WARRIORS NFT UPLOAD COMPLETE ===');
+      console.log('Image Root Hash:', uploadResult.imageRootHash);
+      console.log('Metadata Root Hash:', uploadResult.metadataRootHash);
+      console.log('Image Transaction Hash:', uploadResult.imageTransactionHash);
+      console.log('Metadata Transaction Hash:', uploadResult.metadataTransactionHash);
 
       // Step 2: Mint NFT on blockchain using the metadata root hash
+      setMintStep('minting');
       const encryptedURI = uploadResult.metadataRootHash; // 0G root hash
       const metadataHash = `0x${Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(uploadResult.metadata)))))
         .map(b => b.toString(16).padStart(2, '0')).join('')}` as `0x${string}`;
-      
-      console.log('🎯 Minting NFT with parameters:');
-      console.log('📋 Encrypted URI (0G Root Hash):', encryptedURI);
-      console.log('🔐 Metadata Hash:', metadataHash);
-      
-      // Step 3: Call contract to mint NFT
-      try {
-        writeContract({
-          address: getContracts().warriorsNFT as `0x${string}`,
-          abi: warriorsNFTAbi,
-          functionName: 'mintNft',
-          args: [encryptedURI, metadataHash],
-        });
-        
-        console.log('🔄 NFT minting transaction sent! Waiting for confirmation...');
-      } catch (contractError) {
-        console.error('❌ Contract call failed:', contractError);
-        throw new Error(`Contract minting failed: ${contractError instanceof Error ? contractError.message : 'Unknown error'}`);
-      }
-      
+
+      console.log('Minting NFT with parameters:');
+      console.log('Encrypted URI (0G Root Hash):', encryptedURI);
+      console.log('Metadata Hash:', metadataHash);
+
+      // Step 3: Call contract to mint NFT (awaitable — keeps isMinting true until confirmed)
+      await writeContractAsync({
+        address: getContracts().warriorsNFT as `0x${string}`,
+        abi: warriorsNFTAbi,
+        functionName: 'mintNft',
+        args: [encryptedURI, metadataHash],
+      });
+
+      setMintStep('confirming');
+      console.log('NFT minting transaction sent! Waiting for confirmation...');
+      // isMinting stays true — the useEffect on isConfirmed will reset it
+
     } catch (error) {
       console.error('Failed to mint Warriors NFT:', error);
-      alert(`❌ Minting failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
+      showError('Minting Failed', error instanceof Error ? error.message : 'Unknown error');
       setIsMinting(false);
+      setMintStep(null);
     }
   };
 
@@ -424,7 +425,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       console.log('Warrior promoted successfully:', txHash);
 
       // Refresh NFTs after promotion
-      if (address) {
+      if (connectedAddress) {
         clearCache();
       }
     } catch (error) {
@@ -572,7 +573,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
             // Call the smart contract to assign traits and moves
             console.log("🔗 Calling assignTraitsAndMoves on WarriorsNFT contract...");
             
-            writeContract({
+            await writeContractAsync({
               address: getContracts().warriorsNFT as `0x${string}`,
               abi: warriorsNFTAbi,
               functionName: 'assignTraitsAndMoves',
@@ -591,29 +592,31 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
                 signature               // bytes _signedData
               ],
             });
-            
-            console.log("✅ Smart contract call initiated!");
-            alert(`🎉 Traits and moves generated and assigned to ${warriors.name}! Transaction submitted to blockchain.`);
-            
+
+            console.log("Smart contract call initiated!");
+            showSuccess('Traits Assigned', `Traits and moves generated and assigned to ${warriors.name}! Awaiting confirmation.`);
+
           } else {
-            console.warn("⚠️ Invalid trait values for:", invalidTraits.join(', '));
-            alert(`⚠️ Invalid trait values generated: ${invalidTraits.join(', ')}`);
+            console.warn("Invalid trait values for:", invalidTraits.join(', '));
+            showWarning('Invalid Traits', `Invalid trait values generated: ${invalidTraits.join(', ')}`);
+            setIsActivating(false);
           }
         } else {
-          console.warn("⚠️ Missing required fields:", missingFields.join(', '));
-          alert(`⚠️ AI response missing required fields: ${missingFields.join(', ')}`);
+          console.warn("Missing required fields:", missingFields.join(', '));
+          showWarning('Missing Fields', `AI response missing required fields: ${missingFields.join(', ')}`);
+          setIsActivating(false);
         }
-        
+
       } catch (parseError) {
         console.warn("Could not parse JSON from AI response:", parseError);
         console.log("Raw AI Response:", response);
-        alert(`⚠️ AI response received but couldn't parse JSON. Check console for raw response.`);
+        showWarning('Parse Error', 'AI response received but could not be parsed. Check console for raw response.');
+        setIsActivating(false);
       }
-      
+
     } catch (error) {
       console.error("Error activating Warriors with 0G AI:", error);
-      alert(`❌ Failed to activate ${warriors.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
+      showError('Activation Failed', `Failed to activate ${warriors.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsActivating(false);
     }
   };
@@ -993,7 +996,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
         console.log(`✅ Image cropped and uploaded: ${completedCrop.width}x${completedCrop.height} (Square)`);
       } catch (error) {
         console.error('Error cropping image:', error);
-        alert('Failed to crop image. Please try again.');
+        showError('Crop Failed', 'Failed to crop image. Please try again.');
       }
     } else {
       console.log('Missing crop data:', { completedCrop, imgRef: imgRef.current, cropImageSrc });
@@ -1502,8 +1505,35 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
                       borderRadius: '12px'
                     }}
                   >
-                    {isMinting ? 'UPLOADING TO 0G STORAGE...' : (!isFormComplete ? 'COMPLETE ALL FIELDS' : 'MINT WARRIORS NFT')}
+                    {isMinting
+                      ? mintStep === 'uploading'
+                        ? 'UPLOADING TO 0G STORAGE...'
+                        : mintStep === 'minting'
+                        ? 'AWAITING WALLET SIGNATURE...'
+                        : mintStep === 'confirming'
+                        ? 'CONFIRMING ON CHAIN...'
+                        : 'MINTING...'
+                      : !isFormComplete
+                      ? 'COMPLETE ALL FIELDS'
+                      : 'MINT WARRIORS NFT'}
                   </button>
+
+                  {/* Mint progress steps */}
+                  {isMinting && mintStep && (
+                    <div className="mt-3 flex items-center justify-center gap-2 text-xs" style={{ fontFamily: 'Press Start 2P, monospace' }}>
+                      <span className={mintStep === 'uploading' ? 'text-yellow-400' : 'text-green-400'}>
+                        {mintStep === 'uploading' ? '>' : '+'} UPLOAD
+                      </span>
+                      <span className="text-gray-600">-</span>
+                      <span className={mintStep === 'minting' ? 'text-yellow-400' : mintStep === 'confirming' ? 'text-green-400' : 'text-gray-600'}>
+                        {mintStep === 'minting' ? '>' : mintStep === 'confirming' ? '+' : '-'} SIGN
+                      </span>
+                      <span className="text-gray-600">-</span>
+                      <span className={mintStep === 'confirming' ? 'text-yellow-400' : 'text-gray-600'}>
+                        {mintStep === 'confirming' ? '>' : '-'} CONFIRM
+                      </span>
+                    </div>
+                  )}
                   
                   {/* Display Root Hash if NFT data uploaded */}
                   {ipfsCid && (
