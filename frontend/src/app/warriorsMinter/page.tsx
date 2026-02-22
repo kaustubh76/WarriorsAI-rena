@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useReconnect } from 'wagmi';
+import { useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useConfig } from 'wagmi';
+import { reconnect as wagmiReconnect, getAccount } from '@wagmi/core';
 import ReactCrop, { Crop, PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import '../home-glass.css';
@@ -79,9 +80,9 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   const imgRef = useRef<HTMLImageElement>(null);
 
   // Wagmi hooks for contract interaction
-  const { address: connectedAddress, isConnected, connector } = useAccount();
+  const { address: connectedAddress } = useAccount();
   const chainId = useChainId();
-  const { reconnectAsync } = useReconnect();
+  const wagmiConfig = useConfig();
 
   // Memoize the debug logging to prevent excessive console output
   useMemo(() => {
@@ -93,14 +94,21 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     hash,
   });
 
-  // Ensure wallet connector is active before contract calls
-  // (long async uploads can cause connector to lose state with reconnectOnMount=false)
+  // Ensure wallet connector is active before contract calls.
+  // Reads fresh state from wagmi config (not stale React state) because
+  // long async uploads can cause the connector to drop its connection.
   const ensureConnected = useCallback(async () => {
-    if (!isConnected || !connector) {
-      console.log('Connector not active, attempting reconnect...');
-      await reconnectAsync();
+    const account = getAccount(wagmiConfig);
+    if (account.status !== 'connected') {
+      console.log('Connector lost during async operation, reconnecting...', account.status);
+      await wagmiReconnect(wagmiConfig);
+      const refreshed = getAccount(wagmiConfig);
+      if (refreshed.status !== 'connected') {
+        throw new Error('Wallet disconnected during upload. Please reconnect your wallet and try again.');
+      }
+      console.log('Reconnected successfully:', refreshed.address);
     }
-  }, [isConnected, connector, reconnectAsync]);
+  }, [wagmiConfig]);
 
   // Custom hook to manage user NFTs
   const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', chainId);
