@@ -15,12 +15,12 @@ import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Dynamic import for 0G SDK (works better with Next.js)
-let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
-let ZgFile: typeof import('@0glabs/0g-ts-sdk').ZgFile;
+let Indexer: typeof import('@0gfoundation/0g-ts-sdk').Indexer;
+let ZgFile: typeof import('@0gfoundation/0g-ts-sdk').ZgFile;
 
 async function loadSDK() {
   if (!Indexer || !ZgFile) {
-    const sdk = await import('@0glabs/0g-ts-sdk');
+    const sdk = await import('@0gfoundation/0g-ts-sdk');
     Indexer = sdk.Indexer;
     ZgFile = sdk.ZgFile;
   }
@@ -30,7 +30,7 @@ async function loadSDK() {
 const STORAGE_CONFIG = {
   rpcUrl: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
   indexerUrl: process.env.NEXT_PUBLIC_0G_STORAGE_INDEXER || 'https://indexer-storage-testnet-turbo.0g.ai',
-  privateKey: process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || ''
+  privateKey: (process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || '').trim()
 };
 
 // Singleton instances (lazily initialized)
@@ -130,7 +130,7 @@ async function uploadToZeroG(data: Buffer | Uint8Array, filename: string): Promi
         throw new Error(`Upload error: ${uploadErr}`);
       }
 
-      uploadResult = result ?? null;
+      uploadResult = result && 'txHash' in result ? result : null;
     } catch (error) {
       const lastError = error instanceof Error ? error : new Error(String(error));
       console.warn(`[0G Upload] Upload failed:`, lastError.message);

@@ -3,7 +3,7 @@ import multer from 'multer';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
-import { ZgFile, Indexer } from '@0glabs/0g-ts-sdk';
+import { ZgFile, Indexer } from '@0gfoundation/0g-ts-sdk';
 import dotenv from 'dotenv';
 import { ethers } from 'ethers';
 

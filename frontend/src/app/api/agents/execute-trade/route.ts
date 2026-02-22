@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import { internalFetch } from '@/lib/api/internalFetch';
 import {
   FLOW_RPC,
   ZEROG_RPC,
@@ -242,7 +243,7 @@ export const POST = composeMiddleware([
     let copyTradeResult = null;
     try {
       const baseUrl = getApiBaseUrl();
-      const copyTradeResponse = await fetch(`${baseUrl}/api/copy-trade/execute`, {
+      const copyTradeResponse = await internalFetch(`${baseUrl}/api/copy-trade/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

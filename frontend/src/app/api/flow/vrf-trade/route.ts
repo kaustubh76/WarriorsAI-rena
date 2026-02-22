@@ -22,6 +22,7 @@ import {
 } from '@/lib/flowClient';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 import { EXTERNAL_MARKET_MIRROR_ABI, CRWN_TOKEN_ABI } from '@/constants/abis';
 import { globalErrorHandler } from '@/lib/errorRecovery';
 import { FlowMetrics, PerformanceTimer } from '@/lib/metrics';
@@ -294,8 +295,8 @@ export const POST = composeMiddleware([
       if (prediction?.proof) {
         await globalErrorHandler.handleWithRetry(
           async () => {
-            const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-            const response = await fetch(`${baseUrl}/api/0g/market-store`, {
+            const baseUrl = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').trim();
+            const response = await internalFetch(`${baseUrl}/api/0g/market-store`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

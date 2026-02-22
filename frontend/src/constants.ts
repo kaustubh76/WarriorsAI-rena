@@ -109,10 +109,17 @@ export const getArenaBackendUrl = (): string => {
 };
 
 /**
- * Get the base API URL for internal API calls
+ * Get the base API URL for internal API calls.
+ * Falls back through available env vars to find the correct deployment URL.
  */
 export const getApiBaseUrl = (): string => {
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+  const url =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    'http://localhost:3000';
+  // Strip trailing \n that can leak from Vercel CLI-generated env files
+  return url.trim();
 };
 
 // Default chain ID constant for backwards compatibility

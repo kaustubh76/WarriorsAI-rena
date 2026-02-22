@@ -137,6 +137,351 @@ graph TB
 
 ---
 
+## User Journey Overview
+
+The complete user experience across all platform features:
+
+```mermaid
+flowchart TB
+    subgraph "Onboarding"
+        O1["Connect Flow Wallet<br/>(FCL + RainbowKit)"] --> O2["Mint CRwN Tokens<br/>(1:1 FLOW backed)"]
+        O2 --> O3{"Choose Path"}
+    end
+
+    subgraph "Path A - Battle Arena"
+        A1[Mint Warrior NFT] --> A2[Customize Traits<br/>STR / WIT / CHA / DEF / LCK]
+        A2 --> A3[Browse Battle Topics]
+        A3 --> A4[Create Challenge<br/>Lock CRwN Stakes]
+        A4 --> A5[Opponent Accepts]
+        A5 --> A6["5-Round AI Debate<br/>(0G AI Agents)"]
+        A6 --> A7[Winner Takes Stakes]
+        A7 --> A8[Warrior Rank Up<br/>Stats Updated]
+    end
+
+    subgraph "Path B - Prediction Markets"
+        B1[Browse Markets] --> B2{"Market Type"}
+        B2 -->|Native| B3[User-Created Market<br/>Set Question + End Time]
+        B2 -->|External| B4[Polymarket / Kalshi<br/>Mirrored Markets]
+        B2 -->|Debate| B5[AI Debate Market<br/>AI Oracle Resolution]
+        B3 & B4 & B5 --> B6[Place Bet<br/>Buy YES/NO Tokens]
+        B6 --> B7[AMM Updates Price]
+        B7 --> B8[Market Resolves]
+        B8 --> B9[Claim Winnings]
+    end
+
+    subgraph "Path C - Arbitrage"
+        C1[View Matched Markets<br/>Polymarket vs Kalshi] --> C2[Identify Price Gap]
+        C2 --> C3[Execute Arb Trade<br/>CRwN Locked in Escrow]
+        C3 --> C4[Markets Resolve]
+        C4 --> C5[Settlement + PnL]
+    end
+
+    subgraph "Path D - Whale Tracking"
+        D1[Browse Top Whales] --> D2[Follow Whale Traders]
+        D2 --> D3[Auto Copy Trades<br/>VRF Randomized Delay]
+        D3 --> D4[Track PnL + ROI]
+    end
+
+    subgraph "Path E - AI Agents"
+        E1[Create AI Agent iNFT] --> E2[Authorize Trading]
+        E2 --> E3[Agent Auto-Predicts<br/>0G Verified Compute]
+        E3 --> E4[Track Performance]
+    end
+
+    O3 --> A1
+    O3 --> B1
+    O3 --> C1
+    O3 --> D1
+    O3 --> E1
+
+    A8 -.->|"Re-enter"| A3
+    B9 -.->|"Reinvest"| B1
+    C5 -.->|"Compound"| C1
+```
+
+---
+
+## Warrior NFT Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Minting: User mints on /warriorsMinter
+
+    state Minting {
+        [*] --> TraitGeneration: AI generates traits
+        TraitGeneration --> SignTraits: Server signs with ECDSA
+        SignTraits --> OnChainMint: WarriorsNFT.mint()
+        OnChainMint --> MetadataStore: Store on 0G + IPFS
+    }
+
+    Minting --> Ready: NFT Minted with 5 traits
+
+    state Ready {
+        [*] --> Idle
+        Idle --> Challenging: Create battle challenge
+        Idle --> Accepting: Accept opponent challenge
+    }
+
+    Ready --> InBattle: Challenge matched
+
+    state InBattle {
+        [*] --> Round1
+        Round1 --> Round2: AI scores moves
+        Round2 --> Round3: STRIKE/TAUNT/DODGE/SPECIAL/RECOVER
+        Round3 --> Round4: Trait-weighted scoring
+        Round4 --> Round5: Final round
+        Round5 --> Resolution: Tally 5-round scores
+    }
+
+    InBattle --> Won: Higher total score
+    InBattle --> Lost: Lower total score
+
+    state Won {
+        [*] --> StakeClaimed: Winner takes CRwN
+        StakeClaimed --> StatsUpdated: Wins++ / Rank Up
+        StatsUpdated --> HistoryStored: Battle data on 0G
+    }
+
+    state Lost {
+        [*] --> StakeForfeited: CRwN to winner
+        StakeForfeited --> LossRecorded: Losses++ / Rank adjusted
+    }
+
+    Won --> Ready: Re-enter battles
+    Lost --> Ready: Re-enter battles
+```
+
+---
+
+## Cross-Chain Data Flow
+
+How data moves between Flow Cadence, Flow EVM, 0G Network, external APIs, and the database:
+
+```mermaid
+flowchart LR
+    subgraph "External World"
+        POLY["Polymarket API<br/>~1000 markets"]
+        KALSHI["Kalshi API<br/>~500 markets"]
+        USER["User Browser<br/>Flow Wallet"]
+    end
+
+    subgraph "Vercel Serverless"
+        API["Next.js API<br/>101 routes"]
+        CRON["6 Cron Jobs"]
+        MW["Middleware<br/>Rate Limit + Cache"]
+        DB["Prisma DB<br/>41 models"]
+    end
+
+    subgraph "Flow Cadence"
+        SB["ScheduledBattle.cdc"]
+        SMR["ScheduledMarketResolver.cdc"]
+        EVMB["EVMBridge.cdc<br/>COA Bridge"]
+    end
+
+    subgraph "Flow EVM"
+        CT["CrownToken<br/>ERC20"]
+        NFT["WarriorsNFT<br/>ERC721"]
+        AMM["PredictionMarketAMM"]
+        PA["PredictionArena"]
+        EMM["ExternalMarketMirror"]
+    end
+
+    subgraph "0G Network"
+        AI["0G AI Agents<br/>Battle + Predictions"]
+        STORE["0G Storage<br/>Battle History + Metadata"]
+        COMPUTE["0G Verified Compute<br/>Hash Proofs"]
+    end
+
+    USER <-->|"FCL + wagmi"| API
+    POLY -->|"Gamma API"| CRON
+    KALSHI -->|"RSA-PSS signed"| CRON
+    CRON --> MW --> DB
+
+    API --> MW
+    MW --> DB
+
+    API <-->|"viem clients<br/>hash-ring routed"| CT & NFT & AMM & PA & EMM
+    CRON -->|"FCL + ECDSA P256<br/>server auth"| SB & SMR
+    SB & SMR -->|"COA calls"| EVMB --> AMM & EMM
+
+    API <-->|"0G SDK"| AI & STORE
+    AI --> COMPUTE
+    COMPUTE -->|"VerifiedPrediction"| DB
+
+    POLY & KALSHI -.->|"prices"| DB
+    DB -.->|"matched pairs"| EMM
+```
+
+---
+
+## AI Agent iNFT Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as /ai-agents/create
+    participant API as /api/agents
+    participant AINFT as AIAgentINFT.sol
+    participant REG as AIAgentRegistry.sol
+    participant ZG as 0G AI Compute
+    participant AMM as PredictionMarketAMM
+    participant DB as Database
+
+    Note over User,DB: Phase 1 - Agent Creation
+    User->>UI: Configure agent strategy
+    UI->>API: POST /api/agents (name, strategy, params)
+    API->>AINFT: mint(owner, metadata)
+    AINFT-->>API: agentTokenId
+    API->>DB: Create Agent record
+
+    Note over User,DB: Phase 2 - Authorization
+    User->>UI: Authorize agent to trade
+    UI->>API: POST /api/agents/authorize
+    API->>REG: authorizeAgent(agentId, markets, limits)
+    REG-->>API: Authorization confirmed
+
+    Note over User,DB: Phase 3 - Autonomous Trading
+    loop Market Analysis Cycle
+        API->>ZG: Request market prediction
+        ZG->>ZG: Model inference + hash proof
+        ZG-->>API: Prediction + confidence + proof
+        API->>DB: Store VerifiedPrediction
+
+        alt Confidence > threshold
+            API->>REG: isAuthorized(agentId, marketId)
+            REG-->>API: Authorized
+            API->>AMM: executeTrade(market, side, amount)
+            AMM-->>API: Trade executed
+            API->>DB: Record AgentTrade
+        end
+    end
+
+    Note over User,DB: Phase 4 - Performance Tracking
+    User->>UI: View agent dashboard
+    UI->>API: GET /api/agents/{id}/trades
+    API->>DB: Query trades, PnL, win rate
+    API-->>UI: Performance metrics + trade history
+```
+
+---
+
+## Request Lifecycle (API Route)
+
+How every API request flows through the infrastructure layer:
+
+```mermaid
+flowchart TB
+    REQ["Incoming HTTP Request"] --> NEXT["Next.js Middleware<br/>(middleware.ts)"]
+
+    NEXT --> CORS["withCORS<br/>Set CORS headers"]
+    CORS --> RID["withRequestId<br/>Generate unique ID"]
+    RID --> RL{"withRateLimit<br/>Check preset limits"}
+
+    RL -->|"429 Too Many"| REJECT["Return 429<br/>Rate limit exceeded"]
+    RL -->|"Allowed"| AUTH{"Auth Check"}
+
+    AUTH -->|"Cron route"| CRON_AUTH["withCronAuth<br/>Verify Bearer token"]
+    AUTH -->|"Public route"| HANDLER
+    AUTH -->|"Internal"| INT_AUTH["withInternalAuth"]
+
+    CRON_AUTH --> HANDLER["Route Handler"]
+    INT_AUTH --> HANDLER
+
+    HANDLER --> CACHE{"withCache<br/>HashedCache lookup"}
+    CACHE -->|"HIT"| CACHED["Return cached response"]
+    CACHE -->|"MISS"| LOGIC["Business Logic"]
+
+    LOGIC --> HASH["Hash Ring<br/>Select RPC node"]
+    HASH --> RPC{"RPC Call"}
+
+    RPC -->|"Flow EVM"| FLOW_RPC["flowClient.ts<br/>viem + fallback"]
+    RPC -->|"0G Chain"| ZG_RPC["zeroGClient.ts<br/>viem client"]
+    RPC -->|"Database"| PRISMA["Prisma ORM"]
+
+    FLOW_RPC --> RESP
+    ZG_RPC --> RESP
+    PRISMA --> RESP
+
+    RESP["Build Response"] --> LOG["withLogging<br/>Log request + timing"]
+    LOG --> RES["Return NextResponse<br/>200 / 201 / 4xx / 5xx"]
+
+    LOGIC -->|"Error"| ERR["handleAPIError<br/>APIError + Prisma + Flow<br/>error mapping"]
+    ERR --> LOG
+```
+
+---
+
+## Platform Event Timeline
+
+How the 6 cron jobs and event listeners coordinate across a 24-hour cycle:
+
+```mermaid
+gantt
+    title Daily Automation Cycle (UTC)
+    dateFormat HH:mm
+    axisFormat %H:%M
+
+    section Battles
+    execute-battles           :active, eb, 00:00, 30m
+    Event listener monitoring :el, 00:30, 23h
+
+    section Resolutions
+    execute-resolutions       :active, er, 04:00, 30m
+
+    section Market Sync
+    sync-markets (Poly+Kalshi):active, sm, 06:00, 15m
+    detect-arbitrage          :active, da, 06:30, 35m
+
+    section Settlement
+    settle-arbitrage-battles  :active, sa, 12:00, 30m
+
+    section Whale Data
+    sync-whale-trades         :active, sw, 18:00, 15m
+```
+
+```mermaid
+flowchart LR
+    subgraph "00:00 - Battles"
+        EB1["execute-battles"] --> EB2["Find READY battles<br/>in ScheduledBattle.cdc"]
+        EB2 --> EB3["Server ECDSA auth"]
+        EB3 --> EB4["Execute via FCL<br/>Max 20 per batch"]
+        EB4 --> EB5["Alert on failures"]
+    end
+
+    subgraph "04:00 - Resolutions"
+        ER1["execute-resolutions"] --> ER2["Query pending<br/>ScheduledResolution"]
+        ER2 --> ER3["Fetch external outcome<br/>Polymarket / Kalshi API"]
+        ER3 --> ER4["Resolve mirror market<br/>on-chain + DB"]
+        ER4 --> ER5["Max 10 attempts<br/>30s sealed timeout"]
+    end
+
+    subgraph "06:00 - Sync"
+        SM1["sync-markets"] --> SM2["Parallel fetch<br/>Poly (~5s) + Kalshi (~0.75s)"]
+        SM2 --> SM3["Normalize prices<br/>0-100 unified"]
+        SM3 --> SM4["Upsert DB<br/>0-10000 basis points"]
+    end
+
+    subgraph "06:30 - Arbitrage"
+        DA1["detect-arbitrage"] --> DA2["Cross-platform<br/>Jaccard matching"]
+        DA2 --> DA3["Filter: spread >= 5%<br/>cost < 1.0"]
+        DA3 --> DA4["~557 opportunities<br/>upserted"]
+    end
+
+    subgraph "12:00 - Settlement"
+        SA1["settle-arbitrage"] --> SA2["Find resolved markets"]
+        SA2 --> SA3["Atomic CAS:<br/>settled: false → true"]
+        SA3 --> SA4["Calculate PnL<br/>Release escrow"]
+    end
+
+    subgraph "18:00 - Whales"
+        SW1["sync-whale-trades"] --> SW2["Fetch whale activity"]
+        SW2 --> SW3["Upsert WhaleTrade<br/>+ TrackedTrader stats"]
+        SW3 --> SW4["Trigger copy trades<br/>for followers"]
+    end
+```
+
+---
+
 ## Infrastructure & Performance Layer
 
 The platform includes a production-grade infrastructure layer optimized for Vercel serverless.

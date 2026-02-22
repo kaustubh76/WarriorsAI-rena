@@ -105,16 +105,16 @@ interface StoreResponse {
 const STORAGE_CONFIG = {
   rpcUrl: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
   indexerUrl: process.env.NEXT_PUBLIC_0G_STORAGE_INDEXER || 'https://indexer-storage-testnet-turbo.0g.ai',
-  privateKey: process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || '',
+  privateKey: (process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || '').trim(),
 };
 
 // Dynamic SDK imports
-let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
-let ZgFile: typeof import('@0glabs/0g-ts-sdk').ZgFile;
+let Indexer: typeof import('@0gfoundation/0g-ts-sdk').Indexer;
+let ZgFile: typeof import('@0gfoundation/0g-ts-sdk').ZgFile;
 
 async function loadSDK() {
   if (!Indexer || !ZgFile) {
-    const sdk = await import('@0glabs/0g-ts-sdk');
+    const sdk = await import('@0gfoundation/0g-ts-sdk');
     Indexer = sdk.Indexer;
     ZgFile = sdk.ZgFile;
   }
@@ -212,7 +212,7 @@ async function uploadToZeroG(data: string, filename: string): Promise<{
           throw new Error(`Upload error: ${uploadErr}`);
         }
 
-        uploadResult = result ?? null;
+        uploadResult = result && 'txHash' in result ? result : null;
         break;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));

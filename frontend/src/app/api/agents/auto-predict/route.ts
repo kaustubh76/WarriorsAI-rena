@@ -16,6 +16,7 @@
 
 import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
+import { internalFetch } from '@/lib/api/internalFetch';
 import {
   ZEROG_RPC,
   FLOW_RPC,
@@ -178,7 +179,7 @@ export const POST = composeMiddleware([
       const metadataHash = encryptedMetadataRef.replace('0g://', '');
 
       // Try to fetch from 0G Storage API
-      const storageResponse = await fetch(`${getApiBaseUrl()}/api/0g/query?hash=${metadataHash}`);
+      const storageResponse = await internalFetch(`${getApiBaseUrl()}/api/0g/query?hash=${metadataHash}`);
       if (storageResponse.ok) {
         const storageData = await storageResponse.json();
         if (storageData.success && storageData.data) {
@@ -232,7 +233,7 @@ export const POST = composeMiddleware([
     console.log(`🧠 [Auto-Predict] Sending to 0G AI Compute...`);
 
     // Call 0G AI Compute for prediction
-    const inferenceResponse = await fetch(
+    const inferenceResponse = await internalFetch(
       `${getApiBaseUrl()}/api/0g/inference`,
       {
         method: 'POST',
@@ -293,7 +294,7 @@ export const POST = composeMiddleware([
       console.log(`💰 [Auto-Predict] Auto-executing trade...`);
 
       try {
-        const executeResponse = await fetch(
+        const executeResponse = await internalFetch(
           `${getApiBaseUrl()}/api/agents/execute-trade`,
           {
             method: 'POST',

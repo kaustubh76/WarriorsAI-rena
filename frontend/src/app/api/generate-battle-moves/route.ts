@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger';
 import { RateLimitPresets } from '@/lib/api';
 import { ErrorResponses } from '@/lib/api/errorHandler';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'generate-battle-moves', ...RateLimitPresets.inference }),
@@ -24,7 +25,7 @@ export const POST = composeMiddleware([
     logger.debug('Generating battle moves for battle prompt');
 
     // Call the 0G AI inference API
-    const inferenceResponse = await fetch(`${getApiBaseUrl()}/api/0g/inference`, {
+    const inferenceResponse = await internalFetch(`${getApiBaseUrl()}/api/0g/inference`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

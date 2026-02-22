@@ -14,6 +14,7 @@ import { ethers } from 'ethers';
 import type { Address } from 'viem';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 
 // ============================================================================
 // Types
@@ -165,8 +166,8 @@ async function fetchHistoricalContext(
 ): Promise<string> {
   try {
     // Query local API for similar past markets
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-    const response = await fetch(`${baseUrl}/api/0g/query`, {
+    const baseUrl = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').trim();
+    const response = await internalFetch(`${baseUrl}/api/0g/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

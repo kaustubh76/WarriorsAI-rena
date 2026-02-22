@@ -11,6 +11,7 @@ import {
 } from '@/lib/flowClient';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 
 // Import the contract ABI and helpers
 import { ArenaAbi, getApiBaseUrl } from '../../../constants';
@@ -319,7 +320,7 @@ async function generateAIMoves(arenaAddress: string): Promise<{ agent_1: { move:
 
     // Call 0G AI for move selection
     console.log('Game Master: Calling 0G AI for move selection...');
-    const response = await fetch(`${getApiBaseUrl()}/api/generate-battle-moves`, {
+    const response = await internalFetch(`${getApiBaseUrl()}/api/generate-battle-moves`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

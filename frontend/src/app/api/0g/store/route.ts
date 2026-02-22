@@ -3,7 +3,7 @@
  * Server-side battle data storage via 0G Storage Network (Testnet)
  *
  * Features:
- * - Direct integration with @0glabs/0g-ts-sdk
+ * - Direct integration with @0gfoundation/0g-ts-sdk
  * - Battle data validation
  * - Automatic indexing after storage
  * - Cryptographic integrity verification
@@ -17,14 +17,15 @@ import * as path from 'path';
 import * as os from 'os';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 
 // Dynamic import for 0G SDK (works better with Next.js)
-let Indexer: typeof import('@0glabs/0g-ts-sdk').Indexer;
-let ZgFile: typeof import('@0glabs/0g-ts-sdk').ZgFile;
+let Indexer: typeof import('@0gfoundation/0g-ts-sdk').Indexer;
+let ZgFile: typeof import('@0gfoundation/0g-ts-sdk').ZgFile;
 
 async function loadSDK() {
   if (!Indexer || !ZgFile) {
-    const sdk = await import('@0glabs/0g-ts-sdk');
+    const sdk = await import('@0gfoundation/0g-ts-sdk');
     Indexer = sdk.Indexer;
     ZgFile = sdk.ZgFile;
   }
@@ -105,7 +106,7 @@ interface BattleDataWithPrediction extends BattleDataIndex {
 const STORAGE_CONFIG = {
   rpcUrl: process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai',
   indexerUrl: process.env.NEXT_PUBLIC_0G_STORAGE_INDEXER || 'https://indexer-storage-testnet-turbo.0g.ai',
-  privateKey: process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || ''
+  privateKey: (process.env.PRIVATE_KEY || process.env.ZEROG_PRIVATE_KEY || '').trim()
 };
 
 // Singleton instances (lazily initialized)
@@ -151,8 +152,8 @@ function hashData(data: string): string {
  */
 async function indexBattle(rootHash: string, battle: BattleDataIndex): Promise<boolean> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const response = await fetch(`${baseUrl}/api/0g/query`, {
+    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').trim();
+    const response = await internalFetch(`${baseUrl}/api/0g/query`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rootHash, battle })
@@ -257,7 +258,7 @@ async function uploadToZeroG(data: string, filename: string): Promise<{
           throw new Error(`Upload error: ${uploadErr}`);
         }
 
-        uploadResult = result ?? null;
+        uploadResult = result && 'txHash' in result ? result : null;
         break;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));

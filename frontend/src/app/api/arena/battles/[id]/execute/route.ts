@@ -4,6 +4,7 @@ import { executeDebateRound, executeFullBattle } from '../../../../../../service
 import { WarriorTraits, MarketSource, PredictionRound, RealMarketData } from '../../../../../../types/predictionArena';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 
 const prisma = new PrismaClient();
 
@@ -16,7 +17,7 @@ async function storeBattleTo0G(
   w1Traits: WarriorTraits,
   w2Traits: WarriorTraits
 ): Promise<{ rootHash?: string; success: boolean }> {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').trim();
 
   const battleRecord = {
     version: '1.0.0',
@@ -73,7 +74,7 @@ async function storeBattleTo0G(
     dataHash: '',
   };
 
-  const response = await fetch(`${baseUrl}/api/arena/storage`, {
+  const response = await internalFetch(`${baseUrl}/api/arena/storage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ battle: battleRecord }),

@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { internalFetch } from '@/lib/api/internalFetch';
 
 const prisma = new PrismaClient();
 
@@ -133,8 +134,8 @@ export const POST = composeMiddleware([
     };
 
     // Store via existing 0G store endpoint
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const storeResponse = await fetch(`${baseUrl}/api/0g/store`, {
+    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').trim();
+    const storeResponse = await internalFetch(`${baseUrl}/api/0g/store`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ battle: storageData }),
@@ -183,8 +184,8 @@ export const GET = composeMiddleware([
     }
 
     // Retrieve via existing 0G store endpoint
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const getResponse = await fetch(`${baseUrl}/api/0g/store?rootHash=${rootHash}`);
+    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000').trim();
+    const getResponse = await internalFetch(`${baseUrl}/api/0g/store?rootHash=${rootHash}`);
 
     if (!getResponse.ok) {
       const errorData = await getResponse.json();
