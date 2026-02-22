@@ -1,11 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatEther } from 'viem';
-import { PredictionBattle, PredictionRound, DebateMove } from '../../types/predictionArena';
+import { motion, AnimatePresence } from 'framer-motion';
+import Link from 'next/link';
+import { PredictionBattle, PredictionRound, DebateMove, DebateEvidence } from '../../types/predictionArena';
 import { useBattleBetting, formatOdds, formatMultiplier } from '../../hooks/arena';
+import { useWarriorMessage } from '../../contexts/WarriorMessageContext';
+import { WARRIOR_MESSAGES } from '../../utils/warriorMessages';
 import ArbitrageTrackingPanel from './ArbitrageTrackingPanel';
-import { TrendingUp } from 'lucide-react';
+import ScoreProgressionChart from './ScoreProgressionChart';
+import DebateReplayModal from './DebateReplayModal';
+import { TrendingUp, PlayCircle } from 'lucide-react';
 
 interface LiveBattleViewProps {
   battle: PredictionBattle;
@@ -32,18 +38,56 @@ const MOVE_COLORS: Record<string, string> = {
 export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBattleViewProps) {
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [showBettingPanel, setShowBettingPanel] = useState(false);
+  const [showReplay, setShowReplay] = useState(false);
   const [betAmount, setBetAmount] = useState('1');
   const [betSide, setBetSide] = useState<'yes' | 'no'>('yes');
 
   const { pool, userBet, placeBet, isPlacingBet } = useBattleBetting(battle.id);
+  const { showMessage } = useWarriorMessage();
+  const prevRoundCountRef = useRef(0);
+  const prevStatusRef = useRef(battle.status);
 
   const currentRound = battle.rounds?.find(r => r.roundNumber === battle.currentRound);
   const completedRounds = battle.rounds?.filter(r => r.roundWinner) || [];
+
+  // Warrior message on round completion
+  useEffect(() => {
+    const completedCount = completedRounds.length;
+    if (completedCount > prevRoundCountRef.current && prevRoundCountRef.current > 0) {
+      const msgs = WARRIOR_MESSAGES.ARENA.ROUND_COMPLETE;
+      showMessage({
+        id: 'round_complete',
+        text: msgs[Math.floor(Math.random() * msgs.length)],
+        duration: 4000,
+      });
+    }
+    prevRoundCountRef.current = completedCount;
+  }, [completedRounds.length, showMessage]);
+
+  // Warrior message on battle completion
+  useEffect(() => {
+    if (prevStatusRef.current === 'active' && battle.status === 'completed') {
+      const won = battle.warrior1Score > battle.warrior2Score;
+      const msgs = won ? WARRIOR_MESSAGES.ARENA.BATTLE_WON : WARRIOR_MESSAGES.ARENA.BATTLE_LOST;
+      showMessage({
+        id: 'battle_result',
+        text: msgs[Math.floor(Math.random() * msgs.length)],
+        duration: 6000,
+      });
+    }
+    prevStatusRef.current = battle.status;
+  }, [battle.status, battle.warrior1Score, battle.warrior2Score, showMessage]);
 
   const handlePlaceBet = async () => {
     const success = await placeBet(betSide === 'yes', betAmount);
     if (success) {
       setShowBettingPanel(false);
+      const msgs = WARRIOR_MESSAGES.ARENA.BETTING_PLACED;
+      showMessage({
+        id: 'bet_placed',
+        text: msgs[Math.floor(Math.random() * msgs.length)],
+        duration: 4000,
+      });
     }
   };
 
@@ -94,8 +138,18 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
               <span className="text-4xl">👍</span>
             </div>
             <p className="text-green-400 font-bold text-xl mt-3">YES</p>
-            <p className="text-white font-medium">Warrior #{battle.warrior1Id}</p>
-            <p className="text-5xl font-bold text-white mt-2">{battle.warrior1Score}</p>
+            <Link href={`/prediction-arena/warrior/${battle.warrior1Id}`} className="text-white font-medium hover:text-purple-400 transition-colors">
+              Warrior #{battle.warrior1Id}
+            </Link>
+            <motion.p
+              key={`w1score-${battle.warrior1Score}`}
+              initial={{ scale: 1.3, color: '#a78bfa' }}
+              animate={{ scale: 1, color: '#ffffff' }}
+              transition={{ duration: 0.5 }}
+              className="text-5xl font-bold mt-2"
+            >
+              {battle.warrior1Score}
+            </motion.p>
             {pool && (
               <p className="text-sm text-gray-400 mt-1">
                 {formatOdds(pool.warrior1Odds)} odds
@@ -120,8 +174,18 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
               <span className="text-4xl">👎</span>
             </div>
             <p className="text-red-400 font-bold text-xl mt-3">NO</p>
-            <p className="text-white font-medium">Warrior #{battle.warrior2Id}</p>
-            <p className="text-5xl font-bold text-white mt-2">{battle.warrior2Score}</p>
+            <Link href={`/prediction-arena/warrior/${battle.warrior2Id}`} className="text-white font-medium hover:text-purple-400 transition-colors">
+              Warrior #{battle.warrior2Id}
+            </Link>
+            <motion.p
+              key={`w2score-${battle.warrior2Score}`}
+              initial={{ scale: 1.3, color: '#a78bfa' }}
+              animate={{ scale: 1, color: '#ffffff' }}
+              transition={{ duration: 0.5 }}
+              className="text-5xl font-bold mt-2"
+            >
+              {battle.warrior2Score}
+            </motion.p>
             {pool && (
               <p className="text-sm text-gray-400 mt-1">
                 {formatOdds(pool.warrior2Odds)} odds
@@ -130,6 +194,17 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
           </div>
         </div>
       </div>
+
+      {/* Score Progression Chart */}
+      {completedRounds.length > 0 && (
+        <div className="p-6 border-b border-gray-700">
+          <ScoreProgressionChart
+            rounds={completedRounds}
+            warrior1Score={battle.warrior1Score}
+            warrior2Score={battle.warrior2Score}
+          />
+        </div>
+      )}
 
       {/* Betting Panel */}
       {battle.status === 'active' && battle.currentRound <= 2 && (
@@ -224,8 +299,11 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
             const isCompleted = round?.roundWinner;
 
             return (
-              <button
+              <motion.button
                 key={roundNum}
+                initial={isCompleted ? { scale: 0.8, opacity: 0 } : false}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.3, delay: isCompleted ? 0.1 : 0 }}
                 onClick={() => setSelectedRound(isCompleted ? roundNum : null)}
                 className={`flex-1 p-4 rounded-xl transition-all ${
                   isCurrentRound
@@ -254,7 +332,7 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
                 ) : (
                   <p className="text-gray-500">—</p>
                 )}
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -307,12 +385,22 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
       )}
 
       {/* Latest Round Result */}
-      {completedRounds.length > 0 && !selectedRound && (
-        <RoundDetailPanel
-          round={completedRounds[completedRounds.length - 1]}
-          isLatest
-        />
-      )}
+      <AnimatePresence mode="wait">
+        {completedRounds.length > 0 && !selectedRound && (
+          <motion.div
+            key={`latest-${completedRounds[completedRounds.length - 1]?.roundNumber}`}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.4 }}
+          >
+            <RoundDetailPanel
+              round={completedRounds[completedRounds.length - 1]}
+              isLatest
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Battle Complete */}
       {battle.status === 'completed' && (
@@ -329,9 +417,78 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
             <p className="text-gray-400">
               Final Score: {battle.warrior1Score} - {battle.warrior2Score}
             </p>
+            {completedRounds.length > 0 && (
+              <button
+                onClick={() => setShowReplay(true)}
+                className="mt-4 px-6 py-2 bg-purple-600/30 border border-purple-500/50 rounded-xl text-purple-400 hover:bg-purple-600/50 hover:text-purple-300 transition-all flex items-center gap-2 mx-auto"
+              >
+                <PlayCircle className="w-4 h-4" />
+                Replay Debate
+              </button>
+            )}
           </div>
         </div>
       )}
+
+      {/* Debate Replay Modal */}
+      <DebateReplayModal
+        rounds={battle.rounds || []}
+        isOpen={showReplay}
+        onClose={() => setShowReplay(false)}
+      />
+    </div>
+  );
+}
+
+// Parse evidence JSON safely
+function parseEvidence(json?: string): DebateEvidence[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+const EVIDENCE_TYPE_COLORS: Record<string, string> = {
+  news: 'bg-blue-500/20 text-blue-400',
+  data: 'bg-cyan-500/20 text-cyan-400',
+  expert: 'bg-purple-500/20 text-purple-400',
+  historical: 'bg-amber-500/20 text-amber-400',
+  market: 'bg-green-500/20 text-green-400',
+};
+
+function EvidenceList({ evidence }: { evidence: DebateEvidence[] }) {
+  if (evidence.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-1.5">
+      {evidence.slice(0, 3).map((e, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs">
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${EVIDENCE_TYPE_COLORS[e.type] || 'bg-gray-600 text-gray-300'}`}>
+            {e.type}
+          </span>
+          <span className="text-gray-300 flex-1 line-clamp-1">{e.title}</span>
+          {e.relevance != null && (
+            <span className="text-gray-500 flex-shrink-0">{e.relevance}%</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConfidenceBar({ value, color }: { value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2 mt-1.5">
+      <span className="text-gray-500 text-[10px]">Confidence</span>
+      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${color}`}
+          style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+        />
+      </div>
+      <span className="text-gray-400 text-[10px] font-medium">{value}%</span>
     </div>
   );
 }
@@ -346,6 +503,9 @@ function RoundDetailPanel({
   isLatest?: boolean;
 }) {
   if (!round) return null;
+
+  const w1Evidence = parseEvidence(round.w1Evidence);
+  const w2Evidence = parseEvidence(round.w2Evidence);
 
   return (
     <div className="p-6 bg-gray-800/50">
@@ -379,9 +539,13 @@ function RoundDetailPanel({
           <p className="text-white text-sm leading-relaxed">
             {round.w1Argument || 'No argument recorded'}
           </p>
+          <EvidenceList evidence={w1Evidence} />
           <div className="mt-3 pt-3 border-t border-gray-600">
             <span className="text-2xl font-bold text-white">{round.w1Score}</span>
             <span className="text-gray-400 text-sm ml-2">points</span>
+            {round.w1Confidence != null && (
+              <ConfidenceBar value={round.w1Confidence} color="bg-green-500" />
+            )}
           </div>
         </div>
 
@@ -400,9 +564,13 @@ function RoundDetailPanel({
           <p className="text-white text-sm leading-relaxed">
             {round.w2Argument || 'No argument recorded'}
           </p>
+          <EvidenceList evidence={w2Evidence} />
           <div className="mt-3 pt-3 border-t border-gray-600">
             <span className="text-2xl font-bold text-white">{round.w2Score}</span>
             <span className="text-gray-400 text-sm ml-2">points</span>
+            {round.w2Confidence != null && (
+              <ConfidenceBar value={round.w2Confidence} color="bg-red-500" />
+            )}
           </div>
         </div>
       </div>
@@ -410,7 +578,7 @@ function RoundDetailPanel({
       {/* Judge Reasoning */}
       {round.judgeReasoning && (
         <div className="mt-4 p-4 bg-gray-700/30 rounded-xl border border-gray-600">
-          <p className="text-gray-400 text-sm mb-1">Judge's Reasoning</p>
+          <p className="text-gray-400 text-sm mb-1">Judge&apos;s Reasoning</p>
           <p className="text-white text-sm">{round.judgeReasoning}</p>
         </div>
       )}

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import Link from 'next/link';
+import { Search, SlidersHorizontal } from 'lucide-react';
 import { ArenaLeaderboard, CreateChallengeModal, AcceptChallengeModal } from '../../components/arena';
 import CreateArbitrageBattleModal from '../../components/arena/CreateArbitrageBattleModal';
 import { useRouter } from 'next/navigation';
@@ -46,21 +47,41 @@ export default function PredictionArenaPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('active');
 
+  // Search & filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'polymarket' | 'kalshi'>('all');
+  const [sortBy, setSortBy] = useState<'newest' | 'stakes' | 'activity'>('newest');
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAcceptModal, setShowAcceptModal] = useState(false);
   const [showArbitrageModal, setShowArbitrageModal] = useState(false);
   const [selectedBattle, setSelectedBattle] = useState<Battle | null>(null);
 
+  // Debounced search
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchQuery]);
+
   useEffect(() => {
     fetchBattles();
-  }, [activeTab]);
+  }, [activeTab, sourceFilter]);
 
   async function fetchBattles() {
     setLoading(true);
     try {
       const status = activeTab === 'active' ? 'active' : activeTab;
-      const res = await fetch(`/api/arena/battles?status=${status}&limit=50`);
+      const params = new URLSearchParams();
+      params.set('status', status);
+      params.set('limit', '50');
+      if (sourceFilter !== 'all') params.set('source', sourceFilter);
+      const res = await fetch(`/api/arena/battles?${params.toString()}`);
       const data = await res.json();
       setBattles(data.battles || []);
     } catch (error) {
@@ -69,6 +90,21 @@ export default function PredictionArenaPage() {
       setLoading(false);
     }
   }
+
+  // Client-side search + sort
+  const filteredBattles = useMemo(() => {
+    let result = battles;
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter((b: Battle) => b.question.toLowerCase().includes(q));
+    }
+    if (sortBy === 'stakes') {
+      result = [...result].sort((a: Battle, b: Battle) => parseInt(b.stakes || '0') - parseInt(a.stakes || '0'));
+    } else if (sortBy === 'activity') {
+      result = [...result].sort((a: Battle, b: Battle) => b.currentRound - a.currentRound);
+    }
+    return result;
+  }, [battles, debouncedSearch, sortBy]);
 
   function getStatusBadge(status: string) {
     const styles: Record<string, string> = {
@@ -162,6 +198,40 @@ export default function PredictionArenaPage() {
           </button>
         </div>
 
+        {/* Search & Filter Bar */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search battles by topic..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none transition-colors text-sm"
+            />
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value as 'all' | 'polymarket' | 'kalshi')}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-gray-300 focus:border-purple-500 focus:outline-none text-sm cursor-pointer"
+            >
+              <option value="all">All Sources</option>
+              <option value="polymarket">Polymarket</option>
+              <option value="kalshi">Kalshi</option>
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'newest' | 'stakes' | 'activity')}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-gray-300 focus:border-purple-500 focus:outline-none text-sm cursor-pointer"
+            >
+              <option value="newest">Newest</option>
+              <option value="stakes">Highest Stakes</option>
+              <option value="activity">Most Active</option>
+            </select>
+          </div>
+        </div>
+
         {/* Tabs */}
         <div className="flex justify-center gap-4 mb-8">
           {(['active', 'pending', 'completed'] as TabType[]).map((tab) => (
@@ -188,19 +258,31 @@ export default function PredictionArenaPage() {
                 <div className="animate-spin w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-4" />
                 <p className="text-gray-400">Loading prediction battles...</p>
               </div>
-            ) : battles.length === 0 ? (
+            ) : filteredBattles.length === 0 ? (
               <div className="text-center py-12 bg-gray-800/50 rounded-2xl border border-gray-700">
-                <p className="text-gray-400 text-lg mb-4">No {activeTab} prediction battles found</p>
-                {activeTab === 'pending' && (
+                <p className="text-gray-400 text-lg mb-4">
+                  {debouncedSearch || sourceFilter !== 'all'
+                    ? 'No battles match your search'
+                    : `No ${activeTab} prediction battles found`}
+                </p>
+                {!debouncedSearch && sourceFilter === 'all' && activeTab === 'pending' && (
                   <p className="text-gray-500">Create a challenge on a Polymarket or Kalshi topic to get started!</p>
                 )}
-                {activeTab === 'active' && (
+                {!debouncedSearch && sourceFilter === 'all' && activeTab === 'active' && (
                   <p className="text-gray-500">Accept an open challenge to start debating!</p>
+                )}
+                {(debouncedSearch || sourceFilter !== 'all') && (
+                  <button
+                    onClick={() => { setSearchQuery(''); setSourceFilter('all'); }}
+                    className="text-purple-400 hover:text-purple-300 text-sm mt-2 transition-colors"
+                  >
+                    Clear filters
+                  </button>
                 )}
               </div>
             ) : (
               <div className="grid gap-6">
-                {battles.map((battle: Battle) => (
+                {filteredBattles.map((battle: Battle) => (
                   <PredictionBattleCard
                     key={battle.id}
                     battle={battle}

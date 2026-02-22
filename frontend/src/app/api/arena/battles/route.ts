@@ -76,6 +76,8 @@ export const GET = composeMiddleware([
     if (marketId && source) {
       where.externalMarketId = marketId;
       where.source = source;
+    } else if (source) {
+      where.source = source;
     }
 
     const cacheKey = `arena-battles:${status || ''}:${warriorId || ''}:${marketId || ''}:${source || ''}:${limit}:${offset}`;

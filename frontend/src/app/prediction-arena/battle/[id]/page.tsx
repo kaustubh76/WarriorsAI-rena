@@ -5,7 +5,11 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
 import { LiveBattleView } from '../../../../components/arena/LiveBattleView';
+import MarketContextPanel from '../../../../components/arena/MarketContextPanel';
+import BattleShareButton from '../../../../components/arena/BattleShareButton';
 import { useBattleExecution, useBattleBetting } from '../../../../hooks/arena';
+import { useWarriorMessage } from '../../../../contexts/WarriorMessageContext';
+import { WARRIOR_MESSAGES } from '../../../../utils/warriorMessages';
 import { PredictionBattle } from '../../../../types/predictionArena';
 
 export default function BattleDetailPage() {
@@ -20,6 +24,7 @@ export default function BattleDetailPage() {
 
   const { executeRound, executeFullBattle, isExecuting } = useBattleExecution();
   const { pool, userBet, claimWinnings, isClaiming } = useBattleBetting(battleId);
+  const { showMessage } = useWarriorMessage();
 
   // Fetch battle data
   useEffect(() => {
@@ -77,6 +82,8 @@ export default function BattleDetailPage() {
     const result = await executeRound(battle.id, defaultTraits, defaultTraits);
     if (result) {
       setBattle(result.battle);
+      const msgs = WARRIOR_MESSAGES.ARENA.ROUND_COMPLETE;
+      showMessage({ id: 'round_exec', text: msgs[Math.floor(Math.random() * msgs.length)], duration: 4000 });
     }
   };
 
@@ -94,16 +101,16 @@ export default function BattleDetailPage() {
     const result = await executeFullBattle(battle.id, defaultTraits, defaultTraits);
     if (result) {
       setBattle(result.battle);
+      const msgs = WARRIOR_MESSAGES.ARENA.BATTLE_WON;
+      showMessage({ id: 'full_battle', text: msgs[Math.floor(Math.random() * msgs.length)], duration: 5000 });
     }
   };
 
   const handleClaimWinnings = async () => {
     const result = await claimWinnings();
     if (result) {
-      alert(result.won
-        ? `Congratulations! You won ${result.payout} wei`
-        : 'Claimed!'
-      );
+      const msgs = WARRIOR_MESSAGES.ARENA.WINNINGS_CLAIMED;
+      showMessage({ id: 'winnings', text: msgs[Math.floor(Math.random() * msgs.length)], duration: 5000 });
     }
   };
 
@@ -142,14 +149,21 @@ export default function BattleDetailPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900">
       <div className="container mx-auto px-4 py-8">
-        {/* Navigation */}
-        <div className="mb-6">
+        {/* Navigation + Share */}
+        <div className="mb-6 flex items-center justify-between">
           <Link
             href="/prediction-arena"
             className="text-gray-400 hover:text-white transition-colors"
           >
             &larr; Back to Arena
           </Link>
+          <BattleShareButton
+            battleId={battle.id}
+            question={battle.question}
+            warrior1Score={battle.warrior1Score}
+            warrior2Score={battle.warrior2Score}
+            status={battle.status}
+          />
         </div>
 
         {/* Main Battle View */}
@@ -158,6 +172,16 @@ export default function BattleDetailPage() {
           onExecuteRound={handleExecuteRound}
           isExecuting={isExecuting}
         />
+
+        {/* External Market Context */}
+        {battle.externalMarketId && (
+          <div className="mt-6">
+            <MarketContextPanel
+              externalMarketId={battle.externalMarketId}
+              source={battle.source}
+            />
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="mt-6 flex flex-wrap gap-4 justify-center">
@@ -200,7 +224,9 @@ export default function BattleDetailPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-green-400 font-medium">YES Side</p>
-                  <p className="text-white">Warrior #{battle.warrior1Id}</p>
+                  <Link href={`/prediction-arena/warrior/${battle.warrior1Id}`} className="text-white hover:text-purple-400 transition-colors">
+                    Warrior #{battle.warrior1Id}
+                  </Link>
                   <p className="text-gray-500 text-sm">
                     {battle.warrior1Owner.slice(0, 6)}...{battle.warrior1Owner.slice(-4)}
                   </p>
@@ -215,7 +241,9 @@ export default function BattleDetailPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-red-400 font-medium">NO Side</p>
-                    <p className="text-white">Warrior #{battle.warrior2Id}</p>
+                    <Link href={`/prediction-arena/warrior/${battle.warrior2Id}`} className="text-white hover:text-purple-400 transition-colors">
+                      Warrior #{battle.warrior2Id}
+                    </Link>
                     <p className="text-gray-500 text-sm">
                       {battle.warrior2Owner.slice(0, 6)}...{battle.warrior2Owner.slice(-4)}
                     </p>
