@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Search, SlidersHorizontal } from 'lucide-react';
 import { ArenaLeaderboard, CreateChallengeModal, AcceptChallengeModal } from '../../components/arena';
 import CreateArbitrageBattleModal from '../../components/arena/CreateArbitrageBattleModal';
+import { useMatchedMarkets, type MatchedMarketPair } from '../../hooks/arena';
 import { useRouter } from 'next/navigation';
 
 interface Battle {
@@ -59,6 +60,14 @@ export default function PredictionArenaPage() {
   const [showAcceptModal, setShowAcceptModal] = useState(false);
   const [showArbitrageModal, setShowArbitrageModal] = useState(false);
   const [selectedBattle, setSelectedBattle] = useState<Battle | null>(null);
+
+  // Arbitrage opportunities
+  const { pairs: arbitragePairs, loading: loadingArbitrage } = useMatchedMarkets({
+    onlyArbitrage: true,
+    limit: 5,
+    autoFetch: true,
+    refreshInterval: 120000,
+  });
 
   // Debounced search
   useEffect(() => {
@@ -198,6 +207,30 @@ export default function PredictionArenaPage() {
           </button>
         </div>
 
+        {/* Arbitrage Opportunities */}
+        {!loadingArbitrage && arbitragePairs.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">Arbitrage Opportunities</h2>
+                <p className="text-gray-400 text-sm">Price differences across Polymarket & Kalshi</p>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/50">
+                {arbitragePairs.length} found
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {arbitragePairs.slice(0, 3).map((pair) => (
+                <ArbitrageOpportunityCard
+                  key={pair.id}
+                  pair={pair}
+                  onCreateBattle={() => setShowArbitrageModal(true)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Search & Filter Bar */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <div className="relative flex-1">
@@ -303,6 +336,12 @@ export default function PredictionArenaPage() {
           {/* Leaderboard Sidebar */}
           <div className="lg:col-span-1">
             <ArenaLeaderboard compact limit={10} />
+            <Link
+              href="/prediction-arena/leaderboard"
+              className="block mt-4 text-center py-3 bg-gray-800/50 rounded-xl border border-gray-700 text-purple-400 hover:bg-gray-700/50 hover:text-purple-300 transition-all text-sm font-medium"
+            >
+              View Full Leaderboard →
+            </Link>
           </div>
         </div>
       </div>
@@ -370,6 +409,60 @@ function StatCard({ title, value }: { title: string; value: string }) {
     <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
       <p className="text-gray-400 text-sm mb-1">{title}</p>
       <p className="text-2xl font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
+function ArbitrageOpportunityCard({
+  pair,
+  onCreateBattle,
+}: {
+  pair: MatchedMarketPair;
+  onCreateBattle: () => void;
+}) {
+  const spread = Math.abs(pair.priceDifference).toFixed(1);
+  const question = pair.polymarket.question.length > 80
+    ? pair.polymarket.question.slice(0, 77) + '...'
+    : pair.polymarket.question;
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 hover:border-green-500/50 transition-all">
+      <p className="text-white text-sm font-medium mb-3 line-clamp-2 min-h-[2.5rem]">
+        {question}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="bg-purple-500/10 rounded-lg p-2 text-center">
+          <p className="text-[10px] text-purple-400 font-medium mb-0.5">POLYMARKET</p>
+          <p className="text-white font-bold text-sm">
+            {pair.polymarket.yesPrice.toFixed(1)}%
+          </p>
+        </div>
+        <div className="bg-blue-500/10 rounded-lg p-2 text-center">
+          <p className="text-[10px] text-blue-400 font-medium mb-0.5">KALSHI</p>
+          <p className="text-white font-bold text-sm">
+            {pair.kalshi.yesPrice.toFixed(1)}%
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-green-400 font-bold text-sm">
+          {spread}% spread
+        </span>
+        {pair.arbitrageStrategy && (
+          <span className="text-xs text-gray-500">
+            ~{pair.arbitrageStrategy.potentialProfit.toFixed(1)}% profit
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={onCreateBattle}
+        className="w-full py-2 bg-green-600/20 border border-green-500/50 rounded-lg text-green-400 text-sm font-medium hover:bg-green-600/30 transition-all"
+      >
+        Create Arbitrage Battle
+      </button>
     </div>
   );
 }

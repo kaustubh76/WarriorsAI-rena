@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { formatEther } from 'viem';
 import { useWarriorArenaStats } from '../../../../hooks/arena/useWarriorArenaStats';
 import { Trophy, Flame, TrendingUp, Target, ArrowLeft } from 'lucide-react';
+import { Achievements } from '../../../../components/arena/Achievements';
 
 const TIER_COLORS: Record<string, string> = {
   UNRANKED: 'text-gray-400',
@@ -270,6 +271,9 @@ export default function WarriorProfilePage() {
             </div>
           )}
         </div>
+
+        {/* Achievements */}
+        <Achievements stats={stats} className="mt-6" />
       </div>
     </div>
   );

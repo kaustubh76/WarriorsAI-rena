@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
 import { useArenaMarkets, ArenaMarket, MarketSourceFilter } from '@/hooks/arena/useArenaMarkets';
+import { useCuratedTopics, type CuratedTopic } from '@/hooks/arena/useCuratedTopics';
 import { useUserNFTs } from '@/hooks/useUserNFTs';
 import { fetchWithTimeout, isTimeoutError, TimeoutDefaults } from '@/lib/fetchWithTimeout';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -43,8 +44,18 @@ export function CreateChallengeModal({ isOpen, onClose, onSuccess }: CreateChall
   const [stakeAmount, setStakeAmount] = useState('1');
   const [error, setError] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [browseMode, setBrowseMode] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const isMountedRef = useRef(true);
+
+  // Curated topics hook (lazy-loaded when browse mode activated)
+  const {
+    topics,
+    loading: loadingTopics,
+    search: searchTopics,
+    setCategory: setTopicCategory,
+    categoryFilter: topicCategory,
+  } = useCuratedTopics({ initialFetch: false });
 
   // Reset form and fetch markets when modal opens, track mounted state
   useEffect(() => {
@@ -56,6 +67,7 @@ export function CreateChallengeModal({ isOpen, onClose, onSuccess }: CreateChall
       setStakeAmount('1');
       setError(null);
       setIsDropdownOpen(false);
+      setBrowseMode(false);
       refetchMarkets();
     }
     return () => {
@@ -225,109 +237,222 @@ export function CreateChallengeModal({ isOpen, onClose, onSuccess }: CreateChall
               Select Market Topic
             </label>
 
-            {/* Source Filter Tabs */}
+            {/* Mode Toggle: Search vs Browse Featured */}
             <div className="flex gap-1 mb-3 p-1 bg-gray-700/50 rounded-lg">
-              {(['all', 'polymarket', 'kalshi'] as MarketSourceFilter[]).map((source) => (
-                <button
-                  key={source}
-                  type="button"
-                  onClick={() => setSource(source)}
-                  className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    sourceFilter === source
-                      ? 'bg-purple-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-600/50'
-                  }`}
-                >
-                  {source === 'all' ? 'All' : source === 'polymarket' ? 'Polymarket' : 'Kalshi'}
-                  {source !== 'all' && (
-                    <span className="ml-1 opacity-70">
-                      ({source === 'polymarket' ? sourceCounts.polymarket : sourceCounts.kalshi})
-                    </span>
-                  )}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setBrowseMode(false)}
+                className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  !browseMode
+                    ? 'bg-purple-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-600/50'
+                }`}
+              >
+                Search Markets
+              </button>
+              <button
+                type="button"
+                onClick={() => { setBrowseMode(true); searchTopics(''); }}
+                className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  browseMode
+                    ? 'bg-purple-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-600/50'
+                }`}
+              >
+                Browse Featured
+              </button>
             </div>
 
-            {/* Search Input */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search prediction markets..."
-                value={searchQuery}
-                onChange={(e) => searchMarkets(e.target.value)}
-                onFocus={() => setIsDropdownOpen(true)}
-                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-500 pr-10"
-              />
-              <svg
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+            {!browseMode ? (
+              <>
+                {/* Source Filter Tabs */}
+                <div className="flex gap-1 mb-3 p-1 bg-gray-700/50 rounded-lg">
+                  {(['all', 'polymarket', 'kalshi'] as MarketSourceFilter[]).map((source) => (
+                    <button
+                      key={source}
+                      type="button"
+                      onClick={() => setSource(source)}
+                      className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                        sourceFilter === source
+                          ? 'bg-purple-600 text-white'
+                          : 'text-gray-400 hover:text-white hover:bg-gray-600/50'
+                      }`}
+                    >
+                      {source === 'all' ? 'All' : source === 'polymarket' ? 'Polymarket' : 'Kalshi'}
+                      {source !== 'all' && (
+                        <span className="ml-1 opacity-70">
+                          ({source === 'polymarket' ? sourceCounts.polymarket : sourceCounts.kalshi})
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
 
-              {/* Dropdown */}
-              {isDropdownOpen && (
-                <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg max-h-64 overflow-y-auto shadow-xl">
-                  {loadingMarkets ? (
-                    <div className="p-4 space-y-2">
+                {/* Search Input */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search prediction markets..."
+                    value={searchQuery}
+                    onChange={(e) => searchMarkets(e.target.value)}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-500 pr-10"
+                  />
+                  <svg
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+
+                  {/* Dropdown */}
+                  {isDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg max-h-64 overflow-y-auto shadow-xl">
+                      {loadingMarkets ? (
+                        <div className="p-4 space-y-2">
+                          {[1, 2, 3].map((i) => (
+                            <div key={i} className="h-16 bg-gray-700 rounded animate-pulse" />
+                          ))}
+                        </div>
+                      ) : marketsError ? (
+                        <div className="p-4 text-center">
+                          <p className="text-red-400 text-sm mb-2">{marketsError}</p>
+                          <button
+                            onClick={() => refetchMarkets()}
+                            className="text-purple-400 hover:text-purple-300 text-sm underline"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : markets.length === 0 ? (
+                        <div className="p-4 text-gray-500 text-sm text-center">
+                          {searchQuery ? 'No markets found' : 'Loading markets...'}
+                        </div>
+                      ) : (
+                        markets.map((market) => (
+                          <button
+                            key={market.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMarket(market);
+                              setIsDropdownOpen(false);
+                            }}
+                            className={`w-full px-4 py-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-b-0 ${
+                              selectedMarket?.id === market.id ? 'bg-purple-900/30' : ''
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                market.source === 'polymarket'
+                                  ? 'bg-blue-500/20 text-blue-400'
+                                  : 'bg-green-500/20 text-green-400'
+                              }`}>
+                                {market.source.toUpperCase()}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                Vol: ${parseFloat(market.volume).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-white text-sm line-clamp-2 mb-1">
+                              {market.question}
+                            </p>
+                            <div className="flex gap-3 text-xs">
+                              <span className="text-green-400">Yes: {market.yesPrice.toFixed(1)}%</span>
+                              <span className="text-red-400">No: {market.noPrice.toFixed(1)}%</span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* Browse Featured Topics */
+              <div className="space-y-3">
+                {/* Category pills */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { key: undefined, label: 'All' },
+                    { key: 'politics', label: 'Politics' },
+                    { key: 'economics', label: 'Economics' },
+                    { key: 'climate', label: 'Climate' },
+                    { key: 'crypto', label: 'Crypto' },
+                    { key: 'science', label: 'Science' },
+                    { key: 'technology', label: 'Tech' },
+                  ].map((cat) => (
+                    <button
+                      key={cat.label}
+                      type="button"
+                      onClick={() => setTopicCategory(cat.key)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                        topicCategory === cat.key
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Topic list */}
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {loadingTopics ? (
+                    <div className="space-y-2">
                       {[1, 2, 3].map((i) => (
-                        <div key={i} className="h-16 bg-gray-700 rounded animate-pulse" />
+                        <div key={i} className="h-16 bg-gray-700 rounded-lg animate-pulse" />
                       ))}
                     </div>
-                  ) : marketsError ? (
-                    <div className="p-4 text-center">
-                      <p className="text-red-400 text-sm mb-2">{marketsError}</p>
-                      <button
-                        onClick={() => refetchMarkets()}
-                        className="text-purple-400 hover:text-purple-300 text-sm underline"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : markets.length === 0 ? (
-                    <div className="p-4 text-gray-500 text-sm text-center">
-                      {searchQuery ? 'No markets found' : 'Loading markets...'}
-                    </div>
+                  ) : topics.length === 0 ? (
+                    <p className="text-gray-500 text-sm text-center py-4">
+                      No featured topics found
+                    </p>
                   ) : (
-                    markets.map((market) => (
+                    topics.slice(0, 20).map((topic: CuratedTopic) => (
                       <button
-                        key={market.id}
+                        key={topic.id}
                         type="button"
                         onClick={() => {
-                          setSelectedMarket(market);
-                          setIsDropdownOpen(false);
+                          setSelectedMarket({
+                            id: topic.id,
+                            question: topic.question,
+                            source: topic.source,
+                            yesPrice: topic.yesPrice,
+                            noPrice: topic.noPrice,
+                            volume: topic.volume,
+                            externalId: topic.externalId,
+                            category: topic.category || undefined,
+                          });
+                          setBrowseMode(false);
                         }}
-                        className={`w-full px-4 py-3 text-left hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-b-0 ${
-                          selectedMarket?.id === market.id ? 'bg-purple-900/30' : ''
-                        }`}
+                        className="w-full px-4 py-3 text-left bg-gray-700/50 hover:bg-gray-700 rounded-lg border border-gray-600/50 transition-colors"
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className={`text-xs px-2 py-0.5 rounded ${
-                            market.source === 'polymarket'
+                            topic.source === 'polymarket'
                               ? 'bg-blue-500/20 text-blue-400'
                               : 'bg-green-500/20 text-green-400'
                           }`}>
-                            {market.source.toUpperCase()}
+                            {topic.source.toUpperCase()}
                           </span>
-                          <span className="text-xs text-gray-500">
-                            Vol: ${parseFloat(market.volume).toLocaleString()}
-                          </span>
+                          {topic.category && (
+                            <span className="text-xs text-gray-500">{topic.category}</span>
+                          )}
                         </div>
-                        <p className="text-white text-sm line-clamp-2 mb-1">
-                          {market.question}
-                        </p>
+                        <p className="text-white text-sm line-clamp-2 mb-1">{topic.question}</p>
                         <div className="flex gap-3 text-xs">
-                          <span className="text-green-400">Yes: {market.yesPrice.toFixed(1)}%</span>
-                          <span className="text-red-400">No: {market.noPrice.toFixed(1)}%</span>
+                          <span className="text-green-400">Yes: {topic.yesPrice.toFixed(1)}%</span>
+                          <span className="text-red-400">No: {topic.noPrice.toFixed(1)}%</span>
                         </div>
                       </button>
                     ))
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Selected market display */}
             {selectedMarket && (

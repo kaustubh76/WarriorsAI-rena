@@ -1,8 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useArenaLeaderboard } from '../../hooks/arena';
 import { formatEther } from 'viem';
+import { AchievementsBadge } from './Achievements';
+import { WarriorArenaStats } from '../../types/predictionArena';
 
 type SortOption = 'rating' | 'wins' | 'earnings';
 
@@ -138,7 +141,7 @@ export function ArenaLeaderboard({
 }
 
 interface LeaderboardRowProps {
-  entry: {
+  entry: Partial<WarriorArenaStats> & {
     warriorId: number;
     totalBattles: number;
     wins: number;
@@ -163,13 +166,19 @@ function LeaderboardRow({ entry, rank, compact }: LeaderboardRowProps) {
 
   if (compact) {
     return (
-      <div className="flex items-center justify-between p-4 hover:bg-gray-700/30 transition-colors">
+      <Link
+        href={`/prediction-arena/warrior/${entry.warriorId}`}
+        className="flex items-center justify-between p-4 hover:bg-gray-700/30 transition-colors cursor-pointer"
+      >
         <div className="flex items-center gap-3">
           <span className={`text-xl ${rankBadge?.color || 'text-gray-500'}`}>
             {rankBadge?.icon || `#${rank}`}
           </span>
           <div>
-            <p className="text-white font-medium">Warrior #{entry.warriorId}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-white font-medium">Warrior #{entry.warriorId}</p>
+              <AchievementsBadge stats={entry as WarriorArenaStats} maxShow={2} />
+            </div>
             <p className={`text-sm ${TIER_COLORS[tier]}`}>{tier}</p>
           </div>
         </div>
@@ -177,14 +186,17 @@ function LeaderboardRow({ entry, rank, compact }: LeaderboardRowProps) {
           <p className="text-white font-bold">{entry.arenaRating}</p>
           <p className="text-gray-400 text-sm">{entry.wins}W</p>
         </div>
-      </div>
+      </Link>
     );
   }
 
   return (
-    <div className={`grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-gray-700/30 transition-colors ${
-      rank <= 3 ? 'bg-gradient-to-r from-purple-900/10 to-transparent' : ''
-    }`}>
+    <Link
+      href={`/prediction-arena/warrior/${entry.warriorId}`}
+      className={`grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-gray-700/30 transition-colors cursor-pointer ${
+        rank <= 3 ? 'bg-gradient-to-r from-purple-900/10 to-transparent' : ''
+      }`}
+    >
       {/* Rank */}
       <div className="col-span-1">
         {rankBadge ? (
@@ -201,7 +213,10 @@ function LeaderboardRow({ entry, rank, compact }: LeaderboardRowProps) {
             <span className="text-lg">⚔️</span>
           </div>
           <div>
-            <p className="text-white font-medium">Warrior #{entry.warriorId}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-white font-medium">Warrior #{entry.warriorId}</p>
+              <AchievementsBadge stats={entry as WarriorArenaStats} maxShow={3} />
+            </div>
             <p className={`text-sm ${TIER_COLORS[tier]}`}>{tier}</p>
           </div>
         </div>
@@ -245,7 +260,7 @@ function LeaderboardRow({ entry, rank, compact }: LeaderboardRowProps) {
             : `${entry.wins} wins`}
         </p>
       </div>
-    </div>
+    </Link>
   );
 }
 

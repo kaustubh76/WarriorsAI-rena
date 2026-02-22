@@ -23,7 +23,7 @@
 | **Blockchain (Cadence)** | Cadence 1.0 on Flow Testnet | Scheduled transactions, market resolution, EVM bridge |
 | **AI Layer** | 0G Network AI Agents | Battle decisions, market predictions, debate AI |
 | **Storage** | 0G Decentralized Storage + Pinata IPFS | Encrypted metadata, battle history |
-| **Backend** | Next.js API Routes (96 endpoints) | Serverless arena orchestration and automation |
+| **Backend** | Next.js API Routes (101 endpoints) | Serverless arena orchestration and automation |
 | **Database** | Prisma ORM + SQLite (dev) / PostgreSQL (prod) | 41 models for markets, trades, arbitrage |
 | **External Markets** | Polymarket + Kalshi APIs | External prediction market data feeds |
 | **Infrastructure** | Rate limiting + consistent hashing + distributed cache | Serverless-optimized performance layer |
@@ -50,7 +50,7 @@ graph TB
         MW[Composable Middleware<br/>14 Functions + 4 Presets]
     end
 
-    subgraph "API Layer - 96 Routes"
+    subgraph "API Layer - 101 Routes"
         ARENA["/api/arena/* - 11 routes"]
         MKT["/api/markets/* - 6 routes"]
         EXT["/api/external/* - 6 routes"]
@@ -143,7 +143,7 @@ The platform includes a production-grade infrastructure layer optimized for Verc
 
 ### Rate Limiting
 
-All 96 API routes + 6 cron routes are protected with **100% named preset coverage**.
+All 101 API routes + 6 cron routes are protected with **100% named preset coverage**.
 
 ```mermaid
 flowchart LR
@@ -840,7 +840,7 @@ flowchart LR
 
 ## API Architecture Overview
 
-The platform exposes 96 API routes organized by domain:
+The platform exposes 101 API routes organized by domain:
 
 | Category | Route Pattern | Count | Key Operations |
 |----------|--------------|-------|----------------|
@@ -858,7 +858,43 @@ The platform exposes 96 API routes organized by domain:
 | **Contract** | `/api/contract/*` | 2 | Read, batch-read smart contracts |
 | **Portfolio** | `/api/portfolio/*` | 2 | Native and mirror portfolio |
 | **Events** | `/api/events/*` | 3 | Start, stop, status for event listeners |
-| **Other** | Various | 12 | Health, metrics, RPC health, oracle, admin, creator, game master, file upload, battle generation |
+| **Other** | Various | 17 | Health, metrics, RPC health, oracle, admin, creator, game master, file upload, battle generation |
+
+---
+
+## Frontend Pages (29 Routes)
+
+| Page | Route | Description |
+|------|-------|-------------|
+| **Home** | `/` | Landing page with platform overview |
+| **Prediction Arena** | `/prediction-arena` | AI debate battle listing and creation |
+| **Battle Detail** | `/prediction-arena/battle/[id]` | Live battle view with debate replay, score charts |
+| **Warrior Profile** | `/prediction-arena/warrior/[id]` | Warrior stats, battle history, traits |
+| **Arena** | `/arena` | Battle arena with challenge creation |
+| **Arena Topics** | `/arena/topics` | Browse battle topics |
+| **Warriors Minter** | `/warriorsMinter` | Mint warrior NFTs with custom traits |
+| **Markets** | `/markets` | Browse and trade on prediction markets |
+| **Market Detail** | `/markets/[id]` | Market detail with AMM trading |
+| **Create Market** | `/markets/create` | Create user-defined prediction markets |
+| **Debate Market** | `/markets/debate/[id]` | AI debate-based market |
+| **Micro Market** | `/markets/micro/[battleId]` | Micro prediction markets |
+| **External Markets** | `/external` | Polymarket + Kalshi mirrored markets |
+| **External Detail** | `/external/[source]/[id]` | External market detail |
+| **Arbitrage** | `/external/arbitrage` | Cross-platform arbitrage opportunities |
+| **Sync History** | `/external/sync-history` | Market sync audit log |
+| **Mirror Portfolio** | `/external/mirror-portfolio` | Mirror market portfolio |
+| **AI Agents** | `/ai-agents` | AI agent marketplace |
+| **Create Agent** | `/ai-agents/create` | Create and configure AI agents |
+| **Agent Detail** | `/ai-agents/[id]` | Agent performance and management |
+| **External Trading** | `/agents/[id]/external-trading` | Agent external market trading |
+| **Whale Tracker** | `/whale-tracker` | Track whale trades across platforms |
+| **Copy Trading** | `/social/copy-trading` | Follow and copy whale positions |
+| **Portfolio** | `/portfolio` | Native on-chain portfolio |
+| **Leaderboard** | `/leaderboard` | Player and warrior rankings |
+| **Creator Dashboard** | `/creator-dashboard` | Creator revenue and market management |
+| **Create Market (alt)** | `/create-market` | Alternative market creation flow |
+| **Flow Scheduled** | `/flow-scheduled` | Cadence scheduled transaction viewer |
+| **Flow Resolutions** | `/flow-scheduled-resolutions` | Scheduled resolution viewer |
 
 ---
 
@@ -889,7 +925,7 @@ WarriorsAI-rena/
 ├── frontend/                         # Next.js application
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── api/                  # 96 API route handlers
+│   │   │   ├── api/                  # 101 API route handlers
 │   │   │   │   ├── arena/            # Battle routes (11)
 │   │   │   │   ├── markets/          # Market routes (6)
 │   │   │   │   ├── external/         # External market routes (6)
@@ -900,11 +936,16 @@ WarriorsAI-rena/
 │   │   │   │   ├── arbitrage/        # Arbitrage routes (4)
 │   │   │   │   ├── 0g/              # 0G storage/compute (11)
 │   │   │   │   └── ...              # ai, copy-trade, portfolio, etc.
-│   │   │   ├── prediction-arena/     # AI debate UI
-│   │   │   ├── markets/              # Market UI
+│   │   │   ├── prediction-arena/     # AI debate arena + battle detail + warrior profiles
+│   │   │   ├── markets/              # Market UI + debate + micro-markets
 │   │   │   ├── whale-tracker/        # Whale tracker UI
+│   │   │   ├── ai-agents/            # AI agent management + creation
+│   │   │   ├── external/             # External markets + arbitrage + sync history
+│   │   │   ├── portfolio/            # Portfolio views (native + mirror)
+│   │   │   ├── arena/                # Arena battles + topics
+│   │   │   ├── social/               # Copy trading
 │   │   │   └── leaderboard/          # Rankings
-│   │   ├── components/               # 80+ React components
+│   │   ├── components/               # 89 React components
 │   │   │   ├── 0g/                   # 0G network components
 │   │   │   ├── agents/               # Agent management
 │   │   │   ├── ai/                   # AI debate UI
@@ -919,7 +960,7 @@ WarriorsAI-rena/
 │   │   │   ├── portfolio/            # Portfolio views
 │   │   │   ├── whale/                # Whale tracking
 │   │   │   └── ui/                   # Shared UI primitives
-│   │   ├── hooks/                    # 75+ custom React hooks
+│   │   ├── hooks/                    # 61 custom React hooks
 │   │   ├── lib/                      # Infrastructure & utilities
 │   │   │   ├── api/                  # Rate limiting, middleware, error handling, cron auth
 │   │   │   ├── cache/                # LRU cache, hashed cache (3 instances)
@@ -964,7 +1005,7 @@ WarriorsAI-rena/
 
 ### Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 - Git
 - Foundry (for EVM smart contract development)
 - Flow CLI (for Cadence contract deployment)
@@ -1037,6 +1078,18 @@ NEXT_PUBLIC_ARENA_FACTORY_ADDRESS=0xf77840febD42325F83cB93F9deaE0F8b14Eececf
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
+### Database Setup (First Run)
+
+```bash
+cd frontend
+
+# Push schema to SQLite (creates dev.db)
+npx prisma db push
+
+# Optional: web-based DB browser
+npx prisma studio
+```
+
 ### Running the Project
 
 ```bash
@@ -1044,17 +1097,24 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 cd frontend
 npm run dev
 
-# Terminal 2: Arena backend
+# Terminal 2: Arena backend (optional, legacy)
 cd arena-backend
 npm start
-
-# Database migrations (first run)
-cd frontend
-npx prisma migrate dev
-npx prisma studio  # Optional: web-based DB browser
 ```
 
 The application will be available at `http://localhost:3000`.
+
+### Quick Start (Minimal)
+
+If you just want to run the frontend locally without all integrations:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local  # or create .env.local with DATABASE_URL=file:./dev.db
+npx prisma db push
+npm run dev:next             # runs Next.js only (no 0G storage)
+```
 
 ### Smart Contract Development
 
@@ -1083,7 +1143,7 @@ forge test
 - **Oracle Verification**: VRF-based randomness from Flow's native Cadence randomness
 
 ### Infrastructure Security
-- **100% Rate Limiting**: All 96 API routes + 6 cron routes protected with named presets
+- **100% Rate Limiting**: All 101 API routes + 6 cron routes protected with named presets
 - **Composable Middleware**: Automatic error handling prevents information leakage in production
 - **Cron Authentication**: Bearer token validation (min 32 chars) on all automated endpoints
 - **Circuit Breakers**: Trading circuit breaker prevents cascade failures
@@ -1131,6 +1191,22 @@ graph TD
 - **Protocol**: 5% for ecosystem development (future)
 - **Market Creators**: 2% of market trading fees via CreatorRevenueShare
 - **Warrior Owners**: Rank-based progression rewards
+
+---
+
+## Additional Documentation
+
+| Document | Description |
+|----------|-------------|
+| [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) | Production deployment guide and checklist |
+| [LITEPAPER.md](LITEPAPER.md) | Project whitepaper and technical specification |
+| [BUSINESS_PLAN.md](BUSINESS_PLAN.md) | Business plan and grant proposal |
+| [PITCH_DECK.md](PITCH_DECK.md) | Pitch deck outline |
+| [TOURNAMENT_STRUCTURE.md](TOURNAMENT_STRUCTURE.md) | Tournament rules and structure |
+| [FUTURE_IMPLEMENTATION.md](FUTURE_IMPLEMENTATION.md) | Planned features and roadmap |
+| [POLYMARKET_KALSHI_INTEGRATION.md](POLYMARKET_KALSHI_INTEGRATION.md) | External market integration specification |
+| [WARRIORS_PREDICTION_MARKET_INTEGRATION.md](WARRIORS_PREDICTION_MARKET_INTEGRATION.md) | Core prediction market integration spec |
+| [ARENA_ARBITRAGE_INTEGRATION_PLAN.md](ARENA_ARBITRAGE_INTEGRATION_PLAN.md) | Arbitrage feature specification |
 
 ---
 
