@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId } from 'wagmi';
+import { useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useReconnect } from 'wagmi';
 import ReactCrop, { Crop, PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import '../home-glass.css';
@@ -79,18 +79,28 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   const imgRef = useRef<HTMLImageElement>(null);
 
   // Wagmi hooks for contract interaction
-  const { address: connectedAddress } = useAccount();
+  const { address: connectedAddress, isConnected, connector } = useAccount();
   const chainId = useChainId();
-  
+  const { reconnectAsync } = useReconnect();
+
   // Memoize the debug logging to prevent excessive console output
   useMemo(() => {
     console.log('WarriorsMinter - chainId detected:', chainId, 'connectedAddress:', connectedAddress);
   }, [chainId, connectedAddress]);
-  
+
   const { writeContractAsync, data: hash } = useWriteContract();
   const { isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   });
+
+  // Ensure wallet connector is active before contract calls
+  // (long async uploads can cause connector to lose state with reconnectOnMount=false)
+  const ensureConnected = useCallback(async () => {
+    if (!isConnected || !connector) {
+      console.log('Connector not active, attempting reconnect...');
+      await reconnectAsync();
+    }
+  }, [isConnected, connector, reconnectAsync]);
 
   // Custom hook to manage user NFTs
   const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', chainId);
@@ -330,7 +340,8 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       console.log('Encrypted URI (0G Root Hash):', encryptedURI);
       console.log('Metadata Hash:', metadataHash);
 
-      // Step 3: Call contract to mint NFT (awaitable — keeps isMinting true until confirmed)
+      // Step 3: Ensure wallet is still connected after the long upload, then mint
+      await ensureConnected();
       await writeContractAsync({
         address: getContracts().warriorsNFT as `0x${string}`,
         abi: warriorsNFTAbi,
@@ -570,9 +581,9 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
             const signature = signResult.signature as `0x${string}`;
             console.log("✍️ Game Master signature:", signature);
 
-            // Call the smart contract to assign traits and moves
-            console.log("🔗 Calling assignTraitsAndMoves on WarriorsNFT contract...");
-            
+            // Ensure wallet is still connected after the long AI generation, then assign traits
+            console.log("Calling assignTraitsAndMoves on WarriorsNFT contract...");
+            await ensureConnected();
             await writeContractAsync({
               address: getContracts().warriorsNFT as `0x${string}`,
               abi: warriorsNFTAbi,
