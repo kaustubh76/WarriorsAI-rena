@@ -1,10 +1,15 @@
 /**
  * Shared Flow Client Factory with Fallback Support
+ * @layer Flow EVM — Solidity contracts via viem/wagmi (NOT Cadence/FCL)
  *
- * This module provides reusable Flow blockchain clients with:
+ * This module provides reusable Flow EVM blockchain clients with:
  * - 60-second timeout (increased from default 30s)
- * - Automatic fallback to Tatum RPC when primary times out
+ * - Automatic fallback RPC when primary times out
  * - Retry support with exponential backoff
+ * - Hash-ring based RPC routing for load distribution
+ *
+ * RPC: testnet.evm.nodes.onflow.org (chain 545)
+ * For Cadence (FCL) operations, see lib/flow/cadenceClient.ts and lib/flow/serverAuth.ts.
  */
 
 import { createPublicClient, createWalletClient, http, type PublicClient, type Account, type Chain } from 'viem';

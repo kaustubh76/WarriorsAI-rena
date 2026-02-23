@@ -1,3 +1,12 @@
+/**
+ * Flow Cadence Client
+ * @layer Cadence — Flow native layer (NOT Flow EVM)
+ *
+ * Client-side FCL wrapper for Cadence transactions and scripts.
+ * Access node: rest-testnet.onflow.org (Cadence REST API).
+ * Wallet: Flow Wallet via FCL discovery (NOT MetaMask/wagmi).
+ */
+
 import * as fcl from '@onflow/fcl';
 import * as types from '@onflow/types';
 
@@ -36,7 +45,7 @@ fcl.config({
   'app.detail.description': 'AI Prediction Arena on Flow',
 });
 
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_CADENCE_ADDRESS || process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
 
 // TypeScript interfaces
 export interface ScheduledBattle {
@@ -85,7 +94,7 @@ export const cadenceClient = {
    */
   async scheduleBattle(params: ScheduleBattleParams): Promise<string> {
     if (!CONTRACT_ADDRESS) {
-      throw new Error('NEXT_PUBLIC_FLOW_TESTNET_ADDRESS not configured');
+      throw new Error('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
     }
 
     try {
@@ -153,7 +162,7 @@ export const cadenceClient = {
    */
   async getPendingBattles(): Promise<ScheduledBattle[]> {
     if (!CONTRACT_ADDRESS) {
-      console.warn('NEXT_PUBLIC_FLOW_TESTNET_ADDRESS not configured, returning empty array');
+      console.warn('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured, returning empty array');
       return [];
     }
 
@@ -184,7 +193,7 @@ export const cadenceClient = {
    */
   async getReadyBattles(): Promise<ScheduledBattle[]> {
     if (!CONTRACT_ADDRESS) {
-      console.warn('NEXT_PUBLIC_FLOW_TESTNET_ADDRESS not configured, returning empty array');
+      console.warn('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured, returning empty array');
       return [];
     }
 
@@ -215,7 +224,7 @@ export const cadenceClient = {
    */
   async executeBattle(battleId: number): Promise<string> {
     if (!CONTRACT_ADDRESS) {
-      throw new Error('NEXT_PUBLIC_FLOW_TESTNET_ADDRESS not configured');
+      throw new Error('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
     }
 
     try {
@@ -269,7 +278,7 @@ export const cadenceClient = {
    */
   async cancelBattle(battleId: number): Promise<string> {
     if (!CONTRACT_ADDRESS) {
-      throw new Error('NEXT_PUBLIC_FLOW_TESTNET_ADDRESS not configured');
+      throw new Error('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
     }
 
     try {
@@ -321,7 +330,7 @@ export const cadenceClient = {
    */
   subscribeToEvents(callback: (event: FlowEvent) => void): () => void {
     if (!CONTRACT_ADDRESS) {
-      console.warn('NEXT_PUBLIC_FLOW_TESTNET_ADDRESS not configured, event subscription disabled');
+      console.warn('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured, event subscription disabled');
       return () => {};
     }
 

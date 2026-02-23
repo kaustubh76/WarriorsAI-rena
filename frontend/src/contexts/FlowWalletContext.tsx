@@ -1,5 +1,12 @@
 'use client';
 
+/**
+ * Flow Wallet Context
+ * @layer Cadence — Flow native layer (NOT Flow EVM)
+ *
+ * Manages Flow wallet connection via FCL discovery.
+ * Uses Flow Wallet (Cadence), NOT MetaMask/wagmi (EVM).
+ */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as fcl from '@onflow/fcl';
 

@@ -26,7 +26,7 @@ export const GET = composeMiddleware([
     }
 
     const monitor = getBattleMonitor();
-    const queue = getBattleQueue(process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS);
+    const queue = getBattleQueue(process.env.NEXT_PUBLIC_FLOW_CADENCE_ADDRESS || process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS);
 
     // Get query parameters
     const url = new URL(req.url);

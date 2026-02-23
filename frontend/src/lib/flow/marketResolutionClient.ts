@@ -542,7 +542,7 @@ function parseResolutions(data: any[]): ScheduledResolution[] {
  * Resolve a scheduled market using server-side authorization.
  * Used by cron jobs and automated routes where no user wallet is available.
  *
- * Requires FLOW_TESTNET_ADDRESS and FLOW_TESTNET_PRIVATE_KEY env vars.
+ * Requires FLOW_CADENCE_ACCOUNT_ADDRESS and FLOW_CADENCE_PRIVATE_KEY env vars.
  */
 export async function resolveMarketServerSide(
   resolutionId: number,

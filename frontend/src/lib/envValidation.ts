@@ -19,8 +19,8 @@ const CRITICAL_ENV_VARS: EnvVar[] = [
   { name: 'INTERNAL_API_KEY', required: true, description: 'Key for internal API authentication' },
 
   // RPC & contract addresses
-  { name: 'NEXT_PUBLIC_FLOW_TESTNET_ADDRESS', required: true, description: 'Flow contract address' },
-  { name: 'NEXT_PUBLIC_FLOW_RPC_URL', required: false, description: 'Flow RPC URL (has default fallback)' },
+  { name: 'NEXT_PUBLIC_FLOW_CADENCE_ADDRESS', required: true, description: 'Flow Cadence contract address (ScheduledBattle)' },
+  { name: 'NEXT_PUBLIC_FLOW_RPC_URL', required: false, description: 'Flow EVM RPC URL (has default fallback)' },
 
   // Oracle & game master
   { name: 'ORACLE_SIGNER_PRIVATE_KEY', required: false, description: 'Oracle signing key for market resolution' },

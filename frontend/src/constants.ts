@@ -21,10 +21,15 @@ export const getChainId = (): SupportedChainId => {
 };
 
 /**
- * Flow RPC URLs - primary and fallback for reliability
+ * Flow EVM RPC URLs - primary and fallback for reliability
+ * @layer Flow EVM — these are EVM JSON-RPC endpoints for viem/wagmi (chain 545/747)
  *
- * Fallback RPC updated to use official Flow access node
- * Previous Tatum endpoint was returning 404
+ * NOT for Cadence/FCL operations. For Cadence REST API, see:
+ * - Client-side: NEXT_PUBLIC_FLOW_ACCESS_NODE (rest-testnet.onflow.org)
+ * - Server-side: FLOW_CADENCE_ACCESS_NODE (rest-testnet.onflow.org)
+ *
+ * Note: The fallback URL (access-testnet.onflow.org) is technically a Cadence REST
+ * endpoint used as an EVM fallback — this is a pre-existing configuration.
  */
 export const FLOW_RPC_URLS = {
   testnet: {
