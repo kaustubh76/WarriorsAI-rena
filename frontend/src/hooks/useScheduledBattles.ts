@@ -60,12 +60,24 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        if (response.status === 503) {
+          throw new Error(
+            errorData.code === 'CONTRACT_NOT_DEPLOYED'
+              ? 'Flow scheduled battles contract is being deployed. Check back soon.'
+              : 'Flow blockchain service is temporarily unavailable. Please try again later.'
+          );
+        }
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
       const data = await response.json();
 
       if (!mountedRef.current) return;
+
+      // Log warnings from API (e.g. contract not deployed)
+      if (data.data?.warning) {
+        console.warn('[useScheduledBattles]', data.data.warning);
+      }
 
       const pending = (data.data?.pending || []).map(parseOnChainBattle);
       const ready = (data.data?.ready || []).map(parseOnChainBattle);

@@ -114,13 +114,25 @@ export function useScheduledResolutions(
       const response = await fetch(url);
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 503) {
+          throw new Error(
+            errorData.code === 'CONTRACT_NOT_DEPLOYED'
+              ? 'Flow scheduled resolutions contract is being deployed. Check back soon.'
+              : 'Flow blockchain service is temporarily unavailable. Please try again later.'
+          );
+        }
         throw new Error(errorData.error || 'Failed to fetch resolutions');
       }
 
       const data = await response.json();
 
       if (!isMounted.current) return;
+
+      // Log warnings from API (e.g. contract not deployed)
+      if (data.warning) {
+        console.warn('[useScheduledResolutions]', data.warning);
+      }
 
       // Parse dates and bigints
       const parsedResolutions = (data.resolutions || []).map((r: any) => ({
@@ -168,7 +180,10 @@ export function useScheduledResolutions(
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 503) {
+          throw new Error('Flow blockchain service is temporarily unavailable. Please try again later.');
+        }
         throw new Error(errorData.error || 'Failed to schedule resolution');
       }
 
@@ -242,6 +257,10 @@ export function useScheduledResolutions(
       const data = await response.json();
 
       if (!response.ok) {
+        // Service unavailable
+        if (response.status === 503) {
+          throw new Error('Flow blockchain service is temporarily unavailable. Please try again later.');
+        }
         // Market not yet resolved — retryable, not a fatal error
         if (data.canRetry) {
           toast.warning(data.error || 'Market not yet resolved. Try again later.');
@@ -285,7 +304,10 @@ export function useScheduledResolutions(
       const response = await fetch(`/api/flow/scheduled-resolutions?id=${id}`);
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 503) {
+          throw new Error('Flow blockchain service is temporarily unavailable. Please try again later.');
+        }
         throw new Error(errorData.error || 'Failed to fetch resolution');
       }
 
@@ -334,7 +356,10 @@ export function useScheduledResolutions(
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 503) {
+          throw new Error('Flow blockchain service is temporarily unavailable. Please try again later.');
+        }
         throw new Error(errorData.error || 'Failed to cancel resolution');
       }
 

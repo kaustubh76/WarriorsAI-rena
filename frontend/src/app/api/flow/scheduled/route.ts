@@ -1,3 +1,11 @@
+/**
+ * Flow Scheduled Battles API
+ * @layer Cadence — Flow native layer (NOT Flow EVM)
+ *
+ * CRUD endpoints for on-chain scheduled battles via FCL.
+ * Access node: rest-testnet.onflow.org (Cadence REST API).
+ * Contract: ScheduledBattle deployed at NEXT_PUBLIC_FLOW_CADENCE_ADDRESS.
+ */
 import { NextResponse } from 'next/server';
 import { ErrorResponses, handleFlowError, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
@@ -55,14 +63,14 @@ async function verifyAuth(request: NextRequest): Promise<string | null> {
 // Configure FCL for server-side operations
 configureServerFCL();
 
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_CADENCE_ADDRESS || process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
 
 // Warn at module load if Flow config is missing (skip during build)
 const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
 if (!isBuildTime && !isServerFlowConfigured()) {
   console.warn(
-    '[Flow Scheduled API] Missing Flow config. ' +
-    'Server-side Flow operations will fail until FLOW_TESTNET_ADDRESS, FLOW_TESTNET_PRIVATE_KEY, and NEXT_PUBLIC_FLOW_TESTNET_ADDRESS are configured.'
+    '[Flow Scheduled API] Missing Flow Cadence config. ' +
+    'Server-side Flow operations will fail until FLOW_CADENCE_ACCOUNT_ADDRESS, FLOW_CADENCE_PRIVATE_KEY, and NEXT_PUBLIC_FLOW_CADENCE_ADDRESS are configured.'
   );
 }
 
@@ -146,6 +154,28 @@ export const GET = composeMiddleware([
         },
       });
     } catch (error: any) {
+      const errorMessage = error?.message || '';
+
+      // Graceful degradation: contract not yet deployed → return empty data with warning
+      const isContractNotDeployed =
+        errorMessage.includes('cannot find declaration') ||
+        errorMessage.includes('cannot import') ||
+        errorMessage.includes('could not import') ||
+        (errorMessage.includes('account') && errorMessage.includes('does not have contract'));
+
+      if (isContractNotDeployed) {
+        console.warn('[Flow Scheduled API] ScheduledBattle contract not deployed at', CONTRACT_ADDRESS);
+        return NextResponse.json({
+          success: true,
+          data: {
+            pending: [],
+            ready: [],
+            timestamp: new Date().toISOString(),
+            warning: 'ScheduledBattle contract not yet deployed to Flow testnet',
+          },
+        });
+      }
+
       const apiError = handleFlowError(error, 'fetching scheduled battles');
 
       console.error('[Flow Scheduled API] GET error:', {

@@ -16,7 +16,7 @@ import {
 // Configure FCL for server-side
 configureServerFCL();
 
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_FLOW_CADENCE_ADDRESS || process.env.NEXT_PUBLIC_FLOW_TESTNET_ADDRESS;
 const CRON_SECRET = process.env.CRON_SECRET;
 
 // Validate required config at module load time (skip during build)
@@ -29,8 +29,8 @@ if (!isBuildTime && (!CRON_SECRET || CRON_SECRET.length < 32)) {
 }
 if (!isBuildTime && !isServerFlowConfigured()) {
   console.warn(
-    '[Execute Battles Cron] Missing Flow config. ' +
-    'Cron job will reject requests until FLOW_TESTNET_ADDRESS, FLOW_TESTNET_PRIVATE_KEY, and NEXT_PUBLIC_FLOW_TESTNET_ADDRESS are configured.'
+    '[Execute Battles Cron] Missing Flow Cadence config. ' +
+    'Cron job will reject requests until FLOW_CADENCE_ACCOUNT_ADDRESS, FLOW_CADENCE_PRIVATE_KEY, and NEXT_PUBLIC_FLOW_CADENCE_ADDRESS are configured.'
   );
 }
 
@@ -66,16 +66,33 @@ export const POST = composeMiddleware([
 
     console.log('[Execute Battles Cron] Starting execution check...');
 
-    // Query ready battles
-    const readyBattles = await fcl.query({
-      cadence: `
-        import ScheduledBattle from ${CONTRACT_ADDRESS}
+    // Query ready battles (graceful if contract not deployed)
+    let readyBattles;
+    try {
+      readyBattles = await fcl.query({
+        cadence: `
+          import ScheduledBattle from ${CONTRACT_ADDRESS}
 
-        access(all) fun main(): [ScheduledBattle.ScheduledTransaction] {
-          return ScheduledBattle.getReadyTransactions()
-        }
-      `,
-    });
+          access(all) fun main(): [ScheduledBattle.ScheduledTransaction] {
+            return ScheduledBattle.getReadyTransactions()
+          }
+        `,
+      });
+    } catch (queryError: any) {
+      const msg = queryError?.message || '';
+      if (msg.includes('cannot find declaration') || msg.includes('cannot import') || msg.includes('could not import')) {
+        console.warn('[Execute Battles Cron] ScheduledBattle contract not deployed yet at', CONTRACT_ADDRESS);
+        return NextResponse.json({
+          success: true,
+          data: {
+            message: 'ScheduledBattle contract not deployed — skipping execution',
+            executed: 0,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+      throw queryError;
+    }
 
     if (!readyBattles || readyBattles.length === 0) {
       console.log('[Execute Battles Cron] No battles ready for execution');

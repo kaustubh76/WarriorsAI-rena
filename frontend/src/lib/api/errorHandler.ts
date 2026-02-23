@@ -178,6 +178,20 @@ export function handleFlowError(error: any, context: string): APIError {
     );
   }
 
+  // Contract not deployed (Cadence import failures)
+  if (
+    error.message?.includes('cannot find declaration') ||
+    error.message?.includes('cannot import') ||
+    error.message?.includes('could not import') ||
+    (error.message?.includes('account') && error.message?.includes('does not have contract'))
+  ) {
+    return new APIError(
+      'Flow Cadence contract not deployed',
+      503,
+      'CONTRACT_NOT_DEPLOYED'
+    );
+  }
+
   // Not found errors
   if (error.statusCode === 404 || error.message?.includes('not found')) {
     return new APIError(
