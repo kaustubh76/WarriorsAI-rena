@@ -13,14 +13,13 @@ import '../home-glass.css';
 
 // gameMasterSigningService moved to server-side /api/sign-traits
 import { ipfsService } from '../../services/ipfsService';
-import { getContracts, chainsToContracts, warriorsNFTAbi, getStorageApiUrl } from '../../constants';
+import { getContracts, chainsToContracts, warriorsNFTAbi } from '../../constants';
 import { useUserNFTs } from '../../hooks/useUserNFTs';
 import { useWarriorsMinterMessages } from '../../hooks/useWarriorsMinterMessages';
 import { usePromoteWarrior, getRankLabel, WarriorRank } from '../../hooks/usePromoteWarrior';
 import { useNotifications } from '../../contexts/NotificationContext';
 
-// 0G Storage service URL - configured via environment variable
-const ZG_STORAGE_API_URL = getStorageApiUrl();
+// 0G Storage downloads go through the internal API route
 
 interface WarriorsTraits {
   strength: number;
@@ -686,12 +685,12 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       // Handle 0G storage URLs with 0g:// prefix
       if (url.startsWith('0g://')) {
         const rootHash = url.replace('0g://', '');
-        return `${ZG_STORAGE_API_URL}/download/${rootHash}`;
+        return `/api/0g/download?rootHash=${encodeURIComponent(rootHash)}`;
       }
 
       // Handle 0G storage root hashes (direct root hash)
       if (url.startsWith('0x')) {
-        return `${ZG_STORAGE_API_URL}/download/${url}`;
+        return `/api/0g/download?rootHash=${encodeURIComponent(url)}`;
       }
       
       // Return as-is for HTTP URLs or local paths
@@ -718,8 +717,8 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
         return true;
       }
       
-      // Use regular img for 0G storage URLs (check if URL contains the storage API)
-      if (urlToCheck.includes(ZG_STORAGE_API_URL.replace('http://', '').replace('https://', ''))) {
+      // Use regular img for 0G storage URLs (served via internal API route)
+      if (urlToCheck.includes('/api/0g/download')) {
         console.log(`🖼️ shouldUseRegularImg: 0G Storage URL detected (${urlToCheck}), using regular img`);
         return true;
       }
@@ -761,7 +760,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     const handleError = useCallback(() => {
       if (!hasError) {
         // For 0G storage URLs, fall back directly to placeholder
-        if (src.startsWith('0x') || imageSrc.includes(ZG_STORAGE_API_URL.replace('http://', '').replace('https://', ''))) {
+        if (src.startsWith('0x') || imageSrc.includes('/api/0g/download')) {
           console.log(`🖼️ 0G Storage failed for: ${src}, falling back to lazered.png`);
           setImageSrc('/lazered.png');
           setHasError(true);

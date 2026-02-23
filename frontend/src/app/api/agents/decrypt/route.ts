@@ -11,9 +11,7 @@ import { agentINFTService } from '@/services/agentINFTService';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
-// 0G Storage configuration
-const STORAGE_API_URL =
-  process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+import { downloadFrom0G } from '@/lib/0g/downloadHelper';
 
 /**
  * Check if user is authorized to decrypt metadata
@@ -49,23 +47,13 @@ async function checkDecryptAuthorization(
 }
 
 /**
- * Fetch encrypted data from 0G Storage
+ * Fetch encrypted data from 0G Storage via SDK
  */
 async function fetchFromStorage(rootHash: string): Promise<Uint8Array | null> {
   try {
-    const response = await fetch(`${STORAGE_API_URL}/download/${rootHash}`, {
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        return null;
-      }
-      throw new Error(`Storage fetch failed: ${response.statusText}`);
-    }
-
-    const buffer = await response.arrayBuffer();
-    return new Uint8Array(buffer);
+    const data = await downloadFrom0G(rootHash);
+    if (!data) return null;
+    return new Uint8Array(data);
   } catch (error) {
     console.warn('0G Storage fetch error:', error);
     return null;

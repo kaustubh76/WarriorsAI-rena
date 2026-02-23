@@ -44,8 +44,8 @@ export interface WarriorsDetails {
 // Cache for metadata to avoid repeated calls
 const metadataCache = new Map<string, WarriorsMetadata>();
 
-// 0G Storage service configuration - use environment variable
-const ZG_STORAGE_API_URL = process.env.NEXT_PUBLIC_STORAGE_API_URL || 'http://localhost:3001';
+// 0G Storage downloads use the shared SDK helper (server-side)
+// or the internal API route (client-side via processImageURI)
 
 // Legacy IPFS gateways (fallback only)
 const IPFS_GATEWAYS = [
@@ -56,34 +56,33 @@ const IPFS_GATEWAYS = [
 ];
 
 /**
- * Fetch metadata from 0G Storage using root hash
+ * Fetch metadata from 0G Storage using root hash via internal API route.
+ * This service is imported in both client and server contexts (arenaService → arena/page.tsx),
+ * so we use the API route instead of the SDK helper to avoid bundling Node.js modules.
  */
 const fetchMetadataFrom0G = async (rootHash: string, tokenId: number): Promise<WarriorsMetadata | null> => {
   try {
     console.log(`🔗 Warriors ${tokenId}: Fetching metadata from 0G Storage`);
     console.log(`🔑 Root Hash: ${rootHash}`);
-    
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-    
-    const response = await fetch(`${ZG_STORAGE_API_URL}/download/${rootHash}`, {
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const response = await fetch(`/api/0g/download?rootHash=${encodeURIComponent(rootHash)}`, {
       signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-      }
+      headers: { 'Accept': 'application/json' },
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (!response.ok) {
-      throw new Error(`0G Storage API returned ${response.status}: ${response.statusText}`);
+      throw new Error(`0G download API returned ${response.status}: ${response.statusText}`);
     }
-    
+
     const metadata = await response.json() as WarriorsMetadata;
     console.log(`✅ Warriors ${tokenId}: Successfully fetched metadata from 0G Storage`);
-    
+
     return metadata;
-    
   } catch (error) {
     console.error(`❌ Warriors ${tokenId}: 0G Storage fetch failed:`, error instanceof Error ? error.message : 'Unknown error');
     return null;
@@ -216,22 +215,21 @@ export const processImageURI = (imageURI: string): string => {
     return imageURI;
   }
   
-  // If it's a 0G storage URI, convert it to the proper API endpoint
+  // If it's a 0G storage URI, convert it to the internal API endpoint
   if (imageURI.startsWith('0g://')) {
-    // Extract the root hash from the 0G URI
     const rootHash = imageURI.replace('0g://', '').split(':')[0];
-    return `${ZG_STORAGE_API_URL}/download/${rootHash}`;
+    return `/api/0g/download?rootHash=${encodeURIComponent(rootHash)}`;
   }
-  
+
   // If it's an IPFS URI, use the first IPFS gateway
   if (imageURI.startsWith('ipfs://')) {
     const ipfsHash = imageURI.replace('ipfs://', '');
     return `${IPFS_GATEWAYS[0]}${ipfsHash}`;
   }
-  
+
   // If format is unclear, assume it's a root hash and try 0G storage
   if (imageURI.startsWith('0x')) {
-    return `${ZG_STORAGE_API_URL}/download/${imageURI}`;
+    return `/api/0g/download?rootHash=${encodeURIComponent(imageURI)}`;
   }
   
   // Fallback to the original URI

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
-import { chainsToContracts, warriorsNFTAbi, getStorageApiUrl } from '../constants';
+import { chainsToContracts, warriorsNFTAbi } from '../constants';
 import { logger } from '../lib/logger';
 
 interface WarriorsTraits {
@@ -56,8 +56,7 @@ function setCachedMetadata(key: string, value: NFTMetadata): void {
   metadataCache.set(key, value);
 }
 
-// 0G Storage service configuration - use environment variable
-const ZG_STORAGE_API_URL = getStorageApiUrl();
+// 0G Storage downloads go through the internal API route
 
 // Chunked processing configuration
 const CHUNK_SIZE = 3; // Process 3 NFTs in parallel
@@ -75,13 +74,13 @@ const convertIpfsToProxyUrl = (imageUrl: string) => {
   if (imageUrl.startsWith('0g://')) {
     // Extract the root hash from the 0G URI
     const rootHash = imageUrl.replace('0g://', '').split(':')[0];
-    return `${ZG_STORAGE_API_URL}/download/${rootHash}`;
+    return `/api/0g/download?rootHash=${encodeURIComponent(rootHash)}`;
   }
 
   // Handle 0G storage root hashes (direct 0x format)
   if (imageUrl.startsWith('0x')) {
     // Convert 0G root hash to download URL
-    return `${ZG_STORAGE_API_URL}/download/${imageUrl}`;
+    return `/api/0g/download?rootHash=${encodeURIComponent(imageUrl)}`;
   }
   
   // Handle IPFS URLs
@@ -128,7 +127,7 @@ const fetchMetadataFrom0G = async (
     externalSignal?.addEventListener('abort', abortHandler);
 
     try {
-      const response = await fetch(`${ZG_STORAGE_API_URL}/download/${rootHash}`, {
+      const response = await fetch(`/api/0g/download?rootHash=${encodeURIComponent(rootHash)}`, {
         signal: controller.signal,
         headers: {
           'Accept': 'application/json',
