@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { type CreatorDisplay, type RevenueBreakdown } from '@/services/creatorService';
+import { type CreatorDisplay, type RevenueBreakdown, getRevenueSourceLabel } from '@/services/creatorService';
 
 interface CreatorRevenueCardProps {
   creator: CreatorDisplay;
@@ -13,7 +13,7 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
     <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-white">Revenue Overview</h3>
-        <TierBadge tier={creator.tier} label={creator.tierLabel} color={creator.tierColor} />
+        <TierBadge tier={creator.tier} label={creator.tierLabel} />
       </div>
 
       {/* Main Stats */}
@@ -21,25 +21,25 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
         <StatCard
           label="Total Earned"
           value={`${creator.totalFeesEarnedFormatted} CRwN`}
-          icon=""
+          icon="💰"
           color="text-green-400"
         />
         <StatCard
           label="Pending Rewards"
           value={`${creator.pendingRewardsFormatted} CRwN`}
-          icon=""
+          icon="⏳"
           color="text-yellow-400"
         />
         <StatCard
           label="Total Claimed"
           value={`${creator.totalClaimedFormatted} CRwN`}
-          icon=""
+          icon="✅"
           color="text-blue-400"
         />
         <StatCard
           label="Volume Generated"
           value={creator.totalVolumeFormatted}
-          icon=""
+          icon="📊"
           color="text-purple-400"
         />
       </div>
@@ -55,7 +55,7 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
                   className="w-3 h-3 rounded-full"
                   style={{ backgroundColor: item.color }}
                 />
-                <span className="text-sm text-gray-400 flex-1">{item.source}</span>
+                <span className="text-sm text-gray-400 flex-1">{getRevenueSourceLabel(item.source)}</span>
                 <span className="text-sm text-white font-medium">
                   {item.percentage.toFixed(1)}%
                 </span>
@@ -89,7 +89,10 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
   );
 }
 
-function TierBadge({ tier, label, color }: { tier: number; label: string; color: string }) {
+function TierBadge({ tier, label }: { tier: number; label: string }) {
+  const tierNames = ['bronze', 'silver', 'gold', 'platinum', 'diamond'];
+  const tierName = tierNames[tier] ?? 'bronze';
+
   const colorMap: Record<string, string> = {
     bronze: 'bg-orange-500/20 text-orange-400',
     silver: 'bg-gray-400/20 text-gray-300',
@@ -98,17 +101,11 @@ function TierBadge({ tier, label, color }: { tier: number; label: string; color:
     diamond: 'bg-purple-500/20 text-purple-400'
   };
 
-  const icons: Record<string, string> = {
-    bronze: '',
-    silver: '',
-    gold: '',
-    platinum: '',
-    diamond: ''
-  };
+  const icons = ['🥉', '🥈', '🥇', '💎', '👑'];
 
   return (
-    <span className={`px-3 py-1 rounded-full text-sm font-medium ${colorMap[color] ?? colorMap.bronze}`}>
-      {icons[color]} {label}
+    <span className={`px-3 py-1 rounded-full text-sm font-medium ${colorMap[tierName]}`}>
+      {icons[tier] ?? '⭐'} {label}
     </span>
   );
 }

@@ -36,7 +36,13 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
       {/* Pending Rewards Display */}
       <div className="text-center mb-6">
         <p className="text-gray-400 text-sm mb-2">Available to Claim</p>
-        <p className="text-4xl font-bold text-white">{pendingRewardsFormatted}</p>
+        {rewardsLoading ? (
+          <div className="flex justify-center">
+            <div className="skeleton h-10 w-32 rounded animate-pulse" />
+          </div>
+        ) : (
+          <p className="text-4xl font-bold text-white">{pendingRewardsFormatted}</p>
+        )}
         <p className="text-gray-400 text-sm mt-1">CRwN</p>
       </div>
 

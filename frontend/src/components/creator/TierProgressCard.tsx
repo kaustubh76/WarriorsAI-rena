@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { formatEther } from 'viem';
-import { type CreatorDisplay, TIER_THRESHOLDS } from '@/services/creatorService';
+import { type CreatorDisplay, TIER_THRESHOLDS, getTierBenefits, getTierLabel, getNextTier, type CreatorTier } from '@/services/creatorService';
 
 interface TierProgressCardProps {
   creator: CreatorDisplay;
@@ -15,6 +15,8 @@ export function TierProgressCard({ creator }: TierProgressCardProps) {
   const currentVolume = creator.totalVolumeGenerated;
 
   const isMaxTier = currentTier === 4; // DIAMOND
+  const nextTier = getNextTier(currentTier);
+  const nextTierLabel = nextTier !== null ? getTierLabel(nextTier) : null;
 
   return (
     <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
@@ -33,7 +35,7 @@ export function TierProgressCard({ creator }: TierProgressCardProps) {
       {!isMaxTier && (
         <div className="mb-6">
           <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-400">Progress to Next Tier</span>
+            <span className="text-gray-400">Progress to {nextTierLabel}</span>
             <span className="text-white">{progress.toFixed(1)}%</span>
           </div>
           <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
@@ -78,7 +80,7 @@ export function TierProgressCard({ creator }: TierProgressCardProps) {
               className={`text-center ${tier <= currentTier ? 'opacity-100' : 'opacity-40'}`}
             >
               <TierIconSmall tier={tier} isActive={tier === currentTier} />
-              <p className="text-xs text-gray-400 mt-1">{getTierLabel(tier)}</p>
+              <p className="text-xs text-gray-400 mt-1">{getTierLabel(tier as CreatorTier)}</p>
             </div>
           ))}
         </div>
@@ -89,42 +91,26 @@ export function TierProgressCard({ creator }: TierProgressCardProps) {
 
 function TierIcon({ tier }: { tier: number }) {
   const colors = ['text-orange-400', 'text-gray-300', 'text-yellow-400', 'text-cyan-400', 'text-purple-400'];
-  const icons = ['', '', '', '', ''];
+  const icons = ['🥉', '🥈', '🥇', '💎', '👑'];
 
   return (
-    <div className={`text-6xl ${colors[tier]}`}>
-      {icons[tier]}
+    <div className={`text-6xl ${colors[tier] ?? 'text-gray-400'}`}>
+      {icons[tier] ?? '⭐'}
     </div>
   );
 }
 
 function TierIconSmall({ tier, isActive }: { tier: number; isActive: boolean }) {
   const colors = ['text-orange-400', 'text-gray-300', 'text-yellow-400', 'text-cyan-400', 'text-purple-400'];
-  const icons = ['', '', '', '', ''];
+  const icons = ['🥉', '🥈', '🥇', '💎', '👑'];
 
   return (
-    <div className={`text-2xl ${colors[tier]} ${isActive ? 'animate-pulse' : ''}`}>
-      {icons[tier]}
+    <div className={`text-2xl ${colors[tier] ?? 'text-gray-400'} ${isActive ? 'animate-pulse' : ''}`}>
+      {icons[tier] ?? '⭐'}
     </div>
   );
 }
 
-function getTierLabel(tier: number): string {
-  const labels = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
-  return labels[tier] ?? 'Unknown';
-}
-
-function getTierBenefits(tier: number): string[] {
-  const benefits: Record<number, string[]> = {
-    0: ['Base 2% creator fee', 'Market creation access', 'Basic analytics'],
-    1: ['2.25% creator fee (1.125x)', 'Featured markets', 'Priority support'],
-    2: ['2.5% creator fee (1.25x)', 'Custom market themes', 'Advanced analytics'],
-    3: ['2.75% creator fee (1.375x)', 'Early access features', 'Dedicated account manager'],
-    4: ['3% creator fee (1.5x)', 'Exclusive partnerships', 'Governance voting power']
-  };
-
-  return benefits[tier] ?? benefits[0];
-}
 
 function formatVolume(volume: bigint): string {
   const num = Number(formatEther(volume));
