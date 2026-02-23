@@ -34,7 +34,7 @@ interface FeatureLink {
 const MARKET_FEATURES: FeatureLink[] = [
   { href: '/markets', emoji: '📊', label: 'MARKETS', desc: 'Browse all prediction markets', walletGated: false },
   { href: '/external', emoji: '🌐', label: 'EXTERNAL', desc: 'Polymarket & Kalshi feeds', walletGated: false },
-  { href: '/markets/create', emoji: '➕', label: 'CREATE MARKET', desc: 'Launch your own market', walletGated: true },
+  { href: '/create-market', emoji: '➕', label: 'CREATE MARKET', desc: 'Launch your own market', walletGated: true },
   { href: '/external/arbitrage', emoji: '🎯', label: 'ARBITRAGE', desc: 'Cross-market price gaps', walletGated: false, badge: 'HOT' },
 ];
 
@@ -672,7 +672,7 @@ export default function HomePage() {
           {isMounted && isConnected ? (
             <Link href="/warriorsMinter" aria-label="Warriors Forge - Mint and manage NFT warriors">
               <div 
-                className="arcade-card p-8 group cursor-pointer relative overflow-hidden flex flex-col justify-end min-h-[400px] hover:scale-105 transition-transform duration-200 home-hero-card"
+                className="arcade-card p-8 group cursor-pointer relative overflow-hidden flex flex-col justify-end min-h-[300px] md:min-h-[400px] hover:scale-105 transition-transform duration-200 home-hero-card"
                 style={{
                   background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
                   border: '3px solid #2d5a27 !important',
@@ -718,7 +718,7 @@ export default function HomePage() {
             </Link>
           ) : (
             <div 
-              className="arcade-card p-8 group cursor-not-allowed relative overflow-hidden flex flex-col justify-end min-h-[400px] opacity-50"
+              className="arcade-card p-8 group cursor-not-allowed relative overflow-hidden flex flex-col justify-end min-h-[300px] md:min-h-[400px] opacity-50"
               style={{
                 background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
                 border: '3px solid #2d5a27 !important',
@@ -769,9 +769,9 @@ export default function HomePage() {
           )}
           {/* Arena - The Arena */}
           {isMounted && isConnected ? (
-            <a href="/arena" aria-label="Battle Arena - Enter the battlefield">
+            <Link href="/arena" aria-label="Battle Arena - Enter the battlefield">
               <div 
-                className="arcade-card p-8 group cursor-pointer relative overflow-hidden flex flex-col justify-end min-h-[400px] hover:scale-105 transition-transform duration-200 home-hero-card"
+                className="arcade-card p-8 group cursor-pointer relative overflow-hidden flex flex-col justify-end min-h-[300px] md:min-h-[400px] hover:scale-105 transition-transform duration-200 home-hero-card"
                 style={{
                   background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
                   border: '3px solid #2d5a27 !important',
@@ -814,10 +814,10 @@ export default function HomePage() {
                   </p>
                 </div>
               </div>
-            </a>
+            </Link>
           ) : (
-            <div 
-              className="arcade-card p-8 group cursor-not-allowed relative overflow-hidden flex flex-col justify-end min-h-[400px] opacity-50"
+            <div
+              className="arcade-card p-8 group cursor-not-allowed relative overflow-hidden flex flex-col justify-end min-h-[300px] md:min-h-[400px] opacity-50"
               style={{
                 background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
                 border: '3px solid #2d5a27 !important',

@@ -132,7 +132,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-6 md:mb-8 animate-slide-up" style={{ animationDelay: '50ms' }}>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-6 mb-6 md:mb-8 animate-slide-up" style={{ animationDelay: '50ms' }}>
         <div className="feature-card col-span-2 lg:col-span-1">
           <span className="stat-card-label">CRwN Balance</span>
           <p className="text-2xl md:text-3xl font-bold text-white mt-1">
@@ -417,7 +417,14 @@ function PositionCard({ market, position, showLiquidity }: PositionCardProps) {
         {/* Claim Button for Resolved Markets */}
         {isResolved && isWinning && winningAmount > BigInt(0) && (
           <div className="mt-4 pt-4 border-t border-slate-700/50">
-            <button className="btn btn-success w-full">
+            <button
+              className="btn btn-success w-full"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.location.href = `/markets/${market.id.toString()}`;
+              }}
+            >
               🎉 Claim {formatTokenAmount(winningAmount)} CRwN
             </button>
           </div>
