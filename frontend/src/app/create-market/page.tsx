@@ -74,8 +74,8 @@ export default function CreateMarketPage() {
     }
   }, [createState.step, createState.marketId]);
 
-  // Calculate estimated earnings
-  const estimatedEarnings = (parseFloat(formData.initialLiquidity) || 0) * 0.5; // Example: assume 50% of liquidity gets traded
+  // Assume 50% of liquidity gets traded × 2% creator fee
+  const estimatedEarnings = (parseFloat(formData.initialLiquidity) || 0) * 0.5 * 0.02;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,7 +244,7 @@ export default function CreateMarketPage() {
                 <label className="block text-white font-medium mb-3">
                   Category
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {CATEGORIES.map((cat) => (
                     <button
                       key={cat.value}
@@ -280,13 +280,16 @@ export default function CreateMarketPage() {
                     min={getMinDate()}
                     className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500"
                   />
+                  <label className="block text-white font-medium mt-3 mb-2 text-sm">
+                    Resolution Time
+                  </label>
                   <input
                     type="time"
                     value={formData.endTime}
                     onChange={(e) =>
                       setFormData({ ...formData, endTime: e.target.value })
                     }
-                    className="w-full px-4 py-2 mt-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500"
+                    className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500"
                   />
                 </div>
 
@@ -331,7 +334,7 @@ export default function CreateMarketPage() {
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-400">Est. earnings (conservative)</span>
                         <span className="text-green-400 font-medium">
-                          +{estimatedEarnings.toFixed(0)} CRwN
+                          +{estimatedEarnings.toFixed(2)} CRwN
                         </span>
                       </div>
                     </div>

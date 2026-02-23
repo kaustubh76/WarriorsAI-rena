@@ -35,7 +35,8 @@ const NAV_LINKS: NavLink[] = [
     hoverColor: "hover:text-yellow-400",
     submenu: [
       { href: "/markets", label: "All Markets", icon: "📈" },
-      { href: "/markets/create", label: "Create Market", icon: "➕" },
+      { href: "/create-market", label: "Create Market", icon: "➕" },
+      { href: "/creator-dashboard", label: "Creator Dashboard", icon: "🎨" },
       { href: "/external", label: "External Markets", icon: "🌐" },
       { href: "/external/arbitrage", label: "Arbitrage", icon: "🎯" },
     ]

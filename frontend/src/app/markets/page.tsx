@@ -146,7 +146,7 @@ export default function MarketsPage() {
 
           {/* Create Market Button */}
           <Link
-            href="/markets/create"
+            href="/create-market"
             className="btn btn-primary btn-sm sm:btn-md flex-shrink-0"
           >
             <span className="text-lg">+</span>
@@ -223,7 +223,7 @@ export default function MarketsPage() {
               : 'Be the first to create a prediction market!'}
           </p>
           <Link
-            href="/markets/create"
+            href="/create-market"
             className="btn btn-primary"
           >
             Create Market
@@ -313,7 +313,7 @@ export default function MarketsPage() {
           Ready to make your prediction?
         </p>
         <Link
-          href="/markets/create"
+          href="/create-market"
           className="btn btn-primary btn-lg"
         >
           Create Your Market
