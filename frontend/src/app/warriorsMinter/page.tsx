@@ -82,6 +82,9 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   const { address: connectedAddress, connector: activeConnector } = useAccount();
   const chainId = useChainId();
   const wagmiConfig = useConfig();
+  // Keep a ref to the connector so it survives async operations even if React state resets
+  const connectorRef = useRef(activeConnector);
+  if (activeConnector) connectorRef.current = activeConnector;
 
   // Memoize the debug logging to prevent excessive console output
   useMemo(() => {
@@ -100,12 +103,18 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     const account = getAccount(wagmiConfig);
     if (account.status === 'connected') return;
 
-    console.log('Connector lost during async operation, reconnecting...', account.status);
+    // Use the ref'd connector — survives even if useAccount() state has reset
+    const connector = connectorRef.current;
+    if (!connector) {
+      throw new Error('Wallet disconnected during upload. Please reconnect your wallet and try again.');
+    }
+
+    console.log('Connector lost during async operation, reconnecting with', connector.name);
     try {
-      // Only reconnect the user's active connector (not all connectors,
-      // which would fail if e.g. MetaMask extension isn't installed)
-      const connectors = activeConnector ? [activeConnector] : undefined;
-      await wagmiReconnect(wagmiConfig, connectors ? { connectors } : undefined);
+      // Only reconnect the specific connector the user was using.
+      // Never pass undefined — that would try ALL connectors including
+      // MetaMask injected, which fails if the extension isn't installed.
+      await wagmiReconnect(wagmiConfig, { connectors: [connector] });
     } catch (e) {
       console.warn('Reconnect attempt failed:', e);
     }
@@ -114,7 +123,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       throw new Error('Wallet disconnected during upload. Please reconnect your wallet and try again.');
     }
     console.log('Reconnected successfully:', refreshed.address);
-  }, [wagmiConfig, activeConnector]);
+  }, [wagmiConfig]);
 
   // Custom hook to manage user NFTs
   const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', chainId);

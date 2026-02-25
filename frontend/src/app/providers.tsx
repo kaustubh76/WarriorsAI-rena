@@ -49,7 +49,7 @@ export function Providers(props: {children: ReactNode}) {
     }
 
     return (
-        <WagmiProvider config={wagmiConfig}>
+        <WagmiProvider config={wagmiConfig} reconnectOnMount={false}>
             <QueryClientProvider client={queryClientRef.current}>
                 <RainbowKitProvider>
                     <FlowWalletProvider>
