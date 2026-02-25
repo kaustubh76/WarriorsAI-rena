@@ -112,30 +112,42 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   // Custom hook to manage user NFTs
   const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', chainId);
 
+  // Track when we just minted so we can clear cache AFTER manage tab becomes active
+  const justMintedRef = useRef(false);
+
   // Handle transaction confirmation and display success message
   useEffect(() => {
     if (isConfirmed && hash) {
       console.log("Transaction confirmed:", hash);
-      
-      // Clear NFT cache to force refresh of updated data
-      clearCache();
-      
+
       // If we were activating a Warriors, close the modal and reset state
       if (isActivating) {
         setIsActivating(false);
         setSelectedWarriors(null);
+        clearCache();
         showSuccess('Activation Complete', 'Your warrior now has traits and moves assigned.');
       }
 
-      // If we were minting, reset the minting state
+      // If we were minting, switch to manage tab first
+      // clearCache() will be called in the separate effect below once isActive=true
       if (isMinting) {
         setIsMinting(false);
         setMintStep(null);
+        justMintedRef.current = true;
         setActiveSection('manage');
         showSuccess('NFT Minted!', 'Your warrior has been forged on the blockchain.');
       }
     }
   }, [isConfirmed, hash, clearCache, isActivating, isMinting]);
+
+  // Clear cache after switching to manage tab post-mint
+  // This ensures isActive=true when refetchTokenIds() fires inside clearCache()
+  useEffect(() => {
+    if (activeSection === 'manage' && justMintedRef.current) {
+      justMintedRef.current = false;
+      clearCache();
+    }
+  }, [activeSection, clearCache]);
 
   const handleInputChange = useCallback((field: string, value: string) => {
     setFormData(prev => ({

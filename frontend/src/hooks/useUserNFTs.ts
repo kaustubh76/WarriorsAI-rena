@@ -385,7 +385,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
   }
 
   // Read user's NFT token IDs
-  const { data: userTokenIds, isError: tokenIdsError, isLoading: tokenIdsLoading } = useReadContract({
+  const { data: userTokenIds, isError: tokenIdsError, isLoading: tokenIdsLoading, refetch: refetchTokenIds } = useReadContract({
     address: contractAddress as `0x${string}`,
     abi: warriorsNFTAbi,
     functionName: 'getNFTsOfAOwner',
@@ -686,6 +686,17 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
       clearTimeout(timeoutRef.current);
     }
 
+    logger.debug('useUserNFTs effect fired:', {
+      userTokenIds: userTokenIds ? `[${(userTokenIds as bigint[]).length} items]` : 'undefined',
+      tokenIdsLoading,
+      tokenIdsError,
+      hasParamsChanged,
+      isActive,
+      contractAddress: contractAddress ? `${contractAddress.slice(0, 10)}...` : 'none',
+      chainId,
+      connectedAddress: connectedAddress ? `${connectedAddress.slice(0, 10)}...` : 'none',
+    });
+
     // Skip if parameters haven't changed
     if (!hasParamsChanged && userNFTs.length > 0) {
       return;
@@ -715,22 +726,51 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userTokenIds, tokenIdsLoading, tokenIdsError, hasParamsChanged]);
 
+  // Safety timeout: if loading takes more than 30s, stop the spinner
+  useEffect(() => {
+    if (!isLoadingNFTs && !tokenIdsLoading) return;
+
+    const safetyTimeout = setTimeout(() => {
+      if (loadingRef.current || tokenIdsLoading) {
+        logger.warn('NFT loading safety timeout reached (30s) — stopping spinner');
+        loadingRef.current = false;
+        setIsLoadingNFTs(false);
+      }
+    }, 30000);
+
+    return () => clearTimeout(safetyTimeout);
+  }, [isLoadingNFTs, tokenIdsLoading]);
+
   return {
     userNFTs,
     isLoadingNFTs: isLoadingNFTs || tokenIdsLoading,
     hasError: tokenIdsError,
-    clearCache: clearMetadataCache,
+    clearCache: () => {
+      clearMetadataCache();
+      // Reset the token IDs ref so the next contract read triggers a full reload
+      lastTokenIdsRef.current = '';
+      // Also reset loading state in case it got stuck
+      loadingRef.current = false;
+      // Re-read getNFTsOfAOwner from the chain (invalidates wagmi cache)
+      refetchTokenIds();
+    },
     refetch: () => {
-      if (userTokenIds) {
-        loadNFTDetails(userTokenIds as bigint[]);
-      }
+      lastTokenIdsRef.current = '';
+      loadingRef.current = false;
+      refetchTokenIds();
     },
     debugState: () => {
       logger.debug('DEBUG STATE:');
       logger.debug('- userNFTs count:', userNFTs.length);
       logger.debug('- isLoadingNFTs:', isLoadingNFTs);
+      logger.debug('- tokenIdsLoading:', tokenIdsLoading);
       logger.debug('- tokenIdsError:', tokenIdsError);
       logger.debug('- userTokenIds:', userTokenIds);
+      logger.debug('- loadingRef:', loadingRef.current);
+      logger.debug('- lastTokenIdsRef:', lastTokenIdsRef.current);
+      logger.debug('- isActive:', isActive);
+      logger.debug('- contractAddress:', contractAddress);
+      logger.debug('- chainId:', chainId);
       logger.debug('- cache size:', metadataCache.size);
       logger.debug('- cached keys:', Array.from(metadataCache.keys()));
       userNFTs.forEach((nft, index) => {
