@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
 
@@ -24,12 +24,20 @@ interface LeaderboardEntry {
 // Leaderboard data will be populated from on-chain events
 // Currently showing empty state until event indexing is implemented
 
+// Season runs monthly — compute days remaining in current season
+function getSeasonDaysRemaining(): number {
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return Math.max(0, Math.ceil((endOfMonth.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+}
+
 export default function LeaderboardPage() {
   const { address, isConnected } = useAccount();
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [category, setCategory] = useState<Category>('profit');
   const [leaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading] = useState(false);
+  const seasonDaysLeft = useMemo(() => getSeasonDaysRemaining(), []);
 
   // Sort leaderboard based on category
   const sortedLeaderboard = [...leaderboard].sort((a, b) => {
@@ -169,14 +177,14 @@ export default function LeaderboardPage() {
 
         {/* Top 3 Podium */}
         {sortedLeaderboard.length >= 3 && (
-        <div className="flex justify-center items-end gap-4 mb-12">
+        <div className="flex justify-center items-end gap-2 sm:gap-4 mb-12">
           {/* 2nd Place */}
           {sortedLeaderboard[1] && (
             <div className="text-center">
-              <div className="w-24 h-24 mx-auto mb-3 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center text-3xl">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 mx-auto mb-3 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center text-2xl sm:text-3xl">
                 🥈
               </div>
-              <div className="bg-gray-800 rounded-xl p-4 w-48">
+              <div className="bg-gray-800 rounded-xl p-3 sm:p-4 w-28 sm:w-48">
                 <p className="font-semibold text-white truncate">
                   {sortedLeaderboard[1].username || truncateAddress(sortedLeaderboard[1].address)}
                 </p>
@@ -193,10 +201,10 @@ export default function LeaderboardPage() {
           {/* 1st Place */}
           {sortedLeaderboard[0] && (
             <div className="text-center -mt-8">
-              <div className="w-32 h-32 mx-auto mb-3 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-5xl shadow-lg shadow-yellow-500/30">
+              <div className="w-20 h-20 sm:w-32 sm:h-32 mx-auto mb-3 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-3xl sm:text-5xl shadow-lg shadow-yellow-500/30">
                 👑
               </div>
-              <div className="bg-gradient-to-br from-yellow-900/30 to-gray-800 rounded-xl p-6 w-56 border border-yellow-500/30">
+              <div className="bg-gradient-to-br from-yellow-900/30 to-gray-800 rounded-xl p-4 sm:p-6 w-32 sm:w-56 border border-yellow-500/30">
                 <p className="font-bold text-xl text-white truncate">
                   {sortedLeaderboard[0].username || truncateAddress(sortedLeaderboard[0].address)}
                 </p>
@@ -213,10 +221,10 @@ export default function LeaderboardPage() {
           {/* 3rd Place */}
           {sortedLeaderboard[2] && (
             <div className="text-center">
-              <div className="w-24 h-24 mx-auto mb-3 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center text-3xl">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 mx-auto mb-3 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center text-2xl sm:text-3xl">
                 🥉
               </div>
-              <div className="bg-gray-800 rounded-xl p-4 w-48">
+              <div className="bg-gray-800 rounded-xl p-3 sm:p-4 w-28 sm:w-48">
                 <p className="font-semibold text-white truncate">
                   {sortedLeaderboard[2].username || truncateAddress(sortedLeaderboard[2].address)}
                 </p>
@@ -232,87 +240,156 @@ export default function LeaderboardPage() {
         </div>
         )}
 
-        {/* Full Leaderboard Table */}
+        {/* Full Leaderboard — Mobile Cards + Desktop Table */}
         {sortedLeaderboard.length > 0 && (
-        <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-800">
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Rank</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Trader</th>
-                  <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Trades</th>
-                  <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Volume</th>
-                  <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">W/L</th>
-                  <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Win Rate</th>
-                  <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Profit</th>
-                  <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Best Streak</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {sortedLeaderboard.map((entry, index) => (
-                  <tr
-                    key={entry.address}
-                    className={`hover:bg-gray-800/50 transition-colors ${
-                      address?.toLowerCase() === entry.address.toLowerCase()
-                        ? 'bg-purple-900/20'
-                        : ''
-                    }`}
-                  >
-                    <td className="px-6 py-4">
-                      <span className={`font-bold ${
-                        index === 0 ? 'text-yellow-400' :
-                        index === 1 ? 'text-gray-300' :
-                        index === 2 ? 'text-amber-600' :
-                        'text-gray-400'
-                      }`}>
-                        #{index + 1}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div>
-                        <p className="font-medium text-white">
-                          {entry.username || truncateAddress(entry.address)}
-                        </p>
-                        {entry.username && (
-                          <p className="text-sm text-gray-500">{truncateAddress(entry.address)}</p>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right text-white">{entry.totalTrades}</td>
-                    <td className="px-6 py-4 text-right text-white">{entry.totalVolume} CRwN</td>
-                    <td className="px-6 py-4 text-right">
+        <>
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-3 mb-8">
+            {sortedLeaderboard.map((entry, index) => (
+              <div
+                key={entry.address}
+                className={`bg-gray-900 rounded-xl border p-4 ${
+                  address?.toLowerCase() === entry.address.toLowerCase()
+                    ? 'border-purple-500/50 bg-purple-900/10'
+                    : 'border-gray-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className={`text-lg font-bold ${
+                      index === 0 ? 'text-yellow-400' :
+                      index === 1 ? 'text-gray-300' :
+                      index === 2 ? 'text-amber-600' :
+                      'text-gray-400'
+                    }`}>
+                      #{index + 1}
+                    </span>
+                    <div>
+                      <p className="font-medium text-white text-sm">
+                        {entry.username || truncateAddress(entry.address)}
+                      </p>
+                      {entry.username && (
+                        <p className="text-xs text-gray-500">{truncateAddress(entry.address)}</p>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`text-lg font-bold ${
+                    parseFloat(entry.totalProfit) >= 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {entry.totalProfit} CRwN
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div>
+                    <p className="text-xs text-gray-500">Win Rate</p>
+                    <p className={`text-sm font-medium ${
+                      entry.winRate >= 60 ? 'text-green-400' :
+                      entry.winRate >= 50 ? 'text-yellow-400' :
+                      'text-red-400'
+                    }`}>{entry.winRate}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">W/L</p>
+                    <p className="text-sm">
                       <span className="text-green-400">{entry.marketsWon}</span>
                       <span className="text-gray-500">/</span>
                       <span className="text-red-400">{entry.marketsLost}</span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`font-medium ${
-                        entry.winRate >= 60 ? 'text-green-400' :
-                        entry.winRate >= 50 ? 'text-yellow-400' :
-                        'text-red-400'
-                      }`}>
-                        {entry.winRate}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`font-bold ${
-                        parseFloat(entry.totalProfit) >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}>
-                        {entry.totalProfit} CRwN
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <span className="text-orange-400 font-medium">
-                        {entry.bestStreak}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Trades</p>
+                    <p className="text-sm text-white">{entry.totalTrades}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Streak</p>
+                    <p className="text-sm text-orange-400 font-medium">{entry.bestStreak}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-800">
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Rank</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Trader</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Trades</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Volume</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">W/L</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Win Rate</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Profit</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Best Streak</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {sortedLeaderboard.map((entry, index) => (
+                    <tr
+                      key={entry.address}
+                      className={`hover:bg-gray-800/50 transition-colors ${
+                        address?.toLowerCase() === entry.address.toLowerCase()
+                          ? 'bg-purple-900/20'
+                          : ''
+                      }`}
+                    >
+                      <td className="px-6 py-4">
+                        <span className={`font-bold ${
+                          index === 0 ? 'text-yellow-400' :
+                          index === 1 ? 'text-gray-300' :
+                          index === 2 ? 'text-amber-600' :
+                          'text-gray-400'
+                        }`}>
+                          #{index + 1}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div>
+                          <p className="font-medium text-white">
+                            {entry.username || truncateAddress(entry.address)}
+                          </p>
+                          {entry.username && (
+                            <p className="text-sm text-gray-500">{truncateAddress(entry.address)}</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right text-white">{entry.totalTrades}</td>
+                      <td className="px-6 py-4 text-right text-white">{entry.totalVolume} CRwN</td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="text-green-400">{entry.marketsWon}</span>
+                        <span className="text-gray-500">/</span>
+                        <span className="text-red-400">{entry.marketsLost}</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`font-medium ${
+                          entry.winRate >= 60 ? 'text-green-400' :
+                          entry.winRate >= 50 ? 'text-yellow-400' :
+                          'text-red-400'
+                        }`}>
+                          {entry.winRate}%
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`font-bold ${
+                          parseFloat(entry.totalProfit) >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}>
+                          {entry.totalProfit} CRwN
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="text-orange-400 font-medium">
+                          {entry.bestStreak}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
         )}
 
         {/* Rewards Info */}
@@ -339,7 +416,9 @@ export default function LeaderboardPage() {
             </div>
           </div>
           <p className="text-center text-gray-400 mt-6">
-            Season ends in 23 days. Keep trading to climb the ranks!
+            {seasonDaysLeft > 0
+              ? `Season ends in ${seasonDaysLeft} day${seasonDaysLeft === 1 ? '' : 's'}. Keep trading to climb the ranks!`
+              : 'New season starting soon! Keep trading to climb the ranks!'}
           </p>
         </div>
       </main>
