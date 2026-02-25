@@ -79,7 +79,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   const imgRef = useRef<HTMLImageElement>(null);
 
   // Wagmi hooks for contract interaction
-  const { address: connectedAddress } = useAccount();
+  const { address: connectedAddress, connector: activeConnector } = useAccount();
   const chainId = useChainId();
   const wagmiConfig = useConfig();
 
@@ -98,16 +98,23 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   // long async uploads can cause the connector to drop its connection.
   const ensureConnected = useCallback(async () => {
     const account = getAccount(wagmiConfig);
-    if (account.status !== 'connected') {
-      console.log('Connector lost during async operation, reconnecting...', account.status);
-      await wagmiReconnect(wagmiConfig);
-      const refreshed = getAccount(wagmiConfig);
-      if (refreshed.status !== 'connected') {
-        throw new Error('Wallet disconnected during upload. Please reconnect your wallet and try again.');
-      }
-      console.log('Reconnected successfully:', refreshed.address);
+    if (account.status === 'connected') return;
+
+    console.log('Connector lost during async operation, reconnecting...', account.status);
+    try {
+      // Only reconnect the user's active connector (not all connectors,
+      // which would fail if e.g. MetaMask extension isn't installed)
+      const connectors = activeConnector ? [activeConnector] : undefined;
+      await wagmiReconnect(wagmiConfig, connectors ? { connectors } : undefined);
+    } catch (e) {
+      console.warn('Reconnect attempt failed:', e);
     }
-  }, [wagmiConfig]);
+    const refreshed = getAccount(wagmiConfig);
+    if (refreshed.status !== 'connected') {
+      throw new Error('Wallet disconnected during upload. Please reconnect your wallet and try again.');
+    }
+    console.log('Reconnected successfully:', refreshed.address);
+  }, [wagmiConfig, activeConnector]);
 
   // Custom hook to manage user NFTs
   const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', chainId);
