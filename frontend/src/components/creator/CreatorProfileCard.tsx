@@ -23,12 +23,12 @@ export function CreatorProfileCard({ creator }: CreatorProfileCardProps) {
   };
 
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
+    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border border-slate-700">
       <h3 className="text-lg font-semibold text-white mb-4">Creator Profile</h3>
 
       <div className="space-y-3">
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Wallet</span>
+          <span className="text-sm text-slate-400">Wallet</span>
           <button
             onClick={copyAddress}
             className="text-sm text-white font-mono hover:text-purple-400 transition-colors"
@@ -38,16 +38,16 @@ export function CreatorProfileCard({ creator }: CreatorProfileCardProps) {
           </button>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Type</span>
+          <span className="text-sm text-slate-400">Type</span>
           <span className="text-sm text-white">{creator.typeLabel}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Member Since</span>
+          <span className="text-sm text-slate-400">Member Since</span>
           <span className="text-sm text-white">{creator.memberSince}</span>
         </div>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-gray-700 flex gap-2">
+      <div className="mt-4 pt-4 border-t border-slate-700 flex gap-2">
         <Link
           href="/create-market"
           className="flex-1 text-center py-2 text-sm bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 rounded-lg transition-colors"

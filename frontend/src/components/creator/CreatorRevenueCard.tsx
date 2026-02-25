@@ -10,7 +10,7 @@ interface CreatorRevenueCardProps {
 
 export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardProps) {
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
+    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border border-slate-700">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-white">Revenue Overview</h3>
         <TierBadge tier={creator.tier} label={creator.tierLabel} />
@@ -47,7 +47,7 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
       {/* Revenue Breakdown */}
       {breakdown && breakdown.length > 0 && (
         <div className="mb-6">
-          <h4 className="text-sm font-medium text-gray-400 mb-4">Revenue by Source</h4>
+          <h4 className="text-sm font-medium text-slate-400 mb-4">Revenue by Source</h4>
           <div className="space-y-3">
             {breakdown.map((item, index) => (
               <div key={index} className="flex items-center gap-3">
@@ -55,7 +55,7 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
                   className="w-3 h-3 rounded-full"
                   style={{ backgroundColor: item.color }}
                 />
-                <span className="text-sm text-gray-400 flex-1">{getRevenueSourceLabel(item.source)}</span>
+                <span className="text-sm text-slate-400 flex-1">{getRevenueSourceLabel(item.source)}</span>
                 <span className="text-sm text-white font-medium">
                   {item.percentage.toFixed(1)}%
                 </span>
@@ -68,21 +68,21 @@ export function CreatorRevenueCard({ creator, breakdown }: CreatorRevenueCardPro
       {/* Creator Stats */}
       <div className="grid grid-cols-3 gap-4 text-sm">
         <div className="text-center">
-          <span className="text-gray-400 block">Markets</span>
+          <span className="text-slate-400 block">Markets</span>
           <span className="text-white font-medium">{Number(creator.marketsCreated)}</span>
         </div>
         <div className="text-center">
-          <span className="text-gray-400 block">Warriors</span>
+          <span className="text-slate-400 block">Warriors</span>
           <span className="text-white font-medium">{Number(creator.warriorsCreated)}</span>
         </div>
         <div className="text-center">
-          <span className="text-gray-400 block">Agents</span>
+          <span className="text-slate-400 block">Agents</span>
           <span className="text-white font-medium">{Number(creator.agentsOperated)}</span>
         </div>
       </div>
 
       {/* Member Since */}
-      <div className="mt-6 pt-4 border-t border-gray-700 text-sm text-gray-400 text-center">
+      <div className="mt-6 pt-4 border-t border-slate-700 text-sm text-slate-400 text-center">
         Member since {creator.memberSince}
       </div>
     </div>
@@ -122,10 +122,10 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="bg-gray-800/50 rounded-lg p-4">
+    <div className="bg-slate-800/50 rounded-lg p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>{icon}</span>
-        <span className="text-xs text-gray-400">{label}</span>
+        <span className="text-xs text-slate-400">{label}</span>
       </div>
       <p className={`text-xl font-bold ${color}`}>{value}</p>
     </div>

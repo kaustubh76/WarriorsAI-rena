@@ -24,7 +24,7 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
     return (
       <button
         disabled
-        className="w-full py-4 bg-gray-700 text-gray-400 rounded-xl cursor-not-allowed"
+        className="w-full py-4 bg-slate-700 text-slate-400 rounded-xl cursor-not-allowed"
       >
         Connect Wallet to Claim
       </button>
@@ -32,10 +32,10 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
   }
 
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl p-6 border border-gray-700">
+    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-6 border border-slate-700">
       {/* Pending Rewards Display */}
       <div className="text-center mb-6">
-        <p className="text-gray-400 text-sm mb-2">Available to Claim</p>
+        <p className="text-slate-400 text-sm mb-2">Available to Claim</p>
         {rewardsLoading ? (
           <div className="flex justify-center">
             <div className="skeleton h-10 w-32 rounded animate-pulse" />
@@ -43,7 +43,7 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
         ) : (
           <p className="text-4xl font-bold text-white">{pendingRewardsFormatted}</p>
         )}
-        <p className="text-gray-400 text-sm mt-1">CRwN</p>
+        <p className="text-slate-400 text-sm mt-1">CRwN</p>
       </div>
 
       {/* Claim Button */}
@@ -53,7 +53,7 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
         className={`w-full py-4 rounded-xl font-medium text-lg transition-all duration-200 ${
           hasRewards
             ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 text-white'
-            : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+            : 'bg-slate-700 text-slate-400 cursor-not-allowed'
         } disabled:opacity-50`}
       >
         {isLoading ? (
@@ -116,7 +116,7 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
 
       {/* Info Note */}
       {hasRewards && (
-        <p className="text-xs text-gray-500 text-center mt-4">
+        <p className="text-xs text-slate-500 text-center mt-4">
           Claiming rewards will transfer all pending CRwN tokens to your wallet
         </p>
       )}
