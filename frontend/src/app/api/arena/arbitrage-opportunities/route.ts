@@ -32,13 +32,15 @@ export const GET = composeMiddleware([
       ];
     }
 
-    const cacheKey = `arena-arb-opps:${search}:${minSpread}:${limit}`;
+    // Fetch more rows than requested to account for dedup (one market can match many)
+    const fetchLimit = Math.min(limit * 10, 500);
+    const cacheKey = `arena-arb-opps:${search}:${minSpread}:${fetchLimit}`;
     const matchedPairs = await marketDataCache.getOrSet(
       cacheKey,
       () => prisma.matchedMarketPair.findMany({
         where,
         orderBy: { priceDifference: 'desc' },
-        take: limit,
+        take: fetchLimit,
       }),
       30_000 // 30s TTL
     ) as Awaited<ReturnType<typeof prisma.matchedMarketPair.findMany>>;
@@ -114,10 +116,13 @@ export const GET = composeMiddleware([
       dedupedOpportunities.push(opp);
     }
 
+    // Trim to requested limit after dedup
+    const finalOpportunities = dedupedOpportunities.slice(0, limit);
+
     return NextResponse.json({
       success: true,
-      opportunities: dedupedOpportunities,
-      count: dedupedOpportunities.length,
+      opportunities: finalOpportunities,
+      count: finalOpportunities.length,
     });
   },
 ], { errorContext: 'API:Arena:ArbitrageOpportunities:GET' });
