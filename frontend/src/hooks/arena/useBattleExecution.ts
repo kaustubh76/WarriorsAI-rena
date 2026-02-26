@@ -1,5 +1,8 @@
 /**
  * Hook for executing prediction battles with AI debate system
+ *
+ * Traits are optional — when omitted, the server fetches real on-chain
+ * traits from the WarriorsNFT contract via traitService.
  */
 
 import { useState, useCallback } from 'react';
@@ -42,17 +45,17 @@ interface UseBattleExecutionReturn {
   currentRound: number | null;
   error: string | null;
 
-  // Actions
+  // Actions (traits optional — server fetches from contract when omitted)
   executeRound: (
     battleId: string,
-    warrior1Traits: WarriorTraits,
-    warrior2Traits: WarriorTraits
+    warrior1Traits?: WarriorTraits,
+    warrior2Traits?: WarriorTraits
   ) => Promise<ExecuteRoundResult | null>;
 
   executeFullBattle: (
     battleId: string,
-    warrior1Traits: WarriorTraits,
-    warrior2Traits: WarriorTraits
+    warrior1Traits?: WarriorTraits,
+    warrior2Traits?: WarriorTraits
   ) => Promise<ExecuteFullBattleResult | null>;
 }
 
@@ -66,8 +69,8 @@ export function useBattleExecution(): UseBattleExecutionReturn {
    */
   const executeRound = useCallback(async (
     battleId: string,
-    warrior1Traits: WarriorTraits,
-    warrior2Traits: WarriorTraits
+    warrior1Traits?: WarriorTraits,
+    warrior2Traits?: WarriorTraits
   ): Promise<ExecuteRoundResult | null> => {
     setIsExecuting(true);
     setError(null);
@@ -78,8 +81,7 @@ export function useBattleExecution(): UseBattleExecutionReturn {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'round',
-          warrior1Traits,
-          warrior2Traits,
+          ...(warrior1Traits && warrior2Traits && { warrior1Traits, warrior2Traits }),
         }),
       });
 
@@ -105,8 +107,8 @@ export function useBattleExecution(): UseBattleExecutionReturn {
    */
   const executeFullBattle = useCallback(async (
     battleId: string,
-    warrior1Traits: WarriorTraits,
-    warrior2Traits: WarriorTraits
+    warrior1Traits?: WarriorTraits,
+    warrior2Traits?: WarriorTraits
   ): Promise<ExecuteFullBattleResult | null> => {
     setIsExecuting(true);
     setError(null);
@@ -117,8 +119,7 @@ export function useBattleExecution(): UseBattleExecutionReturn {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'full',
-          warrior1Traits,
-          warrior2Traits,
+          ...(warrior1Traits && warrior2Traits && { warrior1Traits, warrior2Traits }),
         }),
       });
 

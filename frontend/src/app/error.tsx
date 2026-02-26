@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 
 export default function Error({
   error,
@@ -18,7 +19,7 @@ export default function Error({
       <div className="text-center px-6 max-w-lg">
         <div className="text-7xl mb-6">&#x1F4A5;</div>
         <h1
-          className="text-3xl text-red-400 mb-4 tracking-wider"
+          className="text-2xl sm:text-3xl text-red-400 mb-4 tracking-wider"
           style={{ fontFamily: "Press Start 2P, monospace" }}
         >
           CRITICAL HIT!
@@ -31,21 +32,21 @@ export default function Error({
             Error ID: {error.digest}
           </p>
         )}
-        <div className="flex gap-4 justify-center">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
           <button
             onClick={reset}
-            className="px-8 py-3 bg-yellow-600/20 hover:bg-yellow-600/30 border-2 border-yellow-500/50 text-yellow-300 rounded-lg transition-all hover:border-yellow-400"
-            style={{ fontFamily: "Press Start 2P, monospace", fontSize: "0.7rem" }}
+            className="px-6 sm:px-8 py-3 bg-yellow-600/20 hover:bg-yellow-600/30 border-2 border-yellow-500/50 text-yellow-300 rounded-lg transition-all hover:border-yellow-400"
+            style={{ fontFamily: "Press Start 2P, monospace", fontSize: "0.75rem" }}
           >
             TRY AGAIN
           </button>
-          <a
+          <Link
             href="/"
-            className="px-8 py-3 bg-red-600/30 hover:bg-red-600/50 border-2 border-red-500/50 text-red-300 rounded-lg transition-all hover:border-red-400"
-            style={{ fontFamily: "Press Start 2P, monospace", fontSize: "0.7rem" }}
+            className="px-6 sm:px-8 py-3 bg-red-600/30 hover:bg-red-600/50 border-2 border-red-500/50 text-red-300 rounded-lg transition-all hover:border-red-400 text-center"
+            style={{ fontFamily: "Press Start 2P, monospace", fontSize: "0.75rem" }}
           >
             RETURN HOME
-          </a>
+          </Link>
         </div>
       </div>
     </div>

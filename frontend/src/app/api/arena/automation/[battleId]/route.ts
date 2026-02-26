@@ -29,6 +29,7 @@ const activeTimers = new Map<string, NodeJS.Timeout>();
 const lastTransactionHashes = new Map<string, string>();
 
 // Lazily-initialized blockchain clients
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- viem client generics require chain/account params; typed as any for lazy init
 let walletClient: any = null;
 let publicClient: any = null;
 let fallbackClient: any = null;

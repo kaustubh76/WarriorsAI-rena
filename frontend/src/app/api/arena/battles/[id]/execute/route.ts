@@ -1,19 +1,48 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { executeDebateRound, executeFullBattle } from '../../../../../../services/arena/debateService';
-import { WarriorTraits, MarketSource, PredictionRound, RealMarketData } from '../../../../../../types/predictionArena';
+import { WarriorTraits, MarketSource, PredictionRound, DebateMove } from '../../../../../../types/predictionArena';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { internalFetch } from '@/lib/api/internalFetch';
+import { prisma } from '@/lib/prisma';
+import { fetchBattleTraits } from '@/services/arena/traitService';
+import { generateBattleStrategies } from '@/services/arena/aiDebateStrategy';
+import { fetchMarketDataForBattle } from '@/services/arena/marketDataService';
 
-const prisma = new PrismaClient();
+interface BattleForStorage {
+  id: string;
+  externalMarketId: string;
+  source: string;
+  question: string;
+  warrior1Id: number;
+  warrior1Owner: string;
+  warrior2Id: number;
+  warrior2Owner: string;
+  warrior1Score: number;
+  warrior2Score: number;
+  stakes: string;
+}
+
+interface RoundForStorage {
+  roundNumber: number;
+  w1Argument: string | null;
+  w1Evidence: string | null;
+  w1Move: string | null;
+  w1Score: number;
+  w2Argument: string | null;
+  w2Evidence: string | null;
+  w2Move: string | null;
+  w2Score: number;
+  roundWinner: string | null;
+  judgeReasoning: string | null;
+}
 
 /**
  * Store completed battle to 0G Storage
  */
 async function storeBattleTo0G(
-  battle: any,
-  rounds: any[],
+  battle: BattleForStorage,
+  rounds: RoundForStorage[],
   w1Traits: WarriorTraits,
   w2Traits: WarriorTraits
 ): Promise<{ rootHash?: string; success: boolean }> {
@@ -89,53 +118,6 @@ async function storeBattleTo0G(
 }
 
 /**
- * Fetch real market data from synced ExternalMarket records for context-enriched debates.
- * Returns undefined if market data unavailable (graceful degradation to template-based evidence).
- */
-async function fetchMarketData(
-  battle: { externalMarketId: string; source: string; isArbitrageBattle: boolean; kalshiMarketId: string | null }
-): Promise<RealMarketData | undefined> {
-  try {
-    const externalMarket = await prisma.externalMarket.findUnique({
-      where: { id: battle.externalMarketId },
-    });
-
-    if (!externalMarket) return undefined;
-
-    const marketData: RealMarketData = {
-      yesPrice: externalMarket.yesPrice / 100,  // basis points → 0-100
-      noPrice: externalMarket.noPrice / 100,
-      volume: externalMarket.volume,
-      liquidity: externalMarket.liquidity,
-      endTime: externalMarket.endTime.toISOString(),
-      category: externalMarket.category ?? undefined,
-      source: battle.source as MarketSource,
-    };
-
-    // For arbitrage battles, fetch cross-platform data
-    if (battle.isArbitrageBattle && battle.kalshiMarketId) {
-      const crossMarket = await prisma.externalMarket.findUnique({
-        where: { id: battle.kalshiMarketId },
-      });
-
-      if (crossMarket) {
-        marketData.crossPlatformPrice = crossMarket.yesPrice / 100;
-        marketData.crossPlatformSource = crossMarket.source;
-        marketData.spread = Math.abs(
-          (externalMarket.yesPrice - crossMarket.yesPrice) / 100
-        );
-      }
-    }
-
-    return marketData;
-  } catch (err) {
-    // Non-fatal: fall back to template-based evidence
-    console.warn(`[Battle Execute] Failed to fetch market data for ${battle.externalMarketId}:`, err);
-    return undefined;
-  }
-}
-
-/**
  * POST /api/arena/battles/[id]/execute
  * Execute a battle round or full battle
  */
@@ -171,27 +153,46 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest(`Battle is not active (status: ${battle.status})`);
     }
 
-    // Parse traits from request or use defaults
-    const w1Traits: WarriorTraits = warrior1Traits || {
-      strength: 5000,
-      wit: 5000,
-      charisma: 5000,
-      defence: 5000,
-      luck: 5000,
-    };
+    // Use request-provided traits, or fetch real traits from contract
+    let w1Traits: WarriorTraits;
+    let w2Traits: WarriorTraits;
 
-    const w2Traits: WarriorTraits = warrior2Traits || {
-      strength: 5000,
-      wit: 5000,
-      charisma: 5000,
-      defence: 5000,
-      luck: 5000,
-    };
+    if (warrior1Traits && warrior2Traits) {
+      w1Traits = warrior1Traits;
+      w2Traits = warrior2Traits;
+    } else {
+      const fetched = await fetchBattleTraits(battle.warrior1Id, battle.warrior2Id);
+      w1Traits = fetched.w1Traits;
+      w2Traits = fetched.w2Traits;
+    }
 
     const marketSource = battle.source as MarketSource;
 
     // Fetch real market data for context-enriched debates
-    const marketData = await fetchMarketData(battle);
+    const marketData = await fetchMarketDataForBattle(
+      battle.externalMarketId,
+      battle.source,
+      battle.isArbitrageBattle,
+      battle.kalshiMarketId,
+    );
+
+    // Optional: pre-generate AI debate strategies via 0G (non-blocking, 5s timeout)
+    let yesStrategy = null;
+    let noStrategy = null;
+    try {
+      if (marketData) {
+        const strategies = await generateBattleStrategies(
+          battle.question,
+          marketData.category,
+          marketData.yesPrice,
+          marketData.noPrice,
+        );
+        yesStrategy = strategies.yesStrategy;
+        noStrategy = strategies.noStrategy;
+      }
+    } catch {
+      // Non-fatal: proceed with context-aware template arguments
+    }
 
     if (mode === 'full') {
       // Execute all remaining rounds
@@ -200,7 +201,8 @@ export const POST = composeMiddleware([
         w2Traits,
         battle.question,
         marketSource,
-        marketData
+        marketData,
+        { yesStrategy: yesStrategy ?? undefined, noStrategy: noStrategy ?? undefined },
       );
 
       // Save all rounds to database
@@ -219,10 +221,12 @@ export const POST = composeMiddleware([
             w1Argument: roundResult.warrior1.argument,
             w1Evidence: JSON.stringify(roundResult.warrior1.evidence),
             w1Move: roundResult.warrior1.move,
+            w1Confidence: roundResult.warrior1.confidence,
             w1Score: roundResult.warrior1Score,
             w2Argument: roundResult.warrior2.argument,
             w2Evidence: JSON.stringify(roundResult.warrior2.evidence),
             w2Move: roundResult.warrior2.move,
+            w2Confidence: roundResult.warrior2.confidence,
             w2Score: roundResult.warrior2Score,
             roundWinner: roundResult.roundWinner,
             judgeReasoning: roundResult.judgeReasoning,
@@ -234,10 +238,12 @@ export const POST = composeMiddleware([
             w1Argument: roundResult.warrior1.argument,
             w1Evidence: JSON.stringify(roundResult.warrior1.evidence),
             w1Move: roundResult.warrior1.move,
+            w1Confidence: roundResult.warrior1.confidence,
             w1Score: roundResult.warrior1Score,
             w2Argument: roundResult.warrior2.argument,
             w2Evidence: JSON.stringify(roundResult.warrior2.evidence),
             w2Move: roundResult.warrior2.move,
+            w2Confidence: roundResult.warrior2.confidence,
             w2Score: roundResult.warrior2Score,
             roundWinner: roundResult.roundWinner,
             judgeReasoning: roundResult.judgeReasoning,
@@ -308,13 +314,13 @@ export const POST = composeMiddleware([
       roundNumber: r.roundNumber,
       w1Argument: r.w1Argument || undefined,
       w1Evidence: r.w1Evidence || undefined,
-      w1Move: r.w1Move as any,
+      w1Move: (r.w1Move as DebateMove) || undefined,
       w1Score: r.w1Score,
       w2Argument: r.w2Argument || undefined,
       w2Evidence: r.w2Evidence || undefined,
-      w2Move: r.w2Move as any,
+      w2Move: (r.w2Move as DebateMove) || undefined,
       w2Score: r.w2Score,
-      roundWinner: r.roundWinner as any,
+      roundWinner: (r.roundWinner as 'warrior1' | 'warrior2' | 'draw') || undefined,
       judgeReasoning: r.judgeReasoning || undefined,
       startedAt: r.startedAt.toISOString(),
       endedAt: r.endedAt?.toISOString(),
@@ -329,6 +335,8 @@ export const POST = composeMiddleware([
         roundNumber,
         previousRounds,
         marketData,
+        yesStrategy: yesStrategy ?? undefined,
+        noStrategy: noStrategy ?? undefined,
       }
     );
 
@@ -340,10 +348,12 @@ export const POST = composeMiddleware([
         w1Argument: roundResult.warrior1.argument,
         w1Evidence: JSON.stringify(roundResult.warrior1.evidence),
         w1Move: roundResult.warrior1.move,
+        w1Confidence: roundResult.warrior1.confidence,
         w1Score: roundResult.warrior1Score,
         w2Argument: roundResult.warrior2.argument,
         w2Evidence: JSON.stringify(roundResult.warrior2.evidence),
         w2Move: roundResult.warrior2.move,
+        w2Confidence: roundResult.warrior2.confidence,
         w2Score: roundResult.warrior2Score,
         roundWinner: roundResult.roundWinner,
         judgeReasoning: roundResult.judgeReasoning,

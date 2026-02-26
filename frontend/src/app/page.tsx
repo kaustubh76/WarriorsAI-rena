@@ -528,7 +528,7 @@ export default function HomePage() {
         {/* Epic Title Section */}
         <div className="text-center mb-20">
           <h1
-            className={`text-6xl md:text-6xl text-red-400 mb-4 tracking-widest arcade-glow ${prefersReducedMotion ? '' : 'home-typewriter'}`}
+            className={`text-3xl sm:text-4xl md:text-6xl text-red-400 mb-4 tracking-widest arcade-glow ${prefersReducedMotion ? '' : 'home-typewriter'}`}
             style={{
               fontFamily: 'Press Start 2P, monospace'
             }}

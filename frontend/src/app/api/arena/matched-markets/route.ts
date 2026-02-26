@@ -8,8 +8,10 @@ import { NextResponse } from 'next/server';
 import { polymarketService } from '@/services/externalMarkets/polymarketService';
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { UnifiedMarket } from '@/types/externalMarket';
-import { RateLimitPresets, validateBoolean } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { prisma } from '@/lib/prisma';
+import { marketDataCache } from '@/lib/cache/hashedCache';
 
 // Stop words to filter out for better matching
 const STOP_WORDS = new Set([
@@ -24,37 +26,88 @@ const STOP_WORDS = new Set([
   'who', 'this', 'that', 'these', 'those', 'it', 'its', 'any', 'both',
 ]);
 
-// Common term normalizations for prediction markets
-const TERM_NORMALIZATIONS: Record<string, string> = {
-  'trump': 'trump',
-  'donald trump': 'trump',
-  'president trump': 'trump',
-  'biden': 'biden',
-  'joe biden': 'biden',
-  'president biden': 'biden',
+// Base normalizations for grammar/abbreviation — always needed
+const BASE_NORMALIZATIONS: Record<string, string> = {
   'gop': 'republican',
   'republicans': 'republican',
   'democrats': 'democrat',
   'dem': 'democrat',
   'dems': 'democrat',
   'presidential': 'president',
-  'election': 'election',
   'elections': 'election',
-  'win': 'win',
   'wins': 'win',
   'winner': 'win',
-  '2024': '2024',
-  '2025': '2025',
   'btc': 'bitcoin',
   'eth': 'ethereum',
   'crypto': 'cryptocurrency',
   'fed': 'federal reserve',
-  'rate': 'interest rate',
   'rates': 'interest rate',
-  'gdp': 'gdp',
-  'inflation': 'inflation',
+  'rate': 'interest rate',
   'cpi': 'inflation',
 };
+
+interface MatchConfig {
+  normalizations: Record<string, string>;
+  keyTerms: string[];
+}
+
+/**
+ * Build dynamic term normalizations and key terms from active market data.
+ * Combines the static base set with category/keyword-driven entries
+ * extracted from current ExternalMarket questions.
+ */
+async function buildDynamicMatchConfig(): Promise<MatchConfig> {
+  const activeMarkets = await prisma.externalMarket.findMany({
+    where: { status: 'active' },
+    select: { question: true, category: true },
+  });
+
+  // Count word frequency across all active market questions
+  const termFrequency = new Map<string, number>();
+  for (const market of activeMarkets) {
+    const words = market.question
+      .toLowerCase()
+      .replace(/[?!.,;:'"()[\]{}]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !STOP_WORDS.has(w));
+    const uniqueWords = new Set(words);
+    for (const word of uniqueWords) {
+      termFrequency.set(word, (termFrequency.get(word) || 0) + 1);
+    }
+  }
+
+  // Key terms = words appearing in 5+ active markets (sorted by frequency)
+  const dynamicKeyTerms = [...termFrequency.entries()]
+    .filter(([, count]) => count >= 5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30)
+    .map(([term]) => term);
+
+  // Add plural→singular normalizations for frequent terms
+  const dynamicNormalizations: Record<string, string> = {};
+  for (const [term, count] of termFrequency.entries()) {
+    if (count >= 3 && term.endsWith('s') && term.length > 4) {
+      const singular = term.slice(0, -1);
+      if (termFrequency.has(singular)) {
+        dynamicNormalizations[term] = singular;
+      }
+    }
+  }
+
+  return {
+    normalizations: { ...BASE_NORMALIZATIONS, ...dynamicNormalizations },
+    keyTerms: dynamicKeyTerms,
+  };
+}
+
+/** Get cached dynamic match config (10 minute TTL) */
+async function getDynamicMatchConfig(): Promise<MatchConfig> {
+  return marketDataCache.getOrSet(
+    'matched-markets:dynamic-config',
+    () => buildDynamicMatchConfig(),
+    600_000, // 10 minutes
+  ) as Promise<MatchConfig>;
+}
 
 interface MatchedMarketPair {
   id: string;
@@ -86,18 +139,16 @@ interface MatchedMarketPair {
 }
 
 /**
- * Extract normalized keywords from market question
+ * Extract normalized keywords from market question using dynamic normalizations
  */
-function extractKeywords(question: string): Set<string> {
-  // Convert to lowercase and extract words
+function extractKeywords(question: string, normalizations: Record<string, string>): Set<string> {
   let text = question.toLowerCase();
 
-  // Apply normalizations
-  for (const [term, normalized] of Object.entries(TERM_NORMALIZATIONS)) {
+  // Apply normalizations (base + dynamic)
+  for (const [term, normalized] of Object.entries(normalizations)) {
     text = text.replace(new RegExp(`\\b${term}\\b`, 'gi'), normalized);
   }
 
-  // Split into words and filter
   const words = text.split(/\W+/).filter(word =>
     word.length > 2 && !STOP_WORDS.has(word)
   );
@@ -106,11 +157,15 @@ function extractKeywords(question: string): Set<string> {
 }
 
 /**
- * Calculate enhanced similarity between two market questions
+ * Calculate enhanced similarity between two market questions using dynamic key terms
  */
-function calculateEnhancedSimilarity(question1: string, question2: string): number {
-  const keywords1 = extractKeywords(question1);
-  const keywords2 = extractKeywords(question2);
+function calculateEnhancedSimilarity(
+  question1: string,
+  question2: string,
+  config: MatchConfig,
+): number {
+  const keywords1 = extractKeywords(question1, config.normalizations);
+  const keywords2 = extractKeywords(question2, config.normalizations);
 
   if (keywords1.size === 0 || keywords2.size === 0) return 0;
 
@@ -120,10 +175,9 @@ function calculateEnhancedSimilarity(question1: string, question2: string): numb
   // Jaccard similarity
   const jaccard = intersection.size / union.size;
 
-  // Boost score if key terms match (names, years, specific events)
-  const keyTerms = ['trump', 'biden', 'election', '2024', '2025', 'bitcoin', 'ethereum', 'federal reserve'];
+  // Boost score if key terms match (dynamically derived from active markets)
   let keyTermBoost = 0;
-  for (const term of keyTerms) {
+  for (const term of config.keyTerms) {
     if (keywords1.has(term) && keywords2.has(term)) {
       keyTermBoost += 0.15;
     }
@@ -191,7 +245,8 @@ function calculateArbitrage(polymarket: UnifiedMarket, kalshi: UnifiedMarket): {
  * Find matched markets between Polymarket and Kalshi
  */
 async function findMatchedMarkets(
-  minSimilarity: number = 0.4
+  minSimilarity: number = 0.4,
+  config: MatchConfig,
 ): Promise<MatchedMarketPair[]> {
   // Fetch markets from both sources in parallel
   const [polymarketRaw, kalshiResponse] = await Promise.all([
@@ -202,13 +257,13 @@ async function findMatchedMarkets(
   const polymarkets = polymarketService.normalizeMarkets(polymarketRaw);
   const kalshiMarkets = kalshiService.normalizeMarkets(kalshiResponse.markets);
 
-  console.log(`[Matched Markets] Comparing ${polymarkets.length} Polymarket vs ${kalshiMarkets.length} Kalshi markets`);
+  console.warn(`[Matched Markets] Comparing ${polymarkets.length} Polymarket vs ${kalshiMarkets.length} Kalshi markets (${config.keyTerms.length} dynamic key terms)`);
 
   const matchedPairs: MatchedMarketPair[] = [];
 
   for (const poly of polymarkets) {
     for (const kalshi of kalshiMarkets) {
-      const similarity = calculateEnhancedSimilarity(poly.question, kalshi.question);
+      const similarity = calculateEnhancedSimilarity(poly.question, kalshi.question, config);
 
       if (similarity >= minSimilarity) {
         const priceDifference = Math.abs(poly.yesPrice - kalshi.yesPrice);
@@ -276,7 +331,10 @@ export const GET = composeMiddleware([
     const limitParam = parseInt(searchParams.get('limit') || '50');
     const limit = Math.min(isNaN(limitParam) ? 50 : Math.max(1, limitParam), 100);
 
-    const matchedPairs = await findMatchedMarkets(minSimilarity);
+    // Build dynamic match config (cached 10 min) from active market data
+    const matchConfig = await getDynamicMatchConfig();
+
+    const matchedPairs = await findMatchedMarkets(minSimilarity, matchConfig);
 
     // Filter for arbitrage only if requested
     let filteredPairs = onlyArbitrage

@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { prisma } from '@/lib/prisma';
@@ -34,7 +35,7 @@ export const GET = composeMiddleware([
     }
 
     // Build Prisma WHERE clause
-    const where: any = {
+    const where: Prisma.ExternalMarketWhereInput = {
       curatedForArena: true,
       status: 'active',
     };
@@ -64,17 +65,21 @@ export const GET = composeMiddleware([
           sourceUrl: true,
           tags: true,
         },
-        orderBy: [
-          { yesPrice: 'desc' }, // Most balanced odds first (closer to 5000)
-        ],
-        take: limit,
-        skip: offset,
       }),
       prisma.externalMarket.count({ where }),
     ]);
 
+    // Sort by balance (closest to 50/50 first) — Prisma doesn't support ABS() in orderBy
+    // Curated markets are typically <100 so in-app sort is fine
+    const sorted = markets.sort((a, b) =>
+      Math.abs(a.yesPrice - 5000) - Math.abs(b.yesPrice - 5000)
+    );
+
+    // Apply pagination after sorting
+    const page = sorted.slice(offset, offset + limit);
+
     // Convert prices from basis points (0-10000) to 0-100 for display
-    const topics = markets.map(m => ({
+    const topics = page.map(m => ({
       id: m.id,
       source: m.source,
       externalId: m.externalId,

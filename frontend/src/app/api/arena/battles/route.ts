@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { keccak256, toBytes } from 'viem';
 import { prisma } from '@/lib/prisma';
 import { ErrorResponses } from '@/lib/api/errorHandler';
@@ -13,7 +13,10 @@ import { getConfig } from '@/rainbowKitConfig';
 import { getContracts, getChainId } from '@/constants';
 import { warriorsNFTAbi } from '@/constants';
 import { executeDebateRound } from '@/services/arena/debateService';
-import { WarriorTraits, MarketSource, RealMarketData } from '@/types/predictionArena';
+import { MarketSource } from '@/types/predictionArena';
+import { fetchBattleTraits } from '@/services/arena/traitService';
+import { generateBattleStrategies } from '@/services/arena/aiDebateStrategy';
+import { fetchMarketDataForBattle } from '@/services/arena/marketDataService';
 
 // Helper to determine round winner
 function determineRoundWinner(w1Score: number, w2Score: number): 'warrior1' | 'warrior2' | 'draw' {
@@ -50,6 +53,7 @@ export interface AcceptBattleRequest {
  * List battles with optional filters
  */
 export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'arena-battles-get', ...RateLimitPresets.readOperations }),
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') as BattleStatus | null;
@@ -194,11 +198,11 @@ export const POST = composeMiddleware([
         if ((w2Owner as string).toLowerCase() !== warrior1Owner.toLowerCase()) {
           throw ErrorResponses.badRequest('You do not own warrior 2');
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Re-throw our own validation errors
-        if (err?.status === 400) throw err;
+        if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 400) throw err;
         // RPC failures should not block battle creation
-        console.warn('[Battles] Ownership verification skipped (RPC error):', err.message);
+        console.warn('[Battles] Ownership verification skipped (RPC error):', err instanceof Error ? err.message : String(err));
       }
 
       // Get market data from matched pairs
@@ -276,57 +280,48 @@ export const POST = composeMiddleware([
       // Execute first round immediately
       let firstRound = null;
       try {
-        const defaultTraits: WarriorTraits = {
-          strength: 5000,
-          wit: 5000,
-          charisma: 5000,
-          defence: 5000,
-          luck: 5000,
-        };
+        // Fetch real traits for both warriors (falls back to 5000 defaults per-warrior on RPC failure)
+        const { w1Traits, w2Traits } = await fetchBattleTraits(warrior1Id, warrior2Id!);
 
         const marketSource = source === 'kalshi' ? MarketSource.KALSHI : MarketSource.POLYMARKET;
 
         // Fetch real market data for context-enriched debate
-        let arbMarketData: RealMarketData | undefined;
+        const arbMarketData = await fetchMarketDataForBattle(
+          polymarketId,
+          source,
+          true,
+          kalshiId,
+        );
+
+        // Optional: pre-generate AI debate strategies via 0G (non-blocking, 5s timeout)
+        let yesStrategy = null;
+        let noStrategy = null;
         try {
-          const [polyMarket, kalshiMarket] = await Promise.all([
-            prisma.externalMarket.findUnique({ where: { id: polymarketId } }),
-            prisma.externalMarket.findUnique({ where: { id: kalshiId } }),
-          ]);
-
-          if (polyMarket) {
-            arbMarketData = {
-              yesPrice: polyMarket.yesPrice / 100,
-              noPrice: polyMarket.noPrice / 100,
-              volume: polyMarket.volume,
-              liquidity: polyMarket.liquidity,
-              endTime: polyMarket.endTime.toISOString(),
-              category: polyMarket.category ?? undefined,
-              source: MarketSource.POLYMARKET,
-            };
-
-            if (kalshiMarket) {
-              arbMarketData.crossPlatformPrice = kalshiMarket.yesPrice / 100;
-              arbMarketData.crossPlatformSource = kalshiMarket.source;
-              arbMarketData.spread = Math.abs(
-                (polyMarket.yesPrice - kalshiMarket.yesPrice) / 100
-              );
-            }
+          if (arbMarketData) {
+            const strategies = await generateBattleStrategies(
+              matchedPair.polymarketQuestion,
+              arbMarketData.category,
+              arbMarketData.yesPrice,
+              arbMarketData.noPrice,
+            );
+            yesStrategy = strategies.yesStrategy;
+            noStrategy = strategies.noStrategy;
           }
-        } catch (mdErr) {
-          // Non-fatal: proceed with template-based evidence
-          console.warn('[Battles] Market data fetch for arbitrage round failed:', mdErr);
+        } catch {
+          // Non-fatal: proceed with context-aware template arguments
         }
 
         const roundResult = executeDebateRound(
-          defaultTraits,
-          defaultTraits,
+          w1Traits,
+          w2Traits,
           {
             marketQuestion: matchedPair.polymarketQuestion,
             marketSource,
             roundNumber: 1,
             previousRounds: [],
             marketData: arbMarketData,
+            yesStrategy: yesStrategy ?? undefined,
+            noStrategy: noStrategy ?? undefined,
           }
         );
 
@@ -337,10 +332,12 @@ export const POST = composeMiddleware([
             w1Argument: roundResult.warrior1.argument,
             w1Evidence: JSON.stringify(roundResult.warrior1.evidence),
             w1Move: roundResult.warrior1.move,
+            w1Confidence: roundResult.warrior1.confidence,
             w1Score: roundResult.warrior1Score,
             w2Argument: roundResult.warrior2.argument,
             w2Evidence: JSON.stringify(roundResult.warrior2.evidence),
             w2Move: roundResult.warrior2.move,
+            w2Confidence: roundResult.warrior2.confidence,
             w2Score: roundResult.warrior2Score,
             roundWinner: roundResult.roundWinner,
             judgeReasoning: roundResult.judgeReasoning,
@@ -356,8 +353,8 @@ export const POST = composeMiddleware([
             warrior2Score: roundResult.warrior2Score,
           },
         });
-      } catch (roundErr: any) {
-        console.error('[Battles] First round auto-execute failed:', roundErr.message);
+      } catch (roundErr) {
+        console.error('[Battles] First round auto-execute failed:', roundErr instanceof Error ? roundErr.message : String(roundErr));
       }
 
       return NextResponse.json({
@@ -405,6 +402,7 @@ export const POST = composeMiddleware([
  * Accept a challenge or update battle state
  */
 export const PATCH = composeMiddleware([
+  withRateLimit({ prefix: 'arena-battles-patch', ...RateLimitPresets.battleCreation }),
   async (req, ctx) => {
     const body = await req.json();
     const { action } = body;
@@ -490,10 +488,12 @@ export const PATCH = composeMiddleware([
         w1Argument,
         w1Evidence,
         w1Move,
+        w1Confidence,
         w1Score,
         w2Argument,
         w2Evidence,
         w2Move,
+        w2Confidence,
         w2Score,
         judgeReasoning,
       } = body;
@@ -523,10 +523,12 @@ export const PATCH = composeMiddleware([
             w1Argument,
             w1Evidence: JSON.stringify(w1Evidence),
             w1Move,
+            w1Confidence,
             w1Score,
             w2Argument,
             w2Evidence: JSON.stringify(w2Evidence),
             w2Move,
+            w2Confidence,
             w2Score,
             roundWinner,
             judgeReasoning,
@@ -538,10 +540,12 @@ export const PATCH = composeMiddleware([
             w1Argument,
             w1Evidence: JSON.stringify(w1Evidence),
             w1Move,
+            w1Confidence,
             w1Score,
             w2Argument,
             w2Evidence: JSON.stringify(w2Evidence),
             w2Move,
+            w2Confidence,
             w2Score,
             roundWinner,
             judgeReasoning,
@@ -648,12 +652,4 @@ async function updateWarriorStatsInTransaction(tx: TransactionClient, battle: Ba
       isDraw
     ),
   ]);
-}
-
-// Standalone version for backward compatibility (wraps in its own transaction)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function updateWarriorStats(battle: BattleStats) {
-  await prisma.$transaction(async (tx) => {
-    await updateWarriorStatsInTransaction(tx, battle);
-  });
 }

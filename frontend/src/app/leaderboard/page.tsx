@@ -70,7 +70,7 @@ export default function LeaderboardPage() {
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4">
             Leaderboard
           </h1>
-          <p className="text-xl text-gray-400">
+          <p className="text-sm sm:text-base md:text-xl text-gray-400">
             Top prediction market traders on Warriors AI Arena
           </p>
         </div>
@@ -85,22 +85,22 @@ export default function LeaderboardPage() {
                   {userEntry ? `#${userEntry.rank}` : 'Unranked'}
                 </p>
               </div>
-              <div className="flex gap-8">
+              <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8">
                 <div className="text-center">
-                  <span className="text-gray-400 text-sm">Win Rate</span>
-                  <p className="text-2xl font-bold text-green-400">
+                  <span className="text-gray-400 text-xs sm:text-sm">Win Rate</span>
+                  <p className="text-xl sm:text-2xl font-bold text-green-400">
                     {userEntry ? `${userEntry.winRate}%` : '0%'}
                   </p>
                 </div>
                 <div className="text-center">
-                  <span className="text-gray-400 text-sm">Total Profit</span>
-                  <p className="text-2xl font-bold text-white">
+                  <span className="text-gray-400 text-xs sm:text-sm">Total Profit</span>
+                  <p className="text-xl sm:text-2xl font-bold text-white">
                     {userEntry ? `${userEntry.totalProfit} CRwN` : '0 CRwN'}
                   </p>
                 </div>
                 <div className="text-center">
-                  <span className="text-gray-400 text-sm">Current Streak</span>
-                  <p className="text-2xl font-bold text-orange-400">
+                  <span className="text-gray-400 text-xs sm:text-sm">Current Streak</span>
+                  <p className="text-xl sm:text-2xl font-bold text-orange-400">
                     {userEntry ? userEntry.streak : 0}
                   </p>
                 </div>

@@ -17,7 +17,7 @@ async function fetchPolymarketData(search?: string): Promise<{ markets: UnifiedM
       rawMarkets = await polymarketService.getActiveMarkets(100, 0);
     }
     const normalizedMarkets = polymarketService.normalizeMarkets(rawMarkets);
-    console.log(`[API] Fetched ${normalizedMarkets.length} markets from Polymarket`);
+    console.warn(`[API] Fetched ${normalizedMarkets.length} markets from Polymarket`);
     return { markets: normalizedMarkets };
   } catch (err) {
     console.error('[API] Polymarket error:', err);
@@ -35,7 +35,7 @@ async function fetchKalshiData(search?: string): Promise<{ markets: UnifiedMarke
       rawMarkets = response.markets;
     }
     const normalizedMarkets = kalshiService.normalizeMarkets(rawMarkets);
-    console.log(`[API] Fetched ${normalizedMarkets.length} markets from Kalshi`);
+    console.warn(`[API] Fetched ${normalizedMarkets.length} markets from Kalshi`);
     return { markets: normalizedMarkets };
   } catch (err) {
     console.error('[API] Kalshi error:', err);
@@ -109,7 +109,7 @@ export const GET = composeMiddleware([
 
     // If live APIs returned no markets, fall back to database
     if (allMarkets.length === 0) {
-      console.log('[API] Live APIs returned no markets, falling back to database');
+      console.warn('[API] Live APIs returned no markets, falling back to database');
       const sourceFilters: MarketSource[] | undefined =
         source === 'all' ? undefined : [source as MarketSource];
       // Fetch a larger pool since DB sorts volume as string (lexicographic);

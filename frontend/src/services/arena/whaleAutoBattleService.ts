@@ -12,7 +12,9 @@ import { prisma } from '@/lib/prisma';
 import { WhaleTrade } from '@/types/externalMarket';
 import { MarketSource } from '@/types/predictionArena';
 import { executeFullBattle } from '@/services/arena/debateService';
-import type { RealMarketData } from '@/types/predictionArena';
+import type { RealMarketData, DebateContext } from '@/types/predictionArena';
+import { fetchWarriorTraits } from '@/services/arena/traitService';
+import { generateBattleStrategies } from '@/services/arena/aiDebateStrategy';
 
 /** System address used as owner for auto-battle warriors */
 const HOUSE_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -20,33 +22,6 @@ const HOUSE_ADDRESS = '0x0000000000000000000000000000000000000000';
 /** Default warrior IDs for auto-battles (house warriors) */
 const DEFAULT_YES_WARRIOR = 1;
 const DEFAULT_NO_WARRIOR = 2;
-
-/** Default warrior traits (balanced 50/50) */
-const DEFAULT_TRAITS = {
-  strength: 5000,
-  wit: 5000,
-  charisma: 5000,
-  defence: 5000,
-  luck: 5000,
-};
-
-/** Analytical warrior traits (high WIT for data-driven YES arguments) */
-const ANALYTICAL_TRAITS = {
-  strength: 3000,
-  wit: 8000,
-  charisma: 5000,
-  defence: 3000,
-  luck: 6000,
-};
-
-/** Forceful warrior traits (high STR for conviction-driven NO arguments) */
-const FORCEFUL_TRAITS = {
-  strength: 8000,
-  wit: 4000,
-  charisma: 6000,
-  defence: 5000,
-  luck: 2000,
-};
 
 interface AutoBattleResult {
   battleId: string;
@@ -120,16 +95,36 @@ export async function createWhaleTriggeredBattle(
     source: market.source as MarketSource,
   };
 
-  // 6. Execute full 5-round battle with real market intelligence
+  // 6. Optional: pre-generate AI debate strategies via 0G (non-blocking, 5s timeout)
+  let strategies: { yesStrategy?: DebateContext['strategy']; noStrategy?: DebateContext['strategy'] } | undefined;
+  try {
+    const generated = await generateBattleStrategies(
+      market.question,
+      market.category ?? undefined,
+      marketData.yesPrice,
+      marketData.noPrice,
+    );
+    if (generated.yesStrategy || generated.noStrategy) {
+      strategies = {
+        yesStrategy: generated.yesStrategy ?? undefined,
+        noStrategy: generated.noStrategy ?? undefined,
+      };
+    }
+  } catch {
+    // Non-fatal: proceed without AI strategy
+  }
+
+  // 7. Execute full 5-round battle with real market intelligence
   const result = executeFullBattle(
     yesTraits,
     noTraits,
     market.question,
     market.source as MarketSource,
-    marketData
+    marketData,
+    strategies,
   );
 
-  // 7. Save rounds to DB
+  // 8. Save rounds to DB
   for (const [i, round] of result.rounds.entries()) {
     await prisma.predictionRound.create({
       data: {
@@ -153,7 +148,7 @@ export async function createWhaleTriggeredBattle(
     });
   }
 
-  // 8. Complete the battle
+  // 9. Complete the battle
   await prisma.predictionBattle.update({
     where: { id: battle.id },
     data: {
@@ -186,15 +181,22 @@ async function selectAutoWarriors(whaleIsYes: boolean) {
   let yesWarrior = DEFAULT_YES_WARRIOR;
   let noWarrior = DEFAULT_NO_WARRIOR;
 
-  // If we have at least 2 warriors with stats, use them
+  // If we have at least 2 warriors with stats, assign top-rated to whale's side
   if (topWarriors.length >= 2) {
-    yesWarrior = topWarriors[0].warriorId;
-    noWarrior = topWarriors[1].warriorId;
+    if (whaleIsYes) {
+      yesWarrior = topWarriors[0].warriorId;
+      noWarrior = topWarriors[1].warriorId;
+    } else {
+      yesWarrior = topWarriors[1].warriorId;
+      noWarrior = topWarriors[0].warriorId;
+    }
   }
 
-  // Trait assignment: whale's side gets the analytical warrior (data-driven)
-  const yesTraits = whaleIsYes ? ANALYTICAL_TRAITS : FORCEFUL_TRAITS;
-  const noTraits = whaleIsYes ? FORCEFUL_TRAITS : ANALYTICAL_TRAITS;
+  // Fetch real on-chain traits for both warriors (falls back to 5000 defaults on RPC failure)
+  const [yesTraits, noTraits] = await Promise.all([
+    fetchWarriorTraits(yesWarrior),
+    fetchWarriorTraits(noWarrior),
+  ]);
 
   return { yesWarrior, noWarrior, yesTraits, noTraits };
 }

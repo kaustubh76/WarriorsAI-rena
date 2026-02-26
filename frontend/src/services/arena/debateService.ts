@@ -394,6 +394,155 @@ function getFallbackSnippet(side: 'yes' | 'no'): string {
 }
 
 // ============================================
+// CONTEXT-AWARE ARGUMENT GENERATION
+// ============================================
+
+/** Extract meaningful topic keywords from a market question */
+function extractTopicKeywords(question: string): string[] {
+  const stopWords = new Set([
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'will', 'be', 'been',
+    'have', 'has', 'had', 'do', 'does', 'did', 'can', 'could', 'should',
+    'would', 'may', 'might', 'to', 'of', 'in', 'for', 'on', 'with', 'at',
+    'by', 'from', 'as', 'into', 'through', 'before', 'after', 'this', 'that',
+    'what', 'which', 'who', 'how', 'and', 'but', 'or', 'if', 'not', 'no',
+    'yes', 'than', 'more', 'most', 'any', 'all', 'each', 'every', 'its',
+    'there', 'here', 'when', 'where', 'why', 'about', 'above', 'below',
+    'between', 'under', 'over', 'very', 'just', 'also', 'only', 'then',
+  ]);
+
+  return question
+    .replace(/[?!.,;:'"()[\]{}]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
+    .slice(0, 6);
+}
+
+/** Get domain-specific framing based on market category */
+function getCategoryFraming(category: string | undefined): { domain: string; experts: string; metric: string } {
+  switch (category?.toLowerCase()) {
+    case 'politics':
+      return { domain: 'political landscape', experts: 'Political analysts and pollsters', metric: 'polling data and electoral trends' };
+    case 'crypto':
+    case 'cryptocurrency':
+      return { domain: 'crypto markets', experts: 'On-chain analysts and crypto researchers', metric: 'on-chain metrics and trading volumes' };
+    case 'finance':
+    case 'economics':
+      return { domain: 'financial markets', experts: 'Economists and market strategists', metric: 'economic indicators and market signals' };
+    case 'science':
+    case 'technology':
+      return { domain: 'technology sector', experts: 'Industry analysts and researchers', metric: 'adoption metrics and development milestones' };
+    case 'climate':
+    case 'environment':
+      return { domain: 'climate science', experts: 'Climate scientists and policy researchers', metric: 'emissions data and climate models' };
+    default:
+      return { domain: 'current events', experts: 'Domain experts and analysts', metric: 'available data and trend analysis' };
+  }
+}
+
+/** Get rhetorical style label from dominant trait */
+function getStyleLabel(dominantTrait: string): string {
+  switch (dominantTrait) {
+    case 'wit': return 'analytical';
+    case 'charisma': return 'persuasive';
+    case 'strength': return 'forceful';
+    case 'defence': return 'measured';
+    default: return 'balanced';
+  }
+}
+
+/**
+ * Generate a context-aware argument using real market data.
+ * Constructs arguments from the specific market question, category, price data,
+ * and the warrior's dominant trait rather than using generic templates.
+ */
+function generateMarketContextArgument(
+  side: 'yes' | 'no',
+  move: DebateMove,
+  traits: WarriorTraits,
+  context: DebateContext,
+  evidenceSummary: string,
+): string {
+  const md = context.marketData!;
+  const strategy = context.strategy;
+  const keywords = extractTopicKeywords(context.marketQuestion);
+  const topic = keywords.slice(0, 3).join(' ');
+  const framing = getCategoryFraming(md.category);
+  const price = side === 'yes' ? md.yesPrice : md.noPrice;
+  const sourceName = md.source === 'polymarket' ? 'Polymarket' : 'Kalshi';
+
+  // Use AI strategy style if available, otherwise derive from dominant trait
+  const traitEntries = [
+    ['wit', traits.wit], ['charisma', traits.charisma],
+    ['strength', traits.strength], ['defence', traits.defence],
+  ] as [string, number][];
+  const dominantTrait = strategy?.rhetoricalStyle
+    ? ({ analytical: 'wit', aggressive: 'strength', persuasive: 'charisma', defensive: 'defence' }[strategy.rhetoricalStyle] || traitEntries.sort((a, b) => b[1] - a[1])[0][0])
+    : traitEntries.sort((a, b) => b[1] - a[1])[0][0];
+  const style = getStyleLabel(dominantTrait);
+
+  // Enrich evidence with AI strategy's best evidence if available
+  const fullEvidence = strategy?.bestEvidence
+    ? `${evidenceSummary} Moreover, ${strategy.bestEvidence}`
+    : evidenceSummary;
+
+  // Build move-specific, market-context-aware argument
+  switch (move) {
+    case DebateMove.STRIKE: {
+      // Use AI key thesis if available for a stronger opening
+      if (strategy?.keyThesis) {
+        return `${strategy.keyThesis} ${fullEvidence} At ${price.toFixed(1)}% on ${sourceName}, the ${style} case for ${side.toUpperCase()} is backed by both data and conviction.`;
+      }
+      if (dominantTrait === 'wit') {
+        return `The ${framing.metric} on ${topic} paint a clear picture. ${fullEvidence} At ${price.toFixed(1)}% on ${sourceName}, the ${style} case for ${side.toUpperCase()} is data-driven and definitive.`;
+      }
+      if (dominantTrait === 'charisma') {
+        return `In the ${framing.domain}, the momentum on ${topic} is undeniable. ${fullEvidence} ${sourceName} traders see it — ${price.toFixed(1)}% conviction speaks louder than speculation.`;
+      }
+      if (dominantTrait === 'strength') {
+        return `The facts on ${topic} are inescapable. ${fullEvidence} ${price.toFixed(1)}% ${side.toUpperCase()} on ${sourceName} — the market has spoken and there's no room for doubt.`;
+      }
+      return `A careful analysis of ${topic} within ${framing.domain} supports ${side.toUpperCase()}. ${fullEvidence} The ${price.toFixed(1)}% probability on ${sourceName} reflects a well-reasoned assessment of the risks.`;
+    }
+
+    case DebateMove.TAUNT: {
+      const oppSide = side === 'yes' ? 'NO' : 'YES';
+      if (strategy?.keyWeakness) {
+        return `The ${oppSide} position has a critical flaw: ${strategy.keyWeakness} ${fullEvidence} With ${sourceName} pricing ${side.toUpperCase()} at ${price.toFixed(1)}%, the ${oppSide} case is crumbling.`;
+      }
+      if (dominantTrait === 'charisma') {
+        return `My opponent's ${oppSide} position on ${topic} ignores what ${framing.experts.toLowerCase()} have been saying. ${fullEvidence} The smart money at ${price.toFixed(1)}% on ${sourceName} sees through the ${oppSide} wishful thinking.`;
+      }
+      return `The ${oppSide} argument on ${topic} crumbles under scrutiny. ${fullEvidence} With ${sourceName} pricing ${side.toUpperCase()} at ${price.toFixed(1)}%, the ${oppSide} position is increasingly untenable.`;
+    }
+
+    case DebateMove.DODGE: {
+      if (strategy?.keyWeakness) {
+        return `I understand the concern about ${strategy.keyWeakness}, but let's look at the full picture. ${fullEvidence} The broader ${framing.domain} context reinforces the ${side.toUpperCase()} thesis at ${price.toFixed(1)}%.`;
+      }
+      return `While that's a fair point about ${topic}, let's refocus on what the ${framing.metric} actually show. ${fullEvidence} The broader ${framing.domain} context reinforces the ${side.toUpperCase()} thesis at ${price.toFixed(1)}%.`;
+    }
+
+    case DebateMove.SPECIAL: {
+      if (md.spread !== undefined && md.crossPlatformSource) {
+        const crossName = md.crossPlatformSource === 'polymarket' ? 'Polymarket' : 'Kalshi';
+        return `Here's an overlooked signal on ${topic}: the ${md.spread.toFixed(1)}% price divergence between ${sourceName} and ${crossName} reveals the market hasn't fully priced in the ${side.toUpperCase()} case. ${fullEvidence} ${framing.experts} would recognize this gap as a leading indicator.`;
+      }
+      if (strategy?.keyThesis) {
+        return `Here's what most analyses miss: ${strategy.keyThesis} ${fullEvidence} ${framing.experts} point to an underappreciated dynamic that strengthens the ${side.toUpperCase()} position beyond the current ${price.toFixed(1)}% pricing.`;
+      }
+      return `Here's what most analyses of ${topic} miss: ${fullEvidence} ${framing.experts} point to an underappreciated dynamic in the ${framing.domain} that strengthens the ${side.toUpperCase()} position beyond the current ${price.toFixed(1)}% pricing.`;
+    }
+
+    case DebateMove.RECOVER: {
+      if (strategy?.keyWeakness) {
+        return `That's a valid point about ${strategy.keyWeakness}. However, the core ${side.toUpperCase()} thesis remains intact: ${fullEvidence} At ${price.toFixed(1)}% on ${sourceName}, the ${framing.domain} fundamentals still favor this outcome.`;
+      }
+      return `That's a valid criticism, and I acknowledge the uncertainty around ${topic}. However, the core ${side.toUpperCase()} thesis remains intact: ${fullEvidence} At ${price.toFixed(1)}% on ${sourceName}, the ${framing.domain} fundamentals still favor this outcome.`;
+    }
+  }
+}
+
+// ============================================
 // ARGUMENT GENERATION
 // ============================================
 
@@ -416,16 +565,20 @@ export function generateWarriorArgument(
   // 2. Generate evidence (real market data when available, fallback otherwise)
   const evidence = generateEvidence(context, traits, 2);
 
-  // 3. Select argument template
-  const templates = ARGUMENT_TEMPLATES[context.side][move];
-  const template = templates[Math.floor(Math.random() * templates.length)];
-
-  // 4. Fill in evidence
+  // 3. Build evidence summary
   const evidenceSummary = evidence
     .map(e => e.snippet)
     .join(' Furthermore, ');
 
-  const argument = template.replace('{evidence}', evidenceSummary);
+  // 4. Generate argument — context-aware when market data available, template fallback otherwise
+  let argument: string;
+  if (context.marketData) {
+    argument = generateMarketContextArgument(context.side, move, traits, context, evidenceSummary);
+  } else {
+    const templates = ARGUMENT_TEMPLATES[context.side][move];
+    const template = templates[Math.floor(Math.random() * templates.length)];
+    argument = template.replace('{evidence}', evidenceSummary);
+  }
 
   // 5. Calculate confidence
   const isWinning = context.previousRounds.length > 0 &&
@@ -441,7 +594,8 @@ export function generateWarriorArgument(
   const reasoning = `Selected ${move} based on traits (STR:${traits.strength}, WIT:${traits.wit}, CHA:${traits.charisma}). ` +
     `Evidence quality: ${evidence[0]?.relevance || 0}. ` +
     (context.opponentLastMove ? `Opponent used ${context.opponentLastMove} last round. ` : '') +
-    `Round ${context.roundNumber}/5.`;
+    `Round ${context.roundNumber}/5.` +
+    (context.strategy ? ` AI strategy: ${context.strategy.rhetoricalStyle}.` : '');
 
   return {
     argument,
@@ -468,6 +622,10 @@ export function executeDebateRound(
     roundNumber: number;
     previousRounds: PredictionRound[];
     marketData?: RealMarketData;
+    /** Optional AI-generated strategy for YES warrior */
+    yesStrategy?: DebateContext['strategy'];
+    /** Optional AI-generated strategy for NO warrior */
+    noStrategy?: DebateContext['strategy'];
   }
 ): RoundResult {
   // Get previous moves for each warrior
@@ -494,6 +652,7 @@ export function executeDebateRound(
       previousRounds: context.previousRounds,
       opponentLastMove: w1OpponentLastMove,
       marketData: context.marketData,
+      strategy: context.yesStrategy,
     },
     warrior1PrevMoves
   );
@@ -508,6 +667,7 @@ export function executeDebateRound(
       previousRounds: context.previousRounds,
       opponentLastMove: w2OpponentLastMove,
       marketData: context.marketData,
+      strategy: context.noStrategy,
     },
     warrior2PrevMoves
   );
@@ -616,7 +776,8 @@ export function executeFullBattle(
   warrior2Traits: WarriorTraits,
   marketQuestion: string,
   marketSource: MarketSource,
-  marketData?: RealMarketData
+  marketData?: RealMarketData,
+  strategies?: { yesStrategy?: DebateContext['strategy']; noStrategy?: DebateContext['strategy'] },
 ): {
   rounds: RoundResult[];
   finalWinner: 'warrior1' | 'warrior2' | 'draw';
@@ -636,6 +797,8 @@ export function executeFullBattle(
         roundNumber: roundNum,
         previousRounds,
         marketData,
+        yesStrategy: strategies?.yesStrategy,
+        noStrategy: strategies?.noStrategy,
       }
     );
 

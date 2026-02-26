@@ -16,6 +16,7 @@ import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
  * Get betting pool info and user's bet
  */
 export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'betting-get', ...RateLimitPresets.readOperations }),
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
     const battleId = searchParams.get('battleId');
@@ -240,6 +241,7 @@ export const POST = composeMiddleware([
  * Claim winnings from a completed battle
  */
 export const PATCH = composeMiddleware([
+  withRateLimit({ prefix: 'betting-claim', ...RateLimitPresets.storageWrite }),
   async (req, ctx) => {
     const body = await req.json();
     const { battleId, bettorAddress } = body;
@@ -353,6 +355,7 @@ export const PATCH = composeMiddleware([
  * Close betting for a battle (admin action)
  */
 export const DELETE = composeMiddleware([
+  withRateLimit({ prefix: 'betting-close', ...RateLimitPresets.storageWrite }),
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
     const battleId = searchParams.get('battleId');

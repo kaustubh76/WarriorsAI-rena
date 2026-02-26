@@ -4,6 +4,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
@@ -18,7 +19,7 @@ export const GET = composeMiddleware([
     const limit = parseInt(searchParams.get('limit') || '20');
 
     // Query matched market pairs with arbitrage opportunities
-    const where: any = {
+    const where: Prisma.MatchedMarketPairWhereInput = {
       hasArbitrage: true,
       isActive: true,
     };

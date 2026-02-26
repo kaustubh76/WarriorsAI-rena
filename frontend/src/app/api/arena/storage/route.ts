@@ -4,12 +4,10 @@
  */
 
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { internalFetch } from '@/lib/api/internalFetch';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/prisma';
 
 interface BattleStorageRecord {
   version: string;
@@ -91,6 +89,20 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Battle must have at least 1 round');
     }
 
+    // Look up real market odds from DB (non-fatal: defaults to 50/50)
+    let finalOdds = { yes: 50, no: 50 };
+    try {
+      const market = await prisma.externalMarket.findFirst({
+        where: { externalId: battle.market.externalId },
+        select: { yesPrice: true, noPrice: true },
+      });
+      if (market) {
+        finalOdds = { yes: market.yesPrice / 100, no: market.noPrice / 100 };
+      }
+    } catch {
+      // Non-fatal: use default 50/50 odds
+    }
+
     // Prepare data for 0G storage in expected format
     const storageData = {
       battleId: `prediction_${battle.battleId}`,
@@ -126,7 +138,7 @@ export const POST = composeMiddleware([
       totalRounds: battle.rounds.length,
       marketData: {
         marketId: battle.market.externalId,
-        finalOdds: { yes: 5000, no: 5000 },
+        finalOdds,
         totalVolume: battle.stakes,
       },
       // Include full prediction data for retrieval
@@ -143,7 +155,7 @@ export const POST = composeMiddleware([
 
     if (!storeResponse.ok) {
       const errorData = await storeResponse.json();
-      throw new Error(errorData.error || 'Failed to store in 0G');
+      throw new Error(errorData.error || `Failed to store battle ${battle.battleId} to 0G`);
     }
 
     const storeResult = await storeResponse.json();
@@ -189,7 +201,7 @@ export const GET = composeMiddleware([
 
     if (!getResponse.ok) {
       const errorData = await getResponse.json();
-      throw new Error(errorData.error || 'Failed to retrieve from 0G');
+      throw new Error(errorData.error || `Failed to retrieve battle from 0G (rootHash: ${rootHash})`);
     }
 
     const result = await getResponse.json();

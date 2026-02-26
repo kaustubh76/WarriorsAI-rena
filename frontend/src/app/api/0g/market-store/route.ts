@@ -270,8 +270,7 @@ async function indexMarketData(
 ): Promise<boolean> {
   try {
     // Store index locally via Prisma
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
+    const { prisma } = await import('@/lib/prisma');
 
     if (type === 'market_snapshot') {
       const snapshot = data as ExternalMarketSnapshot;
@@ -433,8 +432,7 @@ export const PUT = composeMiddleware([
     const { query, type, source, category, limit = 10 } = body;
 
     // Query Prisma for indexed data
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
+    const { prisma } = await import('@/lib/prisma');
 
     let results: unknown[] = [];
 

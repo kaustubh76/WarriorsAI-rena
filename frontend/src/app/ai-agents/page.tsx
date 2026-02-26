@@ -146,7 +146,7 @@ export default function AIAgentsPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search agents..."
-              className="input pl-11"
+              className="input pl-10 sm:pl-11"
             />
           </div>
 

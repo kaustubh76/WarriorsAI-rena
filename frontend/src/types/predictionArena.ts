@@ -175,6 +175,13 @@ export interface DebateContext {
   opponentLastArgument?: string;
   opponentLastMove?: DebateMove;
   marketData?: RealMarketData;
+  /** Optional AI-generated debate strategy from 0G inference */
+  strategy?: {
+    keyThesis: string;
+    keyWeakness: string;
+    bestEvidence: string;
+    rhetoricalStyle: 'analytical' | 'aggressive' | 'persuasive' | 'defensive';
+  };
 }
 
 export interface DebateEvidence {
