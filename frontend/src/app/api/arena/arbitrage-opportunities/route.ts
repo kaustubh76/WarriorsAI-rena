@@ -47,10 +47,11 @@ export const GET = composeMiddleware([
     const opportunities = matchedPairs.map((pair) => {
       // Calculate arbitrage profit
       // Buy YES on cheaper market, NO on the other
-      const polyYesPrice = pair.polymarketYesPrice / 10000; // Convert from bps to decimal
-      const polyNoPrice = pair.polymarketNoPrice / 10000;
-      const kalshiYesPrice = pair.kalshiYesPrice / 10000;
-      const kalshiNoPrice = pair.kalshiNoPrice / 10000;
+      // MatchedMarketPair stores prices as 0-100 (from UnifiedMarket), convert to 0-1 decimal
+      const polyYesPrice = pair.polymarketYesPrice / 100;
+      const polyNoPrice = pair.polymarketNoPrice / 100;
+      const kalshiYesPrice = pair.kalshiYesPrice / 100;
+      const kalshiNoPrice = pair.kalshiNoPrice / 100;
 
       // Strategy: Buy YES + NO across both markets for less than $1
       let strategy;
@@ -98,10 +99,22 @@ export const GET = composeMiddleware([
       };
     }).filter(Boolean); // Remove null entries
 
+    // Deduplicate: keep best opportunity per Kalshi market
+    // (one Kalshi market can match multiple similar Polymarket markets)
+    const bestByKalshi = new Map<string, (typeof opportunities)[number]>();
+    for (const opp of opportunities) {
+      if (!opp) continue;
+      const existing = bestByKalshi.get(opp.kalshi.id);
+      if (!existing || opp.potentialProfit > existing.potentialProfit) {
+        bestByKalshi.set(opp.kalshi.id, opp);
+      }
+    }
+    const dedupedOpportunities = Array.from(bestByKalshi.values());
+
     return NextResponse.json({
       success: true,
-      opportunities,
-      count: opportunities.length,
+      opportunities: dedupedOpportunities,
+      count: dedupedOpportunities.length,
     });
   },
 ], { errorContext: 'API:Arena:ArbitrageOpportunities:GET' });
