@@ -99,17 +99,22 @@ export const GET = composeMiddleware([
       };
     }).filter(Boolean); // Remove null entries
 
-    // Deduplicate: keep best opportunity per Kalshi market
-    // (one Kalshi market can match multiple similar Polymarket markets)
-    const bestByKalshi = new Map<string, (typeof opportunities)[number]>();
+    // Deduplicate: keep best opportunity per market (both sides)
+    // One Polymarket question can match many Kalshi candidates in the same series, and vice versa
+    const bestByMarket = new Map<string, (typeof opportunities)[number]>();
     for (const opp of opportunities) {
       if (!opp) continue;
-      const existing = bestByKalshi.get(opp.kalshi.id);
-      if (!existing || opp.potentialProfit > existing.potentialProfit) {
-        bestByKalshi.set(opp.kalshi.id, opp);
+      // Deduplicate by both Polymarket and Kalshi ID independently
+      for (const key of [opp.polymarket.id, opp.kalshi.id]) {
+        const existing = bestByMarket.get(key);
+        if (!existing || opp.potentialProfit > existing.potentialProfit) {
+          bestByMarket.set(key, opp);
+        }
       }
     }
-    const dedupedOpportunities = Array.from(bestByKalshi.values());
+    const dedupedOpportunities = Array.from(new Map(
+      Array.from(bestByMarket.values()).map(opp => [opp!.id, opp])
+    ).values());
 
     return NextResponse.json({
       success: true,
