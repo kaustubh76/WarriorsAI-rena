@@ -99,22 +99,20 @@ export const GET = composeMiddleware([
       };
     }).filter(Boolean); // Remove null entries
 
-    // Deduplicate: keep best opportunity per market (both sides)
-    // One Polymarket question can match many Kalshi candidates in the same series, and vice versa
-    const bestByMarket = new Map<string, (typeof opportunities)[number]>();
-    for (const opp of opportunities) {
-      if (!opp) continue;
-      // Deduplicate by both Polymarket and Kalshi ID independently
-      for (const key of [opp.polymarket.id, opp.kalshi.id]) {
-        const existing = bestByMarket.get(key);
-        if (!existing || opp.potentialProfit > existing.potentialProfit) {
-          bestByMarket.set(key, opp);
-        }
-      }
+    // Deduplicate: each Polymarket and Kalshi market appears at most once
+    // Sorted by profit descending, greedily pick pairs where neither side is already used
+    type Opp = NonNullable<(typeof opportunities)[number]>;
+    const sorted = (opportunities.filter(Boolean) as Opp[])
+      .sort((a, b) => b.potentialProfit - a.potentialProfit);
+    const usedPoly = new Set<string>();
+    const usedKalshi = new Set<string>();
+    const dedupedOpportunities: Opp[] = [];
+    for (const opp of sorted) {
+      if (usedPoly.has(opp.polymarket.id) || usedKalshi.has(opp.kalshi.id)) continue;
+      usedPoly.add(opp.polymarket.id);
+      usedKalshi.add(opp.kalshi.id);
+      dedupedOpportunities.push(opp);
     }
-    const dedupedOpportunities = Array.from(new Map(
-      Array.from(bestByMarket.values()).map(opp => [opp!.id, opp])
-    ).values());
 
     return NextResponse.json({
       success: true,
