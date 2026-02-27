@@ -538,7 +538,7 @@ class ExternalMarketsService {
 
             if (spread >= minSpread) {
               // Check for arbitrage opportunity
-              const opportunity = this.calculateArbitrage(market1, market2);
+              const opportunity = this.calculateArbitrage(market1, market2, similarity);
 
               if (opportunity && opportunity.potentialProfit > 0) {
                 opportunities.push(opportunity);
@@ -557,7 +557,8 @@ class ExternalMarketsService {
    */
   private calculateArbitrage(
     market1: UnifiedMarket,
-    market2: UnifiedMarket
+    market2: UnifiedMarket,
+    jaccardSimilarity = 0.8
   ): ArbitrageOpportunity | null {
     // Prices from dbToUnified() are 0-100 (percentages), convert to 0-1 decimal
     const price1Yes = market1.yesPrice / 100;
@@ -600,7 +601,7 @@ class ExternalMarketsService {
       },
       spread: Math.abs(market1.yesPrice - market2.yesPrice),
       potentialProfit,
-      confidence: 0.8, // Placeholder - should be from AI matching
+      confidence: jaccardSimilarity,
       detectedAt: Date.now(),
       expiresAt: Date.now() + 5 * 60 * 1000, // 5 minute validity
       status: 'active',
