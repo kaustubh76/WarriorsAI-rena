@@ -203,6 +203,7 @@ export interface GeneratedArgument {
 }
 
 export interface RoundResult {
+  roundNumber: number;
   warrior1: GeneratedArgument;
   warrior2: GeneratedArgument;
   warrior1Score: number;

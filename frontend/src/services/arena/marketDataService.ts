@@ -22,8 +22,8 @@ export async function fetchMarketDataForBattle(
   kalshiMarketId: string | null,
 ): Promise<RealMarketData | undefined> {
   try {
-    const externalMarket = await prisma.externalMarket.findUnique({
-      where: { id: externalMarketId },
+    const externalMarket = await prisma.externalMarket.findFirst({
+      where: { externalId: externalMarketId, source },
     });
 
     if (!externalMarket) return undefined;
@@ -40,8 +40,8 @@ export async function fetchMarketDataForBattle(
 
     // For arbitrage battles, fetch cross-platform data
     if (isArbitrageBattle && kalshiMarketId) {
-      const crossMarket = await prisma.externalMarket.findUnique({
-        where: { id: kalshiMarketId },
+      const crossMarket = await prisma.externalMarket.findFirst({
+        where: { externalId: kalshiMarketId },
       });
 
       if (crossMarket) {

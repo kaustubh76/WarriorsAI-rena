@@ -715,6 +715,7 @@ export function executeDebateRound(
   );
 
   return {
+    roundNumber: context.roundNumber,
     warrior1: warrior1Arg,
     warrior2: warrior2Arg,
     warrior1Score: w1ScoreBreakdown.finalScore,
