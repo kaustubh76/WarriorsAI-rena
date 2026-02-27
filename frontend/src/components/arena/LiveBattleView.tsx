@@ -468,7 +468,10 @@ function EvidenceList({ evidence }: { evidence: DebateEvidence[] }) {
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${EVIDENCE_TYPE_COLORS[e.type] || 'bg-gray-600 text-gray-300'}`}>
             {e.type}
           </span>
-          <span className="text-gray-300 flex-1 line-clamp-1">{e.title}</span>
+          <span className="text-gray-300 flex-1 line-clamp-1">
+            {e.simulated && <span className="text-yellow-500/70 mr-1">[AI]</span>}
+            {e.title}
+          </span>
           {e.relevance != null && (
             <span className="text-gray-500 flex-shrink-0">{e.relevance}%</span>
           )}

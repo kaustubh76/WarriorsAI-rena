@@ -322,6 +322,7 @@ function generateFallbackEvidence(
       snippet: getFallbackSnippet(context.side),
       relevance,
       timestamp: new Date().toISOString(),
+      simulated: true,
     });
   }
 
@@ -703,13 +704,14 @@ export function executeDebateRound(
     roundWinner = 'draw';
   }
 
-  // Generate judge reasoning
+  // Generate judge reasoning (with market context if available)
   const judgeReasoning = generateJudgeReasoning(
     warrior1Arg,
     warrior2Arg,
     w1ScoreBreakdown,
     w2ScoreBreakdown,
-    roundWinner
+    roundWinner,
+    context.marketData
   );
 
   return {
@@ -730,7 +732,8 @@ function generateJudgeReasoning(
   w2Arg: GeneratedArgument,
   w1Score: ScoreBreakdown,
   w2Score: ScoreBreakdown,
-  winner: 'warrior1' | 'warrior2' | 'draw'
+  winner: 'warrior1' | 'warrior2' | 'draw',
+  marketData?: RealMarketData
 ): string {
   const parts: string[] = [];
 
@@ -750,6 +753,18 @@ function generateJudgeReasoning(
   if (Math.abs(w1EvidenceQuality - w2EvidenceQuality) > 10) {
     const betterEvidence = w1EvidenceQuality > w2EvidenceQuality ? 'YES' : 'NO';
     parts.push(`${betterEvidence} presented stronger supporting evidence.`);
+  }
+
+  // Market context commentary
+  if (marketData) {
+    const yesPrice = marketData.yesPrice;
+    if (yesPrice >= 70) {
+      parts.push(`Market sentiment strongly favors YES at ${yesPrice}%, giving YES's arguments natural weight.`);
+    } else if (yesPrice <= 30) {
+      parts.push(`Market sentiment leans heavily NO at ${100 - yesPrice}%, putting pressure on YES to justify the contrarian stance.`);
+    } else if (marketData.spread && marketData.spread > 10) {
+      parts.push(`The ${marketData.spread.toFixed(0)}% cross-platform spread adds significance to this exchange.`);
+    }
   }
 
   // Final verdict
@@ -804,18 +819,23 @@ export function executeFullBattle(
 
     rounds.push(result);
 
-    // Convert to PredictionRound format for next iteration
+    // Convert to PredictionRound format for next iteration (include evidence & reasoning for context)
     previousRounds.push({
       id: `round-${roundNum}`,
       battleId: 'temp',
       roundNumber: roundNum,
       w1Argument: result.warrior1.argument,
+      w1Evidence: JSON.stringify(result.warrior1.evidence),
       w1Move: result.warrior1.move,
+      w1Confidence: result.warrior1.confidence,
       w1Score: result.warrior1Score,
       w2Argument: result.warrior2.argument,
+      w2Evidence: JSON.stringify(result.warrior2.evidence),
       w2Move: result.warrior2.move,
+      w2Confidence: result.warrior2.confidence,
       w2Score: result.warrior2Score,
       roundWinner: result.roundWinner,
+      judgeReasoning: result.judgeReasoning,
       startedAt: new Date().toISOString(),
     });
   }

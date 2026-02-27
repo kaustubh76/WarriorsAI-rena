@@ -191,6 +191,7 @@ export interface DebateEvidence {
   snippet: string;
   relevance: number;   // 0-100
   timestamp?: string;
+  simulated?: boolean;  // true when evidence is AI-generated template, not real data
 }
 
 export interface GeneratedArgument {
