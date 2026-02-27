@@ -34,10 +34,11 @@ export const GET = composeMiddleware([
       return NextResponse.json(cached);
     }
 
-    // Build Prisma WHERE clause
+    // Build Prisma WHERE clause — exclude expired markets
     const where: Prisma.ExternalMarketWhereInput = {
       curatedForArena: true,
       status: 'active',
+      endTime: { gt: new Date() },
     };
 
     if (category) {

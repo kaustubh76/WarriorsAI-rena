@@ -529,7 +529,7 @@ class ExternalMarketsService {
             market2.question
           );
 
-          if (similarity > 0.35) {
+          if (similarity > 0.50) {
             // Check both YES spread and cross-spread (YES vs NO) for arbitrage
             // Prices are 0-100 (percentages) after dbToUnified()
             const yesSpread = Math.abs(market1.yesPrice - market2.yesPrice);

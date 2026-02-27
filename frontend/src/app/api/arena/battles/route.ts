@@ -153,6 +153,22 @@ export const POST = composeMiddleware([
     validateInteger(warrior1Id, 'warrior1Id', { min: 0 });
     validateAddress(warrior1Owner, 'warrior1Owner');
 
+    // Check market hasn't expired and has enough time remaining (2 hours minimum)
+    const marketRecord = await prisma.externalMarket.findFirst({
+      where: { externalId: externalMarketId, source },
+      select: { endTime: true },
+    });
+    if (marketRecord?.endTime) {
+      const msRemaining = new Date(marketRecord.endTime).getTime() - Date.now();
+      if (msRemaining < 2 * 60 * 60 * 1000) {
+        throw ErrorResponses.badRequest(
+          msRemaining <= 0
+            ? 'Market has already expired'
+            : 'Market expires too soon — need at least 2 hours remaining'
+        );
+      }
+    }
+
     // Handle arbitrage battle creation
     if (isArbitrageBattle) {
       // Validate arbitrage-specific fields
