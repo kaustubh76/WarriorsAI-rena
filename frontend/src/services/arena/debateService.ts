@@ -198,7 +198,9 @@ function buildPriceEvidence(
   // Add cross-platform data if available
   if (md.crossPlatformPrice !== undefined && md.crossPlatformSource) {
     const crossName = md.crossPlatformSource === 'polymarket' ? 'Polymarket' : 'Kalshi';
-    snippet += ` Cross-platform: ${crossName} prices this at ${md.crossPlatformPrice.toFixed(1)}% YES.`;
+    snippet += side === 'yes'
+      ? ` Cross-platform: ${crossName} prices this at ${md.crossPlatformPrice.toFixed(1)}% YES.`
+      : ` Cross-platform: ${crossName} prices NO at ${(100 - md.crossPlatformPrice).toFixed(1)}%.`;
   }
 
   return {
@@ -220,18 +222,19 @@ function buildSecondaryEvidence(
   qualityBonus: number,
 ): DebateEvidence {
   // Prefer cross-platform spread data if available (arbitrage context)
-  if (md.spread !== undefined && md.crossPlatformSource) {
+  if (md.spread !== undefined && md.crossPlatformPrice !== undefined && md.crossPlatformSource) {
     const spreadFormatted = md.spread.toFixed(1);
     const crossName = md.crossPlatformSource === 'polymarket' ? 'Polymarket' : 'Kalshi';
     const sourceName = md.source === 'polymarket' ? 'Polymarket' : 'Kalshi';
+    const crossNoPrice = (100 - md.crossPlatformPrice).toFixed(1);
 
     return {
       type: 'data',
       source: 'Cross-Platform Analysis',
       title: `${spreadFormatted}% price spread between ${sourceName} and ${crossName}`,
       snippet: side === 'yes'
-        ? `A ${spreadFormatted}% spread between ${sourceName} (${md.yesPrice.toFixed(1)}% YES) and ${crossName} (${md.crossPlatformPrice!.toFixed(1)}% YES) reveals the market hasn't converged — suggesting underpricing of the YES outcome on at least one platform.`
-        : `The ${spreadFormatted}% cross-platform spread shows disagreement between ${sourceName} and ${crossName}. This divergence indicates the YES case is far from settled, and the NO position exploits this uncertainty.`,
+        ? `A ${spreadFormatted}% spread between ${sourceName} (${md.yesPrice.toFixed(1)}% YES) and ${crossName} (${md.crossPlatformPrice.toFixed(1)}% YES) reveals the market hasn't converged — suggesting underpricing of the YES outcome on at least one platform.`
+        : `A ${spreadFormatted}% spread between ${sourceName} (${md.noPrice.toFixed(1)}% NO) and ${crossName} (${crossNoPrice}% NO) reveals disagreement across platforms — suggesting underpricing of the NO outcome and validating skepticism toward the YES thesis.`,
       relevance: Math.round(70 + qualityBonus + Math.random() * 15),
       timestamp: new Date().toISOString(),
     };
@@ -319,7 +322,7 @@ function generateFallbackEvidence(
       type,
       source: getFallbackSource(type, context.marketSource),
       title: getFallbackTitle(type, context.marketQuestion, context.side),
-      snippet: getFallbackSnippet(context.side),
+      snippet: getFallbackSnippet(context.side, context.marketQuestion),
       relevance,
       timestamp: new Date().toISOString(),
       simulated: true,
@@ -372,21 +375,23 @@ function getFallbackTitle(type: DebateEvidence['type'], question: string, side: 
   return options[Math.floor(Math.random() * options.length)];
 }
 
-function getFallbackSnippet(side: 'yes' | 'no'): string {
+function getFallbackSnippet(side: 'yes' | 'no', question: string): string {
+  const topic = question.split(' ').filter(w => w.length > 4).slice(0, 3).join(' ') || 'this outcome';
+
   const snippets: Record<string, string[]> = {
     yes: [
-      'Recent trends strongly support this outcome.',
-      'Multiple indicators point to a positive resolution.',
-      'Expert consensus aligns with this projection.',
-      'Historical precedent favors this result.',
-      'Market dynamics suggest favorable conditions.',
+      `Recent trends in ${topic} strongly support this outcome.`,
+      `Multiple indicators related to ${topic} point to a positive resolution.`,
+      `Expert consensus on ${topic} aligns with this projection.`,
+      `Historical precedent for ${topic} favors this result.`,
+      `Market dynamics around ${topic} suggest favorable conditions.`,
     ],
     no: [
-      'Current data suggests significant headwinds.',
-      'Several factors indicate this outcome is unlikely.',
-      'Expert analysis raises substantial concerns.',
-      'Historical patterns show similar situations failing.',
-      'Market signals point to skepticism.',
+      `Current data on ${topic} suggests significant headwinds.`,
+      `Several factors around ${topic} indicate this outcome is unlikely.`,
+      `Expert analysis of ${topic} raises substantial concerns.`,
+      `Historical patterns show similar ${topic} situations failing.`,
+      `Market signals on ${topic} point to skepticism.`,
     ],
   };
 
