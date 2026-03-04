@@ -136,6 +136,20 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Missing required fields: agentId, mirrorKey, prediction, amount');
     }
 
+    // Validate prediction fields
+    if (!body.prediction.outcome || !['yes', 'no'].includes(body.prediction.outcome)) {
+      throw ErrorResponses.badRequest('prediction.outcome must be "yes" or "no"');
+    }
+    if (typeof body.prediction.confidence !== 'number' || body.prediction.confidence < 0 || body.prediction.confidence > 100) {
+      throw ErrorResponses.badRequest('prediction.confidence must be 0-100');
+    }
+    if (!body.prediction.inputHash || !body.prediction.outputHash || !body.prediction.providerAddress) {
+      throw ErrorResponses.badRequest('prediction must include inputHash, outputHash, providerAddress');
+    }
+
+    if (!/^\d+$/.test(String(body.agentId))) {
+      throw ErrorResponses.badRequest('agentId must be a numeric string');
+    }
     const agentId = BigInt(body.agentId);
     const mirrorKey = body.mirrorKey as `0x${string}`;
     const amount = parseEther(body.amount);
@@ -184,6 +198,10 @@ export const POST = composeMiddleware([
         args: [mirrorKey],
       })
     );
+
+    if (!mirrorMarket || !mirrorMarket.externalLink) {
+      throw ErrorResponses.badRequest('Mirror market not found');
+    }
 
     if (!mirrorMarket.externalLink.isActive) {
       throw ErrorResponses.badRequest('Mirror market is not active');
@@ -284,8 +302,8 @@ export const GET = composeMiddleware([
     }
 
     // Parse optional query parameters
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1), 100);
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0') || 0, 0);
 
     // Query the database for agent trades
     const [trades, total] = await Promise.all([

@@ -28,7 +28,8 @@ export const GET = composeMiddleware([
 
     // Get minSpread from query params or default to 5%
     const searchParams = req.nextUrl.searchParams;
-    const minSpread = parseFloat(searchParams.get('minSpread') || '5');
+    const rawMinSpread = parseFloat(searchParams.get('minSpread') || '5');
+    const minSpread = isNaN(rawMinSpread) || rawMinSpread < 0 || rawMinSpread > 100 ? 5 : rawMinSpread;
 
     // Run market matcher with timeout protection
     const results = await withCronTimeout(

@@ -159,9 +159,10 @@ export const GET = composeMiddleware([
         console.warn(`Failed to fetch mirror market ${pos.mirrorKey}:`, e);
       }
 
-      const currentPrice = onChainData?.externalLink
+      const rawPrice = onChainData?.externalLink
         ? Number(onChainData.externalLink.lastSyncPrice) / 100
         : 50;
+      const currentPrice = isNaN(rawPrice) ? 50 : rawPrice;
       const avgPrice =
         pos.totalShares > 0n
           ? Number((pos.totalCost * 100n) / pos.totalShares) / 100

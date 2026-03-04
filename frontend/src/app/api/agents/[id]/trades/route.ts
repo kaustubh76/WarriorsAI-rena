@@ -41,8 +41,8 @@ export async function GET(
       const agentId = id;
 
       const { searchParams } = new URL(req.url);
-      const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
-      const offset = parseInt(searchParams.get('offset') || '0');
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1), 100);
+      const offset = Math.max(parseInt(searchParams.get('offset') || '0') || 0, 0);
       const status = searchParams.get('status') as 'pending' | 'resolved' | 'all' | null;
 
       // Build where clause

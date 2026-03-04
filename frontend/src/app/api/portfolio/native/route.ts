@@ -121,9 +121,10 @@ export const GET = composeMiddleware([
         console.warn(`Failed to fetch market ${pos.marketId}:`, e);
       }
 
-      const currentPrice = marketData
+      const rawPrice = marketData
         ? Number(pos.isYes ? marketData.yesPrice : marketData.noPrice) / 100
         : 50;
+      const currentPrice = isNaN(rawPrice) ? 50 : rawPrice;
       const avgPrice =
         pos.totalShares > 0n
           ? Number((pos.totalCost * 100n) / pos.totalShares) / 100

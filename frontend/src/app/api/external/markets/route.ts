@@ -58,7 +58,10 @@ export const GET = composeMiddleware([
     // End time filter
     const maxEndTime = searchParams.get('maxEndTime');
     if (maxEndTime) {
-      filters.maxEndTime = parseInt(maxEndTime);
+      const parsed = parseInt(maxEndTime);
+      if (!isNaN(parsed) && parsed > 0) {
+        filters.maxEndTime = parsed;
+      }
     }
 
     // Sorting
@@ -75,12 +78,18 @@ export const GET = composeMiddleware([
     // Pagination
     const page = searchParams.get('page');
     if (page) {
-      filters.page = parseInt(page);
+      const parsed = parseInt(page);
+      if (!isNaN(parsed) && parsed > 0) {
+        filters.page = parsed;
+      }
     }
 
     const pageSize = searchParams.get('pageSize');
     if (pageSize) {
-      filters.pageSize = Math.min(parseInt(pageSize), 100); // Max 100 per page
+      const parsed = parseInt(pageSize);
+      if (!isNaN(parsed) && parsed > 0) {
+        filters.pageSize = Math.min(parsed, 100); // Max 100 per page
+      }
     }
 
     // Fetch markets

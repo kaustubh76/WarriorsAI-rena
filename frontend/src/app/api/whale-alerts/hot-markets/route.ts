@@ -15,7 +15,7 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     try {
       const { searchParams } = new URL(req.url);
-      const limit = parseInt(searchParams.get('limit') || '5');
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '5') || 5, 1), 100);
 
       // Check cache first (5-minute TTL for aggregated market data)
       const cacheKey = `whale-hot-markets:${limit}`;

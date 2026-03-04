@@ -17,7 +17,7 @@ export const GET = composeMiddleware([
       const { searchParams } = new URL(req.url);
       // Parse and validate limit with max constraints
       const rawLimit = parseInt(searchParams.get('limit') || '5');
-      const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
+      const limit = isNaN(rawLimit) ? 5 : Math.min(Math.max(rawLimit, 1), 100);
 
       // Check cache first (5-minute TTL for whale rankings)
       const cacheKey = `whale-top-whales:${limit}`;

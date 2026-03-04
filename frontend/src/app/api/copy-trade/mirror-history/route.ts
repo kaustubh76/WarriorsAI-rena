@@ -14,8 +14,8 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
     const address = searchParams.get('address');
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1);
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0') || 0, 0);
 
     // Validate address
     if (!address || !isAddress(address)) {

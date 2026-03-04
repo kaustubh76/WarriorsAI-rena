@@ -14,7 +14,7 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
 
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1), 500);
     const source = searchParams.get('source') as MarketSource | null;
 
     const trades = await whaleTrackerService.getRecentWhaleTrades(
