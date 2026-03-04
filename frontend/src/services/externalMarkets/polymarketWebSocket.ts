@@ -91,11 +91,24 @@ class RobustWebSocketManager {
     this.connectionState = 'connecting';
 
     return new Promise((resolve, reject) => {
+      let settled = false;
       try {
         this.ws = new WebSocket(this.config.url);
 
+        // Connection timeout — cleared on success to prevent interfering with reconnects
+        const timeoutId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            this.ws?.close();
+            this.connectionState = 'disconnected';
+            reject(new Error('WebSocket connection timeout'));
+          }
+        }, 10000);
+
         this.ws.onopen = () => {
           console.log('[Polymarket WS] Connected');
+          clearTimeout(timeoutId);
+          settled = true;
           this.connectionState = 'connected';
           this.reconnectAttempts = 0;
           this.lastPongTime = Date.now();
@@ -112,6 +125,11 @@ class RobustWebSocketManager {
 
         this.ws.onerror = (error) => {
           console.error('[Polymarket WS] Error:', error);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeoutId);
+            reject(new Error('WebSocket error'));
+          }
           this.notifySubscribersOfError(new Error('WebSocket error'));
         };
 
@@ -124,16 +142,8 @@ class RobustWebSocketManager {
           externalMarketMonitor.setWebSocketConnected('polymarket', false);
           this.scheduleReconnect();
         };
-
-        // Connection timeout
-        setTimeout(() => {
-          if (this.connectionState !== 'connected') {
-            this.ws?.close();
-            this.connectionState = 'disconnected';
-            reject(new Error('WebSocket connection timeout'));
-          }
-        }, 10000);
       } catch (error) {
+        settled = true;
         this.connectionState = 'disconnected';
         reject(error);
       }
@@ -153,29 +163,29 @@ class RobustWebSocketManager {
         return;
       }
 
-      // Route to subscribers
+      // Route to subscribers (snapshot callbacks to prevent modification during iteration)
       const tokenId = data.asset_id || data.token_id;
       if (tokenId && this.subscriptions.has(tokenId)) {
-        const callbacks = this.subscriptions.get(tokenId);
-        callbacks?.forEach((cb) => {
+        const callbacks = Array.from(this.subscriptions.get(tokenId) || []);
+        for (const cb of callbacks) {
           try {
             cb(data);
           } catch (err) {
             console.error('[Polymarket WS] Callback error:', err);
           }
-        });
+        }
       }
 
       // Also check for market-based routing
       if (data.market && this.subscriptions.has(data.market)) {
-        const callbacks = this.subscriptions.get(data.market);
-        callbacks?.forEach((cb) => {
+        const callbacks = Array.from(this.subscriptions.get(data.market) || []);
+        for (const cb of callbacks) {
           try {
             cb(data);
           } catch (err) {
             console.error('[Polymarket WS] Callback error:', err);
           }
-        });
+        }
       }
     } catch (err) {
       console.error('[Polymarket WS] Failed to parse message:', err);
@@ -284,6 +294,8 @@ class RobustWebSocketManager {
           assets: [tokenId],
         })
       );
+    } else {
+      this.messageQueue.push({ type: 'unsubscribe', tokenId });
     }
   }
 
@@ -298,6 +310,8 @@ class RobustWebSocketManager {
       const msg = this.messageQueue.shift();
       if (msg?.type === 'subscribe') {
         this.sendSubscription(msg.tokenId);
+      } else if (msg?.type === 'unsubscribe') {
+        this.sendUnsubscription(msg.tokenId);
       }
     }
   }

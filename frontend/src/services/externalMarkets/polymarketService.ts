@@ -58,6 +58,7 @@ class PolymarketService {
   // Legacy WebSocket (kept for backward compatibility)
   private wsConnection: WebSocket | null = null;
   private priceCallbacks: Map<string, ((price: number) => void)[]> = new Map();
+  private wsUnsubscribers: (() => void)[] = [];
 
   // ============================================
   // MARKET DATA (Gamma API)
@@ -276,7 +277,14 @@ class PolymarketService {
         throw new Error(`Polymarket API error: ${response.status}`);
       }
 
-      return response.json();
+      const data = await response.json();
+      const markets = Array.isArray(data) ? data : data.markets || [];
+      const validated: PolymarketMarket[] = [];
+      for (const m of markets) {
+        const result = safeValidatePolymarket(m, PolymarketMarketSchema, 'searchMarkets');
+        if (result) validated.push(result as unknown as PolymarketMarket);
+      }
+      return validated;
     });
   }
 
@@ -301,7 +309,14 @@ class PolymarketService {
         throw new Error(`Polymarket API error: ${response.status}`);
       }
 
-      return response.json();
+      const data = await response.json();
+      const markets = Array.isArray(data) ? data : data.markets || [];
+      const validated: PolymarketMarket[] = [];
+      for (const m of markets) {
+        const result = safeValidatePolymarket(m, PolymarketMarketSchema, 'getMarketsByCategory');
+        if (result) validated.push(result as unknown as PolymarketMarket);
+      }
+      return validated;
     });
   }
 
@@ -348,6 +363,7 @@ class PolymarketService {
 
   /**
    * Get prices for multiple markets
+   * @returns Prices as 0-100 percentages (matching UnifiedMarket convention)
    */
   async getPrices(
     tokenIds: string[]
@@ -368,10 +384,11 @@ class PolymarketService {
           ? parseFloat(orderbook.asks[0].price)
           : 1;
 
+        // Polymarket prices are 0-1 decimals, convert to 0-100 percentage
         prices.set(tokenId, {
-          bid,
-          ask,
-          mid: (bid + ask) / 2,
+          bid: bid * 100,
+          ask: ask * 100,
+          mid: ((bid + ask) / 2) * 100,
         });
       } catch (error) {
         console.error(`Error fetching price for ${tokenId}:`, error);
@@ -470,6 +487,10 @@ class PolymarketService {
     }
     this.priceCallbacks.clear();
 
+    // Clean up previous subscriptions
+    this.wsUnsubscribers.forEach((unsub) => unsub());
+    this.wsUnsubscribers = [];
+
     // Use robust WebSocket manager
     polymarketWS.connect().then(() => {
       for (const tokenId of tokenIds) {
@@ -483,10 +504,7 @@ class PolymarketService {
           }
         });
 
-        // Store unsubscribe function (for backward compatibility tracking)
-        if (!this.priceCallbacks.has(tokenId)) {
-          this.priceCallbacks.set(tokenId, []);
-        }
+        this.wsUnsubscribers.push(unsubscribe);
       }
     }).catch((err) => {
       console.error('[Polymarket] WebSocket connection failed:', err);
@@ -528,6 +546,10 @@ class PolymarketService {
       this.wsConnection = null;
     }
     this.priceCallbacks.clear();
+
+    // Clean up stored subscriptions
+    this.wsUnsubscribers.forEach((unsub) => unsub());
+    this.wsUnsubscribers = [];
 
     // Disconnect robust WebSocket
     polymarketWS.disconnect();

@@ -119,10 +119,21 @@ class KalshiWebSocketManager {
     const authHeaders = kalshiAuth.signRequest('GET', '/trade-api/ws/v2');
 
     return new Promise((resolve, reject) => {
+      let settled = false;
       try {
         this.ws = new WebSocket(
           `wss://api.elections.kalshi.com/trade-api/ws/v2`
         );
+
+        // Auth timeout — cleared on success to prevent double-rejection
+        const timeoutId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            this.ws?.close();
+            this.connectionState = 'disconnected';
+            reject(new Error('WebSocket authentication timeout'));
+          }
+        }, 10000);
 
         this.ws.onopen = () => {
           console.log('[Kalshi WS] Connected, authenticating...');
@@ -147,6 +158,8 @@ class KalshiWebSocketManager {
           // Handle auth response
           if (msg.type === 'auth_success') {
             console.log('[Kalshi WS] Authenticated');
+            clearTimeout(timeoutId);
+            settled = true;
             this.connectionState = 'connected';
             this.isAuthenticated = true;
             this.reconnectAttempts = 0;
@@ -190,7 +203,11 @@ class KalshiWebSocketManager {
 
         this.ws.onerror = (error) => {
           console.error('[Kalshi WS] Error:', error);
-          reject(error);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeoutId);
+            reject(error);
+          }
         };
 
         this.ws.onclose = (event) => {
@@ -203,16 +220,8 @@ class KalshiWebSocketManager {
           externalMarketMonitor.setWebSocketConnected('kalshi', false);
           this.scheduleReconnect();
         };
-
-        // Auth timeout
-        setTimeout(() => {
-          if (!this.isAuthenticated) {
-            this.ws?.close();
-            this.connectionState = 'disconnected';
-            reject(new Error('WebSocket authentication timeout'));
-          }
-        }, 10000);
       } catch (error) {
+        settled = true;
         this.connectionState = 'disconnected';
         reject(error);
       }
@@ -308,28 +317,21 @@ class KalshiWebSocketManager {
 
   /**
    * Notify subscribers of a message
+   * Only dispatches to the matching channel type (not all channels for the ticker)
    */
   private notifySubscribers(msg: KalshiWSMessage): void {
     if (!msg.ticker) return;
 
-    // Check all relevant keys
-    const keys = [
-      `${msg.type}:${msg.ticker}`,
-      `orderbook:${msg.ticker}`,
-      `trade:${msg.ticker}`,
-      `market_status:${msg.ticker}`,
-    ];
-
-    for (const key of keys) {
-      const callbacks = this.subscriptions.get(key);
-      callbacks?.forEach((cb) => {
-        try {
-          cb(msg);
-        } catch (err) {
-          console.error('[Kalshi WS] Callback error:', err);
-        }
-      });
-    }
+    // Only dispatch to the exact matching channel key
+    const key = `${msg.type}:${msg.ticker}`;
+    const callbacks = this.subscriptions.get(key);
+    callbacks?.forEach((cb) => {
+      try {
+        cb(msg);
+      } catch (err) {
+        console.error('[Kalshi WS] Callback error:', err);
+      }
+    });
   }
 
   /**
@@ -356,11 +358,14 @@ class KalshiWebSocketManager {
 
   /**
    * Handle authentication errors
+   * Closes the connection — `onclose` handler will trigger `scheduleReconnect`
+   * which avoids the race between a direct reconnect and the scheduled one.
    */
-  private async handleAuthError(): Promise<void> {
+  private handleAuthError(): void {
     kalshiAuth.invalidateToken();
     this.isAuthenticated = false;
-    await this.reconnect();
+    // Close triggers onclose → scheduleReconnect (no duplicate reconnect)
+    this.ws?.close(4001, 'Authentication error');
   }
 
   /**
