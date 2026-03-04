@@ -10,6 +10,7 @@ import { CompactStreak } from "@/components/gamification/StreakIndicator"
 import { CompactQuestIndicator } from "@/components/gamification/DailyQuestPanel"
 import { useGamificationContext } from "@/contexts/GamificationContext"
 import { usePathname } from "next/navigation"
+import Link from "next/link"
 import { WhaleAlertBadge } from "@/components/whale/WhaleAlertBadge"
 import { WhaleAlertDropdown } from "@/components/whale/WhaleAlertDropdown"
 import { useWhaleAlertBadge } from "@/hooks/useWhaleAlertBadge"
@@ -214,13 +215,13 @@ const Header: React.FC = () => {
               </button>
 
               {/* Logo */}
-              <a href="/" className="flex items-center">
+              <Link href="/" className="flex items-center">
                 <h1 className="text-lg md:text-2xl text-red-400 tracking-wider arcade-glow whitespace-nowrap"
                     style={{fontFamily: 'Press Start 2P, monospace'}}>
                   <span className="hidden sm:inline">Warriors AI-rena</span>
                   <span className="sm:hidden">WAR</span>
                 </h1>
-              </a>
+              </Link>
             </div>
 
             {/* Center: Desktop Navigation */}
@@ -231,7 +232,7 @@ const Header: React.FC = () => {
 
                 if (!hasSubmenu) {
                   return (
-                    <a
+                    <Link
                       key={link.href}
                       href={link.href}
                       className={`px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200
@@ -241,7 +242,7 @@ const Header: React.FC = () => {
                         }`}
                     >
                       {link.label}
-                    </a>
+                    </Link>
                   );
                 }
 
@@ -252,7 +253,7 @@ const Header: React.FC = () => {
                     onMouseEnter={() => setOpenSubmenu(link.href)}
                     onMouseLeave={() => setOpenSubmenu(null)}
                   >
-                    <a
+                    <Link
                       href={link.href}
                       className={`px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1
                         ${isActiveLink(link.href)
@@ -269,13 +270,13 @@ const Header: React.FC = () => {
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
-                    </a>
+                    </Link>
 
                     {/* Dropdown Menu */}
                     {isOpen && (
                       <div className="absolute top-full left-0 mt-1 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
                         {link.submenu!.map((item) => (
-                          <a
+                          <Link
                             key={item.href}
                             href={item.href}
                             className={`flex items-center gap-2 px-4 py-2.5 text-xs transition-colors
@@ -286,7 +287,7 @@ const Header: React.FC = () => {
                           >
                             {item.icon && <span className="text-sm">{item.icon}</span>}
                             {item.label}
-                          </a>
+                          </Link>
                         ))}
                       </div>
                     )}
@@ -525,7 +526,7 @@ const Header: React.FC = () => {
 
             if (!hasSubmenu) {
               return (
-                <a
+                <Link
                   key={link.href}
                   href={link.href}
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 animate-slide-up ${
@@ -537,7 +538,7 @@ const Header: React.FC = () => {
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   {link.label}
-                </a>
+                </Link>
               );
             }
 
@@ -566,7 +567,7 @@ const Header: React.FC = () => {
                 {isOpen && (
                   <div className="mt-1 ml-4 space-y-1">
                     {link.submenu!.map((item) => (
-                      <a
+                      <Link
                         key={item.href}
                         href={item.href}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
@@ -578,7 +579,7 @@ const Header: React.FC = () => {
                       >
                         {item.icon && <span className="text-base">{item.icon}</span>}
                         {item.label}
-                      </a>
+                      </Link>
                     ))}
                   </div>
                 )}

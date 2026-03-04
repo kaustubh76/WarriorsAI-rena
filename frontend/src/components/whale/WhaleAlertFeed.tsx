@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useWhaleAlerts } from '@/hooks/useWhaleAlerts';
 import { WhaleAlertCard } from './WhaleAlertCard';
 import { MarketSource } from '@/types/externalMarket';
@@ -18,13 +18,14 @@ export function WhaleAlertFeed({
 }: WhaleAlertFeedProps) {
   const { alerts, isConnected, threshold, setThreshold, clearAlerts } =
     useWhaleAlerts(10000);
+  const [expanded, setExpanded] = useState(false);
 
   // Filter by source if specified
   const filteredAlerts = source
     ? alerts.filter((a) => a.source === source)
     : alerts;
 
-  const displayAlerts = filteredAlerts.slice(0, maxAlerts);
+  const displayAlerts = expanded ? filteredAlerts : filteredAlerts.slice(0, maxAlerts);
 
   return (
     <div className="space-y-4">
@@ -46,7 +47,7 @@ export function WhaleAlertFeed({
         </div>
         <div className="flex items-center gap-2">
           <select
-            value={threshold}
+            value={String(threshold)}
             onChange={(e) => setThreshold(parseInt(e.target.value))}
             className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-sm text-white"
           >
@@ -88,10 +89,15 @@ export function WhaleAlertFeed({
         </div>
       )}
 
-      {/* Show More */}
+      {/* Show More / Show Less */}
       {filteredAlerts.length > maxAlerts && (
-        <button className="w-full py-2 text-purple-400 hover:text-purple-300 text-sm">
-          Show {filteredAlerts.length - maxAlerts} more alerts
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full py-2 text-purple-400 hover:text-purple-300 text-sm"
+        >
+          {expanded
+            ? 'Show less'
+            : `Show ${filteredAlerts.length - maxAlerts} more alerts`}
         </button>
       )}
     </div>

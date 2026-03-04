@@ -146,7 +146,7 @@ export function WhaleAlertCard({ trade, compact = false }: WhaleAlertCardProps) 
           </div>
           {trade.txHash && (
             <a
-              href={`https://etherscan.io/tx/${trade.txHash}`}
+              href={`https://evm-testnet.flowscan.io/tx/${trade.txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-400 hover:text-white text-xs"
@@ -166,9 +166,12 @@ export function WhaleAlertCard({ trade, compact = false }: WhaleAlertCardProps) 
           View Market
         </Link>
         {trade.traderAddress && (
-          <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm">
+          <Link
+            href={`/whale-tracker?address=${encodeURIComponent(trade.traderAddress)}`}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm text-center"
+          >
             Track Trader
-          </button>
+          </Link>
         )}
       </div>
     </div>
