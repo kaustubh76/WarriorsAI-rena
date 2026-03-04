@@ -133,6 +133,9 @@ export function useRecordTradeSimplified() {
       positionSize: number; // In CRWN tokens
       confidencePercent: number; // 0-100
     }): Promise<string> => {
+      if (isNaN(params.profit) || isNaN(params.positionSize) || isNaN(params.confidencePercent)) {
+        throw new Error('Invalid trade parameters: profit, positionSize, and confidencePercent must be valid numbers');
+      }
       const pnl = BigInt(Math.floor(params.profit * 1e18));
       const volume = BigInt(Math.floor(params.positionSize * 1e18));
       const confidence = BigInt(params.confidencePercent * 100); // Convert to basis points

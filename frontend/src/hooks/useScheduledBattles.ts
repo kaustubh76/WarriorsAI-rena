@@ -206,11 +206,11 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
           body: JSON.stringify({ battleId }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || `Execution failed (HTTP ${response.status})`);
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Execution failed (HTTP ${response.status})`);
         }
+        const data = await response.json();
 
         const txId = data.data?.transactionId || '';
         toast.success(`Battle executed! TX: ${txId.slice(0, 8)}...`);
@@ -246,11 +246,11 @@ export function useScheduledBattles(): UseScheduledBattlesReturn {
           body: JSON.stringify({ battleId }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || `Cancellation failed (HTTP ${response.status})`);
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Cancellation failed (HTTP ${response.status})`);
         }
+        const data = await response.json();
 
         const txId = data.data?.transactionId || '';
         toast.success(`Battle cancelled! TX: ${txId.slice(0, 8)}...`);

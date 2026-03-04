@@ -124,7 +124,10 @@ export function useUnifiedPortfolio(): UseUnifiedPortfolioReturn {
       ];
 
       const totalValue = allPositions.reduce(
-        (sum, p) => sum + (p.shares * BigInt(Math.floor(p.currentPrice * 100))) / 100n,
+        (sum, p) => {
+          const price = isNaN(p.currentPrice) ? 0 : p.currentPrice;
+          return sum + (p.shares * BigInt(Math.floor(price * 100))) / 100n;
+        },
         0n
       );
 

@@ -27,7 +27,10 @@ export const GET = composeMiddleware([
     const filters: any = {};
     if (status) filters.status = status;
     if (source) filters.source = source;
-    if (limitStr) filters.limit = parseInt(limitStr);
+    if (limitStr) {
+      const parsed = parseInt(limitStr);
+      if (!isNaN(parsed) && parsed > 0) filters.limit = Math.min(parsed, 100);
+    }
 
     const bets = await marketBettingService.getUserBets(userId, filters);
 

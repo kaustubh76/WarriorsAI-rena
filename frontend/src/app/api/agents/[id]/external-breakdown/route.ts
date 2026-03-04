@@ -21,6 +21,9 @@ export async function GET(
     withRateLimit({ prefix: 'agent-external-breakdown', ...RateLimitPresets.apiQueries }),
     async (req, ctx) => {
       const { id } = await params;
+      if (!/^\d+$/.test(id)) {
+        throw ErrorResponses.badRequest('Agent ID must be numeric');
+      }
       const agentId = BigInt(id);
 
       // Get contract address

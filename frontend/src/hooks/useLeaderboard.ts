@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useChainId } from 'wagmi';
 import { warriorsNFTAbi, chainsToContracts } from '../constants';
 
@@ -82,49 +82,46 @@ export function useLeaderboard() {
   // Get contract address for current chain
   const contractAddress = chainsToContracts[chainId]?.warriorsNFT;
 
+  const fetchLeaderboardData = useCallback(async () => {
+    if (!contractAddress) {
+      setError('Contract address not found for current chain');
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Temporary solution: Return empty data to avoid API spam
+      // In production, you would implement proper event listening or have the contract maintain a registry
+      console.log('Leaderboard: Using temporary empty data to avoid API errors');
+
+      const groupedData: LeaderboardData = {
+        UNRANKED: [],
+        BRONZE: [],
+        SILVER: [],
+        GOLD: [],
+        PLATINUM: []
+      };
+
+      setLeaderboardData(groupedData);
+    } catch (error) {
+      console.error('Error fetching leaderboard data:', error);
+      setError('Failed to fetch leaderboard data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [contractAddress]);
+
   useEffect(() => {
-    const fetchLeaderboardData = async () => {
-      if (!contractAddress) {
-        setError('Contract address not found for current chain');
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        // Temporary solution: Return empty data to avoid API spam
-        // In production, you would implement proper event listening or have the contract maintain a registry
-        console.log('Leaderboard: Using temporary empty data to avoid API errors');
-        
-        const groupedData: LeaderboardData = {
-          UNRANKED: [],
-          BRONZE: [],
-          SILVER: [],
-          GOLD: [],
-          PLATINUM: []
-        };
-
-        setLeaderboardData(groupedData);
-      } catch (error) {
-        console.error('Error fetching leaderboard data:', error);
-        setError('Failed to fetch leaderboard data');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchLeaderboardData();
-  }, [contractAddress, chainId]);
+  }, [fetchLeaderboardData]);
 
   return {
     leaderboardData,
     isLoading,
     error,
-    refetch: () => {
-      setIsLoading(true);
-      // Trigger re-fetch by updating a dependency
-    }
+    refetch: fetchLeaderboardData,
   };
-};
+}

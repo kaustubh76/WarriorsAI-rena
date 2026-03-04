@@ -186,6 +186,9 @@ export const POST = composeMiddleware([
 
     // Filter by minimum volume
     if (minVolume) {
+      if (!/^\d+$/.test(minVolume)) {
+        throw ErrorResponses.badRequest('minVolume must be a numeric string');
+      }
       const minVol = BigInt(minVolume);
       results = results.filter(battle =>
         battle.marketData && BigInt(battle.marketData.totalVolume || '0') >= minVol
@@ -240,7 +243,8 @@ export const GET = composeMiddleware([
 
     if (queryType === 'context' && warrior1Id && warrior2Id) {
       // Get battle context for AI predictions (RAG)
-      const maxBattles = parseInt(searchParams.get('maxBattles') || '10');
+      const rawMax = parseInt(searchParams.get('maxBattles') || '10');
+      const maxBattles = isNaN(rawMax) ? 10 : Math.min(Math.max(rawMax, 1), 50);
       const context = await getBattleContext(warrior1Id, warrior2Id, maxBattles);
       return NextResponse.json({
         success: true,

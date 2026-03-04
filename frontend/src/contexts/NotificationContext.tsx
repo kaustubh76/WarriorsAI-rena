@@ -214,7 +214,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const whaleAlert = useCallback((trade: WhaleTrade) => {
     const amount = parseFloat(trade.amountUsd);
-    const formattedAmount = amount >= 1000000
+    const formattedAmount = isNaN(amount)
+      ? '$0'
+      : amount >= 1000000
       ? `$${(amount / 1000000).toFixed(1)}M`
       : amount >= 1000
       ? `$${(amount / 1000).toFixed(0)}K`

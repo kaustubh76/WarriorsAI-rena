@@ -174,7 +174,7 @@ export const DELETE = composeMiddleware([
     }
 
     const url = new URL(req.url);
-    const olderThanHours = parseInt(url.searchParams.get('olderThan') || '24');
+    const olderThanHours = parseInt(url.searchParams.get('olderThan') || '24') || 24;
 
     const monitor = getBattleMonitor();
     const cleared = monitor.clearAlerts(olderThanHours * 60 * 60 * 1000);

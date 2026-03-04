@@ -361,6 +361,7 @@ export function calculateTotalAchievementXP(unlockedIds: string[]): number {
  * Get progress percentage for an achievement
  */
 export function getAchievementProgress(achievement: Achievement, currentValue: number): number {
+  if (achievement.requirement <= 0) return 0;
   if (currentValue >= achievement.requirement) return 100;
   return Math.floor((currentValue / achievement.requirement) * 100);
 }

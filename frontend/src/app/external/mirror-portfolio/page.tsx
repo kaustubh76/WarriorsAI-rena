@@ -131,12 +131,14 @@ export default function MirrorPortfolioPage() {
       const response = await fetch(`/api/external/sync?source=${mirror.source}`, {
         method: 'POST',
       });
+      if (!response.ok) throw new Error(`Sync failed: HTTP ${response.status}`);
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.error || 'Sync failed');
       }
       // Refresh portfolio data after sync
       const refreshResponse = await fetch(`/api/portfolio/mirror?address=${address}`);
+      if (!refreshResponse.ok) throw new Error(`Refresh failed: HTTP ${refreshResponse.status}`);
       const refreshData = await refreshResponse.json();
       if (refreshData.success) {
         setMirrors(refreshData.data.positions || []);

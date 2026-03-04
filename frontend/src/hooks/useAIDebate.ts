@@ -44,6 +44,7 @@ export function useAIDebate(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ marketId, question, source }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const data = await response.json();
 
@@ -66,6 +67,7 @@ export function useAIDebate(
       setError(null);
 
       const response = await fetch(`/api/ai/debate/${debateId}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -105,6 +107,7 @@ export function useDebateHistory(marketId: string) {
       setError(null);
 
       const response = await fetch(`/api/ai/debate?marketId=${marketId}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {

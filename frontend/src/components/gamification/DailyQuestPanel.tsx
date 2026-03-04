@@ -91,7 +91,7 @@ export function DailyQuestPanel({
             <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
-                style={{ width: `${(claimedXP / totalXPAvailable) * 100}%` }}
+                style={{ width: `${totalXPAvailable > 0 ? (claimedXP / totalXPAvailable) * 100 : 0}%` }}
               />
             </div>
           </div>

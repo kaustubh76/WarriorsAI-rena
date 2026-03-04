@@ -215,7 +215,11 @@ export default function CreateAgentPage() {
 
         setMintStep('minting');
         // Convert stakeAmount string to bigint (in wei)
-        const stakeAmountWei = BigInt(Math.floor(parseFloat(formData.stakeAmount) * 1e18));
+        const parsedStake = parseFloat(formData.stakeAmount);
+        if (isNaN(parsedStake) || parsedStake <= 0) {
+          throw new Error('Invalid stake amount: please enter a valid number greater than 0');
+        }
+        const stakeAmountWei = BigInt(Math.floor(parsedStake * 1e18));
         const result = await mintINFT(
           metadata,
           stakeAmountWei,

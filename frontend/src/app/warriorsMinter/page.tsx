@@ -236,16 +236,16 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
         body: JSON.stringify({ prompt: aiPrompt }),
       });
       
-      const apiData = await apiResponse.json();
-      
       if (!apiResponse.ok) {
-        throw new Error(apiData.error || 'API request failed');
+        const errData = await apiResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'API request failed');
       }
-      
+      const apiData = await apiResponse.json();
+
       if (!apiData.success) {
         throw new Error(apiData.error || 'API returned unsuccessful response');
       }
-      
+
       const response = apiData.attributes;
       
       // Log the response to console as requested
@@ -522,16 +522,16 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
         body: JSON.stringify({ personalityAttributes }),
       });
       
-      const apiData = await apiResponse.json();
-      
       if (!apiResponse.ok) {
-        throw new Error(apiData.error || 'API request failed');
+        const errData = await apiResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'API request failed');
       }
-      
+      const apiData = await apiResponse.json();
+
       if (!apiData.success) {
         throw new Error(apiData.error || 'API returned unsuccessful response');
       }
-      
+
       const response = apiData.traitsAndMoves;
       
       // Log the AI response to console as requested

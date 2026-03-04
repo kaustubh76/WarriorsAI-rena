@@ -56,6 +56,10 @@ export default function AgentExternalTradingPage({
           fetch(`/api/agents/${agentId}/external-breakdown`),
         ]);
 
+        if (!tradesRes.ok || !breakdownRes.ok) {
+          throw new Error(`Failed to fetch data: HTTP ${tradesRes.ok ? breakdownRes.status : tradesRes.status}`);
+        }
+
         const tradesData = await tradesRes.json();
         const breakdownData = await breakdownRes.json();
 

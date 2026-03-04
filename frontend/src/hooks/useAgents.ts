@@ -223,8 +223,8 @@ function sortAgents(agents: AIAgentDisplay[], sort: AgentSortOptions): AIAgentDi
         break;
       case 'totalPnL':
         // Parse PnL strings for comparison
-        const pnlA = parseFloat(a.pnlFormatted?.replace(/[^0-9.-]/g, '') || '0');
-        const pnlB = parseFloat(b.pnlFormatted?.replace(/[^0-9.-]/g, '') || '0');
+        const pnlA = parseFloat(a.pnlFormatted?.replace(/[^0-9.-]/g, '') || '0') || 0;
+        const pnlB = parseFloat(b.pnlFormatted?.replace(/[^0-9.-]/g, '') || '0') || 0;
         comparison = pnlA - pnlB;
         break;
       case 'stakedAmount':
@@ -390,6 +390,7 @@ export function useFollowingAgents() {
 
       // Fetch following list from 0G chain via API
       const response = await fetch(`/api/agents/following?address=${address}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -405,6 +406,7 @@ export function useFollowingAgents() {
       // Fetch agent details for each followed agent
       if (followingIds.length > 0) {
         const allAgentsResponse = await fetch('/api/agents');
+        if (!allAgentsResponse.ok) throw new Error(`HTTP ${allAgentsResponse.status}`);
         const allAgentsData = await allAgentsResponse.json();
 
         if (allAgentsData.success) {
@@ -718,6 +720,7 @@ export function useZeroGTokenBalance() {
 
       // Fetch 0G CRwN balance via API to avoid CORS issues
       const response = await fetch(`/api/0g/balance?address=${address}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (data.success) {

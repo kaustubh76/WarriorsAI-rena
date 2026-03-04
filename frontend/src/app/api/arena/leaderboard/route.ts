@@ -13,7 +13,8 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
     const sortBy = searchParams.get('sortBy') || 'rating';
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const rawLimit = parseInt(searchParams.get('limit') || '20');
+    const limit = isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), 100);
 
     // Determine sort order
     let orderBy: Record<string, 'asc' | 'desc'>;

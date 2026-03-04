@@ -76,11 +76,12 @@ export default function MarketSearchWithArbitrage({
       }
 
       const response = await fetch(`/api/arena/arbitrage-opportunities?${params}`);
-      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch opportunities');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to fetch opportunities');
       }
+      const data = await response.json();
 
       setOpportunities(data.opportunities || []);
     } catch (err) {

@@ -55,6 +55,7 @@ export function useWhaleAlerts(initialThreshold: number = 10000): UseWhaleAlerts
   const pollForTrades = useCallback(async () => {
     try {
       const response = await fetch(`/api/whale-alerts?limit=10&threshold=${threshold}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (data.success && data.data.trades) {
@@ -128,6 +129,7 @@ export function useWhaleHistory(
       if (source) params.append('source', source);
 
       const response = await fetch(`/api/whale-alerts/history?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -170,6 +172,7 @@ export function useTrackedTraders(): UseTrackedTradersReturn {
       setError(null);
 
       const response = await fetch('/api/whale-alerts/traders');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -193,6 +196,7 @@ export function useTrackedTraders(): UseTrackedTradersReturn {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ address, source, alias }),
         });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
         if (!data.success) {
@@ -216,6 +220,7 @@ export function useTrackedTraders(): UseTrackedTradersReturn {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ address, source }),
         });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
         if (!data.success) {
@@ -265,6 +270,7 @@ export function useTraderTrades(address: string | null) {
       setError(null);
 
       const response = await fetch(`/api/whale-alerts/traders/${address}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -307,6 +313,7 @@ export function useWhaleStats() {
       setError(null);
 
       const response = await fetch('/api/whale-alerts/stats');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -352,6 +359,7 @@ export function useHotMarkets(limit: number = 5) {
       setError(null);
 
       const response = await fetch(`/api/whale-alerts/hot-markets?limit=${limit}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {
@@ -397,6 +405,7 @@ export function useTopWhales(limit: number = 5) {
       setError(null);
 
       const response = await fetch(`/api/whale-alerts/top-whales?limit=${limit}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
       if (!data.success) {

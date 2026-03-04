@@ -100,11 +100,11 @@ export function useMirrorMarketCreation() {
           }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to create mirror market');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to create mirror market: HTTP ${response.status}`);
         }
+        const data = await response.json();
 
         return {
           txHash: data.txHash,
@@ -179,11 +179,11 @@ export function useMirrorMarketTrade() {
           }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to execute trade');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to execute trade: HTTP ${response.status}`);
         }
+        const data = await response.json();
 
         return {
           txHash: data.txHash,
@@ -244,11 +244,11 @@ export function useVRFTrade() {
           }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to execute VRF trade');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to execute VRF trade: HTTP ${response.status}`);
         }
+        const data = await response.json();
 
         return {
           txHash: data.txHash,
@@ -299,11 +299,11 @@ export function useMirrorMarketQuery() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to query mirror market');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to query mirror market: HTTP ${response.status}`);
       }
+      const data = await response.json();
 
       const market: MirrorMarketState = {
         mirrorKey: data.mirrorKey,
@@ -372,11 +372,11 @@ export function useMirrorMarketPositions() {
       // Query the GET endpoint for trade status which includes position info
       const response = await fetch(`/api/flow/vrf-trade?walletAddress=${address}`);
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch positions');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to fetch positions: HTTP ${response.status}`);
       }
+      const data = await response.json();
 
       // Map the response to positions
       const mirrorPositions: MirrorPosition[] = (data.positions || []).map(
@@ -441,11 +441,11 @@ export function useMirrorMarketSync() {
           }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to sync price');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to sync price: HTTP ${response.status}`);
         }
+        const data = await response.json();
 
         return { txHash: data.txHash, success: true };
       } catch (err) {
@@ -476,11 +476,11 @@ export function useMirrorMarketSync() {
           }),
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to resolve market');
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to resolve market: HTTP ${response.status}`);
         }
+        const data = await response.json();
 
         return { txHash: data.txHash, success: true };
       } catch (err) {

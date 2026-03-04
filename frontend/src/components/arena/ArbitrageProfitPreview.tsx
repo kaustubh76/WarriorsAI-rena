@@ -35,12 +35,12 @@ export default function ArbitrageProfitPreview({
   const kalshiPriceDecimal = kalshiPrice / 100;
   const totalCost = polyPriceDecimal + kalshiPriceDecimal;
 
-  const polyAllocation = (polyPriceDecimal / totalCost) * stakeInCRwN;
-  const kalshiAllocation = (kalshiPriceDecimal / totalCost) * stakeInCRwN;
+  const polyAllocation = totalCost > 0 ? (polyPriceDecimal / totalCost) * stakeInCRwN : 0;
+  const kalshiAllocation = totalCost > 0 ? (kalshiPriceDecimal / totalCost) * stakeInCRwN : 0;
 
   // Calculate shares
-  const polyShares = polyAllocation / polyPriceDecimal;
-  const kalshiShares = kalshiAllocation / kalshiPriceDecimal;
+  const polyShares = polyPriceDecimal > 0 ? polyAllocation / polyPriceDecimal : 0;
+  const kalshiShares = kalshiPriceDecimal > 0 ? kalshiAllocation / kalshiPriceDecimal : 0;
 
   // Guaranteed return (both positions pay $1 per share)
   const guaranteedReturn = Math.min(polyShares, kalshiShares);

@@ -154,7 +154,7 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
     const creatorAddress = searchParams.get('creator');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50') || 50, 1), 100);
 
     if (!creatorAddress) {
       throw ErrorResponses.badRequest('Missing creator address');

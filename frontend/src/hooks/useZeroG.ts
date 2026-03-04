@@ -98,11 +98,11 @@ export function useZeroGInference() {
         body: JSON.stringify(request)
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || `Request failed: ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Request failed: ${response.status}`);
       }
+      const data = await response.json();
 
       setResult(data);
       return data;
@@ -201,11 +201,11 @@ export function useZeroGStorage() {
         body: JSON.stringify({ battle })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || `Storage failed: ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Storage failed: ${response.status}`);
       }
+      const data = await response.json();
 
       return data;
     } catch (err) {
@@ -271,11 +271,11 @@ export function useZeroGQuery() {
         body: JSON.stringify(query)
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || `Query failed: ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Query failed: ${response.status}`);
       }
+      const data = await response.json();
 
       return data;
     } catch (err) {
@@ -335,6 +335,9 @@ export function useZeroGQuery() {
       const response = await fetch(
         `/api/0g/query?type=context&warrior1Id=${warrior1Id}&warrior2Id=${warrior2Id}&maxBattles=${maxBattles}`
       );
+      if (!response.ok) {
+        throw new Error(`Battle context query failed: HTTP ${response.status}`);
+      }
       const data = await response.json();
       return data;
     } catch (err) {

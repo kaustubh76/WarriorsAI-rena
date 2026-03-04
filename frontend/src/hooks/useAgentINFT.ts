@@ -701,7 +701,11 @@ export function useMintCRwN(): UseMintCRwNResult {
         }
 
         // Parse amount to wei
-        const amountWei = BigInt(Math.floor(parseFloat(amount) * 1e18));
+        const parsed = parseFloat(amount);
+        if (isNaN(parsed) || parsed <= 0) {
+          throw new Error('Invalid amount: please enter a valid number greater than 0');
+        }
+        const amountWei = BigInt(Math.floor(parsed * 1e18));
 
         // Call mint function with native 0G tokens as value
         const hash = await walletClient.writeContract({

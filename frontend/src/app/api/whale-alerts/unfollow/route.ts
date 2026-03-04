@@ -29,11 +29,12 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Invalid whale address');
     }
 
-    // Soft delete by setting isActive = false
+    // Soft delete by setting isActive = false (only deactivate active follows)
     const result = await prisma.whaleFollow.updateMany({
       where: {
         userAddress: userAddress.toLowerCase(),
         whaleAddress: whaleAddress.toLowerCase(),
+        isActive: true,
       },
       data: {
         isActive: false,

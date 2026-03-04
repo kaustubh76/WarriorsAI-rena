@@ -63,8 +63,8 @@ export const GET = composeMiddleware([
     // Parse and validate pagination with max limits to prevent DoS
     const rawLimit = parseInt(searchParams.get('limit') || '20');
     const rawOffset = parseInt(searchParams.get('offset') || '0');
-    const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
-    const offset = Math.max(rawOffset, 0); // Ensure non-negative
+    const limit = isNaN(rawLimit) ? 20 : Math.min(Math.max(rawLimit, 1), 100);
+    const offset = isNaN(rawOffset) ? 0 : Math.max(rawOffset, 0);
 
     const where: Record<string, unknown> = {};
 
@@ -74,7 +74,9 @@ export const GET = composeMiddleware([
 
     if (warriorId) {
       const id = parseInt(warriorId);
-      where.OR = [{ warrior1Id: id }, { warrior2Id: id }];
+      if (!isNaN(id)) {
+        where.OR = [{ warrior1Id: id }, { warrior2Id: id }];
+      }
     }
 
     if (marketId && source) {

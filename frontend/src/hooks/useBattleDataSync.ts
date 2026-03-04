@@ -258,24 +258,31 @@ export function useBattleHistorySync(arenaAddress?: Address, chainId: number = g
           const battleId = `battle_${warrior1Id}_${warrior2Id}_${log.blockNumber}`;
 
           // Store to 0G
-          await fetch('/api/0g/store', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              battle: {
-                battleId: BigInt(i),
-                timestamp: Date.now(),
-                warriors: [
-                  { id: warrior1Id, name: `Warrior #${warrior1Id}`, traits: { strength: 50, wit: 50, charisma: 50, defence: 50, luck: 50 }, totalBattles: 0, wins: 0, losses: 0 },
-                  { id: warrior2Id, name: `Warrior #${warrior2Id}`, traits: { strength: 50, wit: 50, charisma: 50, defence: 50, luck: 50 }, totalBattles: 0, wins: 0, losses: 0 }
-                ],
-                rounds: [],
-                outcome: damage1 < damage2 ? 'warrior1' : damage1 > damage2 ? 'warrior2' : 'draw',
-                totalDamage: { warrior1: Number(damage1), warrior2: Number(damage2) },
-                totalRounds: 5
-              }
-            })
-          });
+          try {
+            const storeRes = await fetch('/api/0g/store', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                battle: {
+                  battleId: BigInt(i),
+                  timestamp: Date.now(),
+                  warriors: [
+                    { id: warrior1Id, name: `Warrior #${warrior1Id}`, traits: { strength: 50, wit: 50, charisma: 50, defence: 50, luck: 50 }, totalBattles: 0, wins: 0, losses: 0 },
+                    { id: warrior2Id, name: `Warrior #${warrior2Id}`, traits: { strength: 50, wit: 50, charisma: 50, defence: 50, luck: 50 }, totalBattles: 0, wins: 0, losses: 0 }
+                  ],
+                  rounds: [],
+                  outcome: damage1 < damage2 ? 'warrior1' : damage1 > damage2 ? 'warrior2' : 'draw',
+                  totalDamage: { warrior1: Number(damage1), warrior2: Number(damage2) },
+                  totalRounds: 5
+                }
+              })
+            });
+            if (!storeRes.ok) {
+              console.warn(`[BattleHistorySync] Failed to store battle ${i}: HTTP ${storeRes.status}`);
+            }
+          } catch (storeErr) {
+            console.warn(`[BattleHistorySync] Failed to store battle ${i}:`, storeErr);
+          }
         }
 
         setProgress({ synced: i + 1, total: logs.length });

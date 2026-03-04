@@ -608,7 +608,10 @@ class PredictionMarketService {
     const effectivePrice = Number(collateralAmount) / Number(sharesOut);
 
     // Calculate price impact
-    const priceImpact = (effectivePrice - Number(currentPrice) / 10000) / (Number(currentPrice) / 10000) * 100;
+    const normalizedPrice = Number(currentPrice) / 10000;
+    const priceImpact = normalizedPrice > 0
+      ? (effectivePrice - normalizedPrice) / normalizedPrice * 100
+      : 0;
 
     return {
       sharesOut,

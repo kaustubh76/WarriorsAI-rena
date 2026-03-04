@@ -234,6 +234,7 @@ class ExternalMarketMonitor {
     const result: Record<string, AggregatedMetrics> = {};
     for (const [operation, events] of Object.entries(breakdown)) {
       const total = events.length;
+      if (total === 0) continue;
       const success = events.filter((m) => m.success).length;
       const failed = total - success;
       const avgDuration = events.reduce((s, m) => s + m.duration, 0) / total;

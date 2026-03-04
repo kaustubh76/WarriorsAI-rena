@@ -117,9 +117,24 @@ export const POST = composeMiddleware([
       }
 
       // Validate amount
-      const amountWei = parseEther(amount);
+      let amountWei: bigint;
+      try {
+        amountWei = parseEther(amount);
+      } catch {
+        throw ErrorResponses.badRequest('Invalid amount format');
+      }
       if (amountWei <= 0n) {
         throw ErrorResponses.badRequest('Amount must be greater than 0');
+      }
+
+      // Validate agentId is numeric if provided
+      if (agentId !== undefined && !/^\d+$/.test(agentId)) {
+        throw ErrorResponses.badRequest('Invalid agentId: must be a numeric string');
+      }
+
+      // Validate slippageBps range (0-10000 basis points)
+      if (slippageBps < 0 || slippageBps > 10000) {
+        throw ErrorResponses.badRequest('slippageBps must be between 0 and 10000');
       }
 
       // Check prediction verification (if production mode)

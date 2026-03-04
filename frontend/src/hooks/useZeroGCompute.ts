@@ -297,10 +297,13 @@ export function useZeroGComputeStatus() {
 
     try {
       const response = await fetch('/api/0g/inference');
+      if (!response.ok) {
+        throw new Error(`Status check failed: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       setStatus({
-        isHealthy: response.ok && data.success,
+        isHealthy: data.success,
         providerCount: data.providers?.length || 0,
         lastCheck: Date.now()
       });

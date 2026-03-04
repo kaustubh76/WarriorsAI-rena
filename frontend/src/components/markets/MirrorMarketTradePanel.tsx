@@ -88,8 +88,9 @@ export function MirrorMarketTradePanel({
     return minShares.toString();
   };
 
-  const estimatedShares = amount
-    ? (parseFloat(amount) / (selectedOutcome === 'yes' ? market.yesPrice : market.noPrice) * 100).toFixed(2)
+  const tradePrice = selectedOutcome === 'yes' ? market.yesPrice : market.noPrice;
+  const estimatedShares = amount && tradePrice > 0
+    ? (parseFloat(amount) / tradePrice * 100).toFixed(2)
     : '0';
 
   const potentialPayout = amount

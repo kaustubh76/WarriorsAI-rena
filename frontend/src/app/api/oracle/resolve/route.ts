@@ -64,6 +64,11 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Missing required fields');
     }
 
+    // Validate damage values are numeric before BigInt conversion
+    if (!/^\d+$/.test(warrior1Damage) || !/^\d+$/.test(warrior2Damage)) {
+      throw ErrorResponses.badRequest('warrior1Damage and warrior2Damage must be numeric strings');
+    }
+
     // Determine outcome based on damage
     const damage1 = BigInt(warrior1Damage);
     const damage2 = BigInt(warrior2Damage);
@@ -84,6 +89,11 @@ export const POST = composeMiddleware([
 
     // Generate AI signatures (simulate multi-AI consensus)
     // In production, this would query actual 0G AI providers
+    // Validate battleId and marketId are numeric before BigInt conversion
+    if (!/^\d+$/.test(battleId) || !/^\d+$/.test(marketId)) {
+      throw ErrorResponses.badRequest('battleId and marketId must be numeric strings');
+    }
+
     const signatures = await generateAISignatures(
       BigInt(battleId),
       BigInt(marketId),

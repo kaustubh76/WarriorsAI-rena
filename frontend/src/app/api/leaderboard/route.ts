@@ -83,7 +83,7 @@ export const GET = composeMiddleware([
     const sortBy = (searchParams.get('sortBy') || 'profit') as SortCategory;
     // Parse and validate pagination with max limits
     const rawLimit = parseInt(searchParams.get('limit') || '50');
-    const limit = Math.min(Math.max(rawLimit, 1), 100); // Clamp between 1 and 100
+    const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 100);
     const userAddress = searchParams.get('user');
 
     const timeFilter = getTimeRangeFilter(timeRange);

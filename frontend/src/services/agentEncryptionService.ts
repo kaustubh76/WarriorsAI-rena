@@ -304,8 +304,8 @@ export async function requestReEncryptionProof(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to get re-encryption proof from oracle');
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || `Failed to get re-encryption proof: HTTP ${response.status}`);
   }
 
   const result = await response.json();

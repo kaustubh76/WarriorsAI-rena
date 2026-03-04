@@ -91,6 +91,9 @@ export default function PredictionArenaPage() {
       params.set('limit', '50');
       if (sourceFilter !== 'all') params.set('source', sourceFilter);
       const res = await fetch(`/api/arena/battles?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = await res.json();
       setBattles(data.battles || []);
     } catch (error) {

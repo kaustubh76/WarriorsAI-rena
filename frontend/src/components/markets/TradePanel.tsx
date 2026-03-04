@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { formatEther, parseEther } from 'viem';
 import { useAccount } from 'wagmi';
 import { useTrade, usePosition, useTokenBalance, useMarketPrice, clearMarketCache } from '@/hooks/useMarkets';
@@ -74,6 +74,14 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
     isSuccess,
     error
   } = useTrade(market.id);
+
+  // Cleanup ref for auto-trade timer
+  const autoTradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (autoTradeTimerRef.current) clearTimeout(autoTradeTimerRef.current);
+    };
+  }, []);
 
   const isActive = market.status === MarketStatus.Active;
   const isEnded = Number(market.endTime) * 1000 < Date.now();
@@ -154,7 +162,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
       if (result && autoExecute && result.validation?.valid && result.recommendation?.shouldTrade) {
         console.log('[TradePanel] Auto-executing trade...');
         // Auto-execute trade using server-side wallet (not user wallet)
-        setTimeout(async () => {
+        autoTradeTimerRef.current = setTimeout(async () => {
           try {
             const tradeResult = await executeAgentTrade();
             console.log('[TradePanel] Trade result:', tradeResult);

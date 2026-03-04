@@ -166,6 +166,10 @@ class ArbitrageTradingService {
       const market2Price = opportunity.market2NoPrice / 10000;
       const totalCost = market1Price + market2Price;
 
+      if (totalCost === 0) {
+        return { success: false, error: 'Invalid opportunity prices - total cost is zero' };
+      }
+
       const market1Allocation = (market1Price / totalCost) * Number(params.investmentAmount);
       const market2Allocation = (market2Price / totalCost) * Number(params.investmentAmount);
 

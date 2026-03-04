@@ -62,11 +62,12 @@ export default function ArbitrageTrackingPanel({
 
       // Fetch trade data
       const tradeResponse = await fetch(`/api/arbitrage/trades/${arbitrageTradeId}`);
-      const tradeJson = await tradeResponse.json();
 
       if (!tradeResponse.ok) {
-        throw new Error(tradeJson.error || 'Failed to fetch trade data');
+        const errData = await tradeResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to fetch trade data');
       }
+      const tradeJson = await tradeResponse.json();
 
       setTradeData(tradeJson.trade);
 
@@ -168,7 +169,7 @@ export default function ArbitrageTrackingPanel({
     return {
       value: currentValue,
       pnl: currentPnL,
-      pnlPercent: (currentPnL / investment) * 100,
+      pnlPercent: investment > 0 ? (currentPnL / investment) * 100 : 0,
     };
   };
 
