@@ -71,10 +71,11 @@ function findArbitrageOpportunities(
       if (similarity < SIMILARITY_THRESHOLD) continue;
 
       // Get prices (normalized to 0-1)
-      const polyYes = polyMarket.yesPrice / 100;
-      const polyNo = polyMarket.noPrice / 100;
-      const kalshiYes = kalshiMarket.yesPrice / 100;
-      const kalshiNo = kalshiMarket.noPrice / 100;
+      // Raw DB stores basis points (0-10000), divide by 10000 to get 0-1 decimal
+      const polyYes = polyMarket.yesPrice / 10000;
+      const polyNo = polyMarket.noPrice / 10000;
+      const kalshiYes = kalshiMarket.yesPrice / 10000;
+      const kalshiNo = kalshiMarket.noPrice / 10000;
 
       // Check for arbitrage: buy YES on one, buy NO on another
       // Arbitrage exists if combined cost < 1.0
@@ -90,15 +91,15 @@ function findArbitrageOpportunities(
               source: 'polymarket',
               id: polyMarket.id,
               question: polyMarket.question,
-              yesPrice: polyMarket.yesPrice,
-              noPrice: polyMarket.noPrice,
+              yesPrice: polyMarket.yesPrice / 100,
+              noPrice: polyMarket.noPrice / 100,
             },
             market2: {
               source: 'kalshi',
               id: kalshiMarket.id,
               question: kalshiMarket.question,
-              yesPrice: kalshiMarket.yesPrice,
-              noPrice: kalshiMarket.noPrice,
+              yesPrice: kalshiMarket.yesPrice / 100,
+              noPrice: kalshiMarket.noPrice / 100,
             },
             spread: profit1,
             potentialProfit: profit1,
@@ -121,15 +122,15 @@ function findArbitrageOpportunities(
               source: 'polymarket',
               id: polyMarket.id,
               question: polyMarket.question,
-              yesPrice: polyMarket.yesPrice,
-              noPrice: polyMarket.noPrice,
+              yesPrice: polyMarket.yesPrice / 100,
+              noPrice: polyMarket.noPrice / 100,
             },
             market2: {
               source: 'kalshi',
               id: kalshiMarket.id,
               question: kalshiMarket.question,
-              yesPrice: kalshiMarket.yesPrice,
-              noPrice: kalshiMarket.noPrice,
+              yesPrice: kalshiMarket.yesPrice / 100,
+              noPrice: kalshiMarket.noPrice / 100,
             },
             spread: profit2,
             potentialProfit: profit2,
@@ -151,7 +152,10 @@ export const GET = composeMiddleware([
   withRateLimit({ prefix: 'external-arbitrage-get', ...RateLimitPresets.moderateReads }),
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
-    const minSpread = parseFloat(searchParams.get('minSpread') || String(DEFAULT_MIN_SPREAD));
+    const minSpreadParam = parseFloat(searchParams.get('minSpread') || String(DEFAULT_MIN_SPREAD));
+    const minSpread = (!isNaN(minSpreadParam) && minSpreadParam >= 0 && minSpreadParam <= 100)
+      ? minSpreadParam
+      : DEFAULT_MIN_SPREAD;
     const includeExpired = searchParams.get('includeExpired') === 'true';
 
     // Get cached opportunities from database (cache for 60s)
@@ -239,7 +243,10 @@ export const GET = composeMiddleware([
             },
           });
         } catch (e) {
-          // Ignore duplicate key errors
+          // Only ignore Prisma unique constraint violations (duplicate key)
+          if ((e as any)?.code !== 'P2002') {
+            console.error(`[Arbitrage] Failed to upsert opportunity ${opp.id}:`, e);
+          }
         }
       }
 
@@ -295,7 +302,10 @@ export const POST = composeMiddleware([
   withRateLimit({ prefix: 'external-arbitrage-post', ...RateLimitPresets.copyTrade }),
   async (req, ctx) => {
     const body = await req.json();
-    const minSpread = body.minSpread || DEFAULT_MIN_SPREAD;
+    const rawMinSpread = parseFloat(body.minSpread);
+    const minSpread = (!isNaN(rawMinSpread) && rawMinSpread >= 0 && rawMinSpread <= 100)
+      ? rawMinSpread
+      : DEFAULT_MIN_SPREAD;
 
     // Force a fresh scan
     // Mark all existing opportunities as expired
@@ -363,7 +373,10 @@ export const POST = composeMiddleware([
           },
         });
       } catch (e) {
-        // Ignore duplicate key errors
+        // Only ignore Prisma unique constraint violations (duplicate key)
+        if ((e as any)?.code !== 'P2002') {
+          console.error(`[Arbitrage] Failed to upsert opportunity ${opp.id}:`, e);
+        }
       }
     }
 

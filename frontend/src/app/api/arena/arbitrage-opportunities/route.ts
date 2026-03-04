@@ -15,8 +15,9 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     const searchParams = req.nextUrl.searchParams;
     const search = searchParams.get('search') || '';
-    const minSpread = parseFloat(searchParams.get('minSpread') || '5');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const rawMinSpread = parseFloat(searchParams.get('minSpread') || '5');
+    const minSpread = isNaN(rawMinSpread) || rawMinSpread < 0 || rawMinSpread > 100 ? 5 : rawMinSpread;
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20') || 20, 1), 100);
 
     // Query matched market pairs with arbitrage opportunities
     const where: Prisma.MatchedMarketPairWhereInput = {
@@ -34,7 +35,7 @@ export const GET = composeMiddleware([
 
     // Fetch more rows than requested to account for dedup (one market can match many)
     const fetchLimit = Math.min(limit * 10, 500);
-    const cacheKey = `arena-arb-opps:${search}:${minSpread}:${fetchLimit}`;
+    const cacheKey = `arena-arb-opps:${search}:${minSpread}`;
     const matchedPairs = await marketDataCache.getOrSet(
       cacheKey,
       () => prisma.matchedMarketPair.findMany({
@@ -63,11 +64,11 @@ export const GET = composeMiddleware([
       if (polyYesPrice + kalshiNoPrice < 1.0) {
         strategy = { buyYesOn: 'polymarket', buyNoOn: 'kalshi' };
         cost = polyYesPrice + kalshiNoPrice;
-        potentialProfit = ((1.0 - cost) / cost) * 100;
+        potentialProfit = (1.0 - cost) * 100; // Absolute profit in cents per dollar
       } else if (kalshiYesPrice + polyNoPrice < 1.0) {
         strategy = { buyYesOn: 'kalshi', buyNoOn: 'polymarket' };
         cost = kalshiYesPrice + polyNoPrice;
-        potentialProfit = ((1.0 - cost) / cost) * 100;
+        potentialProfit = (1.0 - cost) * 100; // Absolute profit in cents per dollar
       } else {
         // No profitable arbitrage
         return null;
@@ -104,8 +105,7 @@ export const GET = composeMiddleware([
     // Deduplicate: each Polymarket and Kalshi market appears at most once
     // Sorted by profit descending, greedily pick pairs where neither side is already used
     type Opp = NonNullable<(typeof opportunities)[number]>;
-    const sorted = (opportunities.filter(Boolean) as Opp[])
-      .sort((a, b) => b.potentialProfit - a.potentialProfit);
+    const sorted = (opportunities as Opp[]).sort((a, b) => b.potentialProfit - a.potentialProfit);
     const usedPoly = new Set<string>();
     const usedKalshi = new Set<string>();
     const dedupedOpportunities: Opp[] = [];

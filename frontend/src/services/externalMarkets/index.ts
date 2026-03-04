@@ -39,6 +39,20 @@ const SYNC_BATCH_SIZE = 100;
 const ARBITRAGE_MIN_SPREAD = 5; // 5% minimum spread
 
 // ============================================
+// HELPERS
+// ============================================
+
+/** Safely parse JSON string, returning undefined on malformed input */
+function safeJsonParse(value: string | null | undefined): unknown | undefined {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+// ============================================
 // EXTERNAL MARKETS SERVICE CLASS
 // ============================================
 
@@ -82,12 +96,6 @@ class ExternalMarketsService {
       ];
     }
 
-    // Volume filter
-    if (filters?.minVolume) {
-      // SQLite stores volume as string, need to handle comparison
-      // For now, filter in memory after fetch
-    }
-
     // End time filter
     if (filters?.maxEndTime) {
       where.endTime = { lte: new Date(filters.maxEndTime) };
@@ -114,7 +122,17 @@ class ExternalMarketsService {
     });
 
     // Convert to unified format
-    return dbMarkets.map((m) => this.dbToUnified(m));
+    let results = dbMarkets.map((m) => this.dbToUnified(m));
+
+    // Apply minVolume filter in memory (volume stored as string in DB)
+    if (filters?.minVolume) {
+      const minVol = parseFloat(filters.minVolume);
+      if (!isNaN(minVol) && minVol > 0) {
+        results = results.filter((m) => parseFloat(m.volume) >= minVol);
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -599,7 +617,7 @@ class ExternalMarketsService {
         yesPrice: market2.yesPrice,
         noPrice: market2.noPrice,
       },
-      spread: Math.abs(market1.yesPrice - market2.yesPrice),
+      spread: potentialProfit,
       potentialProfit,
       confidence: jaccardSimilarity,
       detectedAt: Date.now(),
@@ -797,7 +815,7 @@ class ExternalMarketsService {
       question: db.question,
       description: db.description || undefined,
       category: db.category || undefined,
-      tags: db.tags ? JSON.parse(db.tags) : undefined,
+      tags: safeJsonParse(db.tags) as string[] | undefined,
       yesPrice: db.yesPrice / 100,
       noPrice: db.noPrice / 100,
       volume: db.volume,
@@ -807,7 +825,7 @@ class ExternalMarketsService {
       status: db.status as ExternalMarketStatus,
       outcome: db.outcome as 'yes' | 'no' | 'invalid' | undefined,
       sourceUrl: db.sourceUrl,
-      sourceMetadata: db.metadata ? JSON.parse(db.metadata) : undefined,
+      sourceMetadata: safeJsonParse(db.metadata) as Record<string, unknown> | undefined,
       lastSyncAt: db.lastSyncAt.getTime(),
     };
   }

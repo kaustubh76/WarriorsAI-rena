@@ -13,6 +13,14 @@ import { externalMarketsService } from '@/services/externalMarkets';
 import { ArbitrageOpportunity } from '@/types/externalMarket';
 
 // ============================================
+// HELPERS
+// ============================================
+
+function safeParseStrategy(json: string | null | undefined): Record<string, unknown> {
+  try { return JSON.parse(json || '{}'); } catch { return {}; }
+}
+
+// ============================================
 // TYPES
 // ============================================
 
@@ -317,9 +325,9 @@ export class ArbitrageMarketMatcher {
         liquidity: pair.kalshi?.liquidity || '0'
       },
       spread: pair.priceDifference,
-      potentialProfit: JSON.parse(pair.arbitrageStrategy || '{}').expectedProfit || 0,
-      cost: 1 - (JSON.parse(pair.arbitrageStrategy || '{}').expectedProfit || 0) / 100,
-      strategy: JSON.parse(pair.arbitrageStrategy || '{}')
+      potentialProfit: safeParseStrategy(pair.arbitrageStrategy).expectedProfit as number || 0,
+      cost: 1 - ((safeParseStrategy(pair.arbitrageStrategy).expectedProfit as number) || 0) / 100,
+      strategy: safeParseStrategy(pair.arbitrageStrategy)
     }));
   }
 }
