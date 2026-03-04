@@ -191,9 +191,9 @@ class ExternalMarketMonitor {
     const opinionMetrics = this.getMetrics('opinion', 1);
 
     return {
-      polymarket: polymarketMetrics.errorRate < 50,
-      kalshi: kalshiMetrics.errorRate < 50,
-      opinion: opinionMetrics.errorRate < 50,
+      polymarket: polymarketMetrics.total > 0 && polymarketMetrics.errorRate < 50,
+      kalshi: kalshiMetrics.total > 0 && kalshiMetrics.errorRate < 50,
+      opinion: opinionMetrics.total > 0 && opinionMetrics.errorRate < 50,
       websockets: {
         polymarket: this.wsConnectionState.get('polymarket') || false,
         kalshi: this.wsConnectionState.get('kalshi') || false,

@@ -394,7 +394,20 @@ class KalshiService {
         throw new Error(`Kalshi API error: ${response.status}`);
       }
 
-      return response.json();
+      const data = await response.json();
+
+      // Validate response against schema
+      const validated = safeValidateKalshi(
+        data,
+        KalshiTradesResponseSchema,
+        'getTrades'
+      );
+
+      if (!validated) {
+        return { trades: [], cursor: undefined } as KalshiTradesResponse;
+      }
+
+      return validated as unknown as KalshiTradesResponse;
     });
   }
 
@@ -519,7 +532,7 @@ class KalshiService {
   async healthCheck(): Promise<boolean> {
     try {
       const { markets } = await this.getMarkets('open', 1);
-      return markets.length >= 0;
+      return markets.length > 0;
     } catch {
       return false;
     }

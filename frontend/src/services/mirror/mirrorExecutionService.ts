@@ -99,5 +99,5 @@ export async function resolveMirrorMarket(
     }
   }
 
-  return { txHash, blockNumber: receipt.blockNumber.toString() };
+  return { txHash, blockNumber: receipt?.blockNumber?.toString() ?? '0' };
 }

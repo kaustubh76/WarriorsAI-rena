@@ -99,12 +99,18 @@ class ExternalMarketAgentService {
 
   private get aiAgentINFTAddress(): `0x${string}` {
     const contracts = chainsToContracts[getZeroGChainId()];
-    return (contracts?.aiAgentINFT || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+    if (!contracts?.aiAgentINFT) {
+      throw new Error(`aiAgentINFT contract not configured for chain ${getZeroGChainId()}`);
+    }
+    return contracts.aiAgentINFT as `0x${string}`;
   }
 
   private get externalMarketMirrorAddress(): `0x${string}` {
     const contracts = chainsToContracts[545];
-    return (contracts?.externalMarketMirror || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+    if (!contracts?.externalMarketMirror) {
+      throw new Error('externalMarketMirror contract not configured for Flow chain 545');
+    }
+    return contracts.externalMarketMirror as `0x${string}`;
   }
 
   /**
