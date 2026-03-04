@@ -122,6 +122,7 @@ export function useWhaleCopyTrade(): UseWhaleCopyTradeReturn {
 
       if (!res.ok) {
         console.warn('Failed to fetch copy history');
+        setCopyHistory([]);
         return;
       }
 
@@ -134,7 +135,7 @@ export function useWhaleCopyTrade(): UseWhaleCopyTradeReturn {
 
   // Refresh all data
   const refresh = useCallback(async () => {
-    await Promise.all([fetchFollowedWhales(), fetchCopyHistory()]);
+    await Promise.allSettled([fetchFollowedWhales(), fetchCopyHistory()]);
   }, [fetchFollowedWhales, fetchCopyHistory]);
 
   useEffect(() => {

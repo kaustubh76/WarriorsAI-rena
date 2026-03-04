@@ -11,10 +11,17 @@ import { AIAgentINFTAbi } from '@/constants/aiAgentINFTAbi';
 import { createZeroGPublicClient } from '@/lib/zeroGClient';
 
 // 0G Galileo Testnet chain ID
-const ZEROG_CHAIN_ID = 16602;
+const ZEROG_CHAIN_ID = getZeroGChainId();
 
-// Create 0G public client for read operations
-const zeroGClient = createZeroGPublicClient();
+// Lazily initialize 0G public client to avoid crashing at import time
+// when env vars are not set (e.g. pages that don't use copy trading)
+let _zeroGClient: ReturnType<typeof createZeroGPublicClient> | null = null;
+function getZeroGClient() {
+  if (!_zeroGClient) {
+    _zeroGClient = createZeroGPublicClient();
+  }
+  return _zeroGClient;
+}
 
 // Get contract addresses for 0G chain
 function get0GContracts() {
@@ -54,7 +61,7 @@ export function useCopyTradeConfig(tokenId: bigint | null) {
 
     try {
       setLoading(true);
-      const configData = await zeroGClient.readContract({
+      const configData = await getZeroGClient().readContract({
         address: addresses.aiAgentINFT,
         abi: AIAgentINFTAbi,
         functionName: 'getCopyTradeConfig',
@@ -100,7 +107,7 @@ export function useCopyTradeConfig(tokenId: bigint | null) {
 export function useFollowAgent(tokenId: bigint | null) {
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { writeContractAsync, data: hash, isPending, error } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   const addresses = get0GContracts();
@@ -111,8 +118,6 @@ export function useFollowAgent(tokenId: bigint | null) {
     if (needsChainSwitch) {
       try {
         await switchChain({ chainId: ZEROG_CHAIN_ID });
-        // Wait a bit for the switch to complete
-        await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (err) {
         console.error('Failed to switch chain:', err);
         throw new Error('Please switch to 0G Galileo Testnet to follow agents');
@@ -128,14 +133,14 @@ export function useFollowAgent(tokenId: bigint | null) {
 
     const maxAmount = parseEther(maxAmountPerTrade);
 
-    writeContract({
+    await writeContractAsync({
       address: addresses.aiAgentINFT,
       abi: AIAgentINFTAbi,
       functionName: 'followAgent',
       args: [tokenId, maxAmount],
       chainId: ZEROG_CHAIN_ID,
     });
-  }, [tokenId, writeContract, addresses, ensureCorrectChain]);
+  }, [tokenId, writeContractAsync, addresses, ensureCorrectChain]);
 
   // Unfollow an agent
   const unfollow = useCallback(async () => {
@@ -143,14 +148,14 @@ export function useFollowAgent(tokenId: bigint | null) {
 
     await ensureCorrectChain();
 
-    writeContract({
+    await writeContractAsync({
       address: addresses.aiAgentINFT,
       abi: AIAgentINFTAbi,
       functionName: 'unfollowAgent',
       args: [tokenId],
       chainId: ZEROG_CHAIN_ID,
     });
-  }, [tokenId, writeContract, addresses, ensureCorrectChain]);
+  }, [tokenId, writeContractAsync, addresses, ensureCorrectChain]);
 
   // Update copy trade settings
   const updateSettings = useCallback(async (maxAmountPerTrade: string) => {
@@ -160,14 +165,14 @@ export function useFollowAgent(tokenId: bigint | null) {
 
     const maxAmount = parseEther(maxAmountPerTrade);
 
-    writeContract({
+    await writeContractAsync({
       address: addresses.aiAgentINFT,
       abi: AIAgentINFTAbi,
       functionName: 'updateCopyTradeConfig',
       args: [tokenId, maxAmount],
       chainId: ZEROG_CHAIN_ID,
     });
-  }, [tokenId, writeContract, addresses, ensureCorrectChain]);
+  }, [tokenId, writeContractAsync, addresses, ensureCorrectChain]);
 
   return {
     follow,
@@ -201,7 +206,7 @@ export function useUserFollowing() {
 
     try {
       setLoading(true);
-      const followingIds = await zeroGClient.readContract({
+      const followingIds = await getZeroGClient().readContract({
         address: addresses.aiAgentINFT,
         abi: AIAgentINFTAbi,
         functionName: 'getUserFollowing',
@@ -248,13 +253,13 @@ export function useAgentFollowers(tokenId: bigint | null) {
       setLoading(true);
 
       const [followerList, count] = await Promise.all([
-        zeroGClient.readContract({
+        getZeroGClient().readContract({
           address: addresses.aiAgentINFT,
           abi: AIAgentINFTAbi,
           functionName: 'getAgentFollowers',
           args: [tokenId],
         }) as Promise<Address[]>,
-        zeroGClient.readContract({
+        getZeroGClient().readContract({
           address: addresses.aiAgentINFT,
           abi: AIAgentINFTAbi,
           functionName: 'getFollowerCount',

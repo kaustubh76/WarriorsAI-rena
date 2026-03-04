@@ -55,7 +55,7 @@ interface UseProvidersReturn {
 /**
  * Hook for 0G AI inference
  */
-export function useZeroGInference(): UseInferenceReturn {
+export function useZeroGComputeInference(): UseInferenceReturn {
   const [result, setResult] = useState<InferenceResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -238,7 +238,7 @@ NOTE: "yes" = Warrior 1 wins, "no" = Warrior 2 wins
 /**
  * Hook for listing 0G AI providers
  */
-export function useZeroGProviders(): UseProvidersReturn {
+export function useZeroGComputeProviders(): UseProvidersReturn {
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -280,7 +280,7 @@ export function useZeroGProviders(): UseProvidersReturn {
 /**
  * Hook for checking 0G compute service status
  */
-export function useZeroGStatus() {
+export function useZeroGComputeStatus() {
   const [status, setStatus] = useState<{
     isHealthy: boolean;
     providerCount: number;
@@ -351,8 +351,8 @@ function parseJSONFromResponse(response: string): any {
 }
 
 export default {
-  useZeroGInference,
+  useZeroGComputeInference,
   useZeroGBattlePrediction,
-  useZeroGProviders,
-  useZeroGStatus
+  useZeroGComputeProviders,
+  useZeroGComputeStatus
 };

@@ -3,13 +3,14 @@
  * Fetches and manages external markets from Polymarket and Kalshi
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   UnifiedMarket,
   MarketSource,
   ExternalMarketStatus,
   MarketFilters,
   ExternalMarketsResponse,
+  ArbitrageOpportunity,
 } from '@/types/externalMarket';
 
 // ============================================
@@ -56,64 +57,89 @@ export function useExternalMarkets(
   const {
     autoRefresh = true,
     refreshInterval = 30000, // 30 seconds
-    ...filters
+    source,
+    status,
+    category,
+    search,
+    minVolume,
+    maxEndTime,
+    sortBy,
+    sortOrder,
+    page,
+    pageSize,
   } = options;
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Serialize filter values to a stable string to avoid infinite re-render
+  // from unstable rest-spread object references
+  const filterKey = useMemo(() =>
+    JSON.stringify({ source, status, category, search, minVolume, maxEndTime, sortBy, sortOrder, page, pageSize }),
+    [source, status, category, search, minVolume, maxEndTime, sortBy, sortOrder, page, pageSize]
+  );
 
   // Build query string from filters
   const buildQueryString = useCallback(() => {
     const params = new URLSearchParams();
 
-    if (filters.source) {
-      if (Array.isArray(filters.source)) {
-        params.set('source', filters.source.join(','));
+    if (source) {
+      if (Array.isArray(source)) {
+        params.set('source', source.join(','));
       } else {
-        params.set('source', filters.source);
+        params.set('source', source);
       }
     }
 
-    if (filters.status) {
-      params.set('status', filters.status);
+    if (status) {
+      params.set('status', status);
     }
 
-    if (filters.category) {
-      params.set('category', filters.category);
+    if (category) {
+      params.set('category', category);
     }
 
-    if (filters.search) {
-      params.set('search', filters.search);
+    if (search) {
+      params.set('search', search);
     }
 
-    if (filters.minVolume) {
-      params.set('minVolume', filters.minVolume);
+    if (minVolume) {
+      params.set('minVolume', minVolume);
     }
 
-    if (filters.maxEndTime) {
-      params.set('maxEndTime', filters.maxEndTime.toString());
+    if (maxEndTime) {
+      params.set('maxEndTime', maxEndTime.toString());
     }
 
-    if (filters.sortBy) {
-      params.set('sortBy', filters.sortBy);
+    if (sortBy) {
+      params.set('sortBy', sortBy);
     }
 
-    if (filters.sortOrder) {
-      params.set('sortOrder', filters.sortOrder);
+    if (sortOrder) {
+      params.set('sortOrder', sortOrder);
     }
 
-    if (filters.page) {
-      params.set('page', filters.page.toString());
+    if (page) {
+      params.set('page', page.toString());
     }
 
-    if (filters.pageSize) {
-      params.set('pageSize', filters.pageSize.toString());
+    if (pageSize) {
+      params.set('pageSize', pageSize.toString());
     }
 
     return params.toString();
-  }, [filters]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
+
+  // Abort controller ref for cancelling in-flight fetches on filter change
+  const abortRef = useRef<AbortController | null>(null);
 
   // Fetch markets
   const fetchMarkets = useCallback(async () => {
+    // Cancel any in-flight request to prevent stale data overwrites
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       setLoading(true);
       setError(null);
@@ -121,21 +147,33 @@ export function useExternalMarkets(
       const queryString = buildQueryString();
       const url = `/api/external/markets${queryString ? `?${queryString}` : ''}`;
 
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
       const data = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || 'Failed to fetch markets');
       }
 
-      setMarkets(data.data.markets);
-      setTotal(data.data.total);
-      setLastSync(data.data.lastSync);
+      // Only apply if this request wasn't aborted
+      if (!controller.signal.aborted) {
+        setMarkets(data.data.markets);
+        setTotal(data.data.total);
+        setLastSync(data.data.lastSync);
+      }
     } catch (err) {
+      // Ignore abort errors — they're expected when filters change rapidly
+      if ((err as Error).name === 'AbortError') return;
       console.error('[useExternalMarkets] Error:', err);
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [buildQueryString]);
 
@@ -150,6 +188,9 @@ export function useExternalMarkets(
         : '/api/external/sync';
 
       const response = await fetch(url, { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(`Sync failed: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       if (!data.success) {
@@ -166,9 +207,12 @@ export function useExternalMarkets(
     }
   }, [fetchMarkets]);
 
-  // Initial fetch
+  // Initial fetch + abort on unmount
   useEffect(() => {
     fetchMarkets();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [fetchMarkets]);
 
   // Auto refresh
@@ -217,14 +261,17 @@ export function useExternalMarket(id: string | null): UseExternalMarketReturn {
       setError(null);
 
       const response = await fetch(`/api/external/markets/${id}`);
+      if (response.status === 404) {
+        setMarket(null);
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(`Failed to fetch market: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       if (!data.success) {
-        if (response.status === 404) {
-          setMarket(null);
-        } else {
-          throw new Error(data.error || 'Failed to fetch market');
-        }
+        throw new Error(data.error || 'Failed to fetch market');
       } else {
         setMarket(data.data);
       }
@@ -306,6 +353,9 @@ export function useExternalMarketStats() {
       setError(null);
 
       const response = await fetch('/api/external/sync');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch stats: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       if (!data.success) {
@@ -338,7 +388,7 @@ export function useExternalMarketStats() {
 // ============================================
 
 export function useArbitrageOpportunities(minSpread: number = 5) {
-  const [opportunities, setOpportunities] = useState<unknown[]>([]);
+  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -348,6 +398,9 @@ export function useArbitrageOpportunities(minSpread: number = 5) {
       setError(null);
 
       const response = await fetch(`/api/external/arbitrage?minSpread=${minSpread}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch arbitrage opportunities: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       if (!data.success) {

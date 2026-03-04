@@ -78,6 +78,9 @@ export function useAILeaderboard(initialTimeRange: TimeRange = 'all', initialSor
       }
 
       const response = await fetch(`/api/leaderboard?${params}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch leaderboard: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       if (!data.success) {

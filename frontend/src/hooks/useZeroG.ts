@@ -149,6 +149,9 @@ export function useZeroGProviders() {
     try {
       setLoading(true);
       const response = await fetch('/api/0g/inference');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch providers: HTTP ${response.status}`);
+      }
       const data = await response.json();
 
       if (data.success && data.providers) {
@@ -220,11 +223,10 @@ export function useZeroGStorage() {
 
     try {
       const response = await fetch(`/api/0g/store?rootHash=${encodeURIComponent(rootHash)}`);
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || `Download failed: ${response.status}`);
+        throw new Error(`Download failed: HTTP ${response.status}`);
       }
+      const data = await response.json();
 
       return data;
     } catch (err) {
@@ -291,6 +293,9 @@ export function useZeroGQuery() {
 
     try {
       const response = await fetch(`/api/0g/query?type=analytics&warrior1Id=${warriorId}`);
+      if (!response.ok) {
+        throw new Error(`Analytics query failed: HTTP ${response.status}`);
+      }
       const data = await response.json();
       return data;
     } catch (err) {
@@ -308,6 +313,9 @@ export function useZeroGQuery() {
 
     try {
       const response = await fetch(`/api/0g/query?type=matchup&warrior1Id=${warrior1Id}&warrior2Id=${warrior2Id}`);
+      if (!response.ok) {
+        throw new Error(`Matchup query failed: HTTP ${response.status}`);
+      }
       const data = await response.json();
       return data;
     } catch (err) {
