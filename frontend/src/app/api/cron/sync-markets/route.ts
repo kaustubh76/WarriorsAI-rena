@@ -50,7 +50,11 @@ export const GET = composeMiddleware([
     // Run topic curation after sync
     let curation = { flagged: 0, unflagged: 0, totalActive: 0 };
     try {
-      curation = await curateTopics();
+      curation = await withCronTimeout(
+        curateTopics(),
+        10_000,
+        'Topic curation timed out'
+      );
       console.log('[Cron] Topic curation:', curation);
     } catch (curationError) {
       console.error('[Cron] Topic curation failed:', curationError);

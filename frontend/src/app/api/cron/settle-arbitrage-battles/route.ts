@@ -69,6 +69,7 @@ export const POST = composeMiddleware([
 
 // GET handler for health check / manual trigger in development
 export const GET = composeMiddleware([
+  withRateLimit({ prefix: 'cron-settle-arbitrage-get', ...RateLimitPresets.cronJobs }),
   withCronAuth({ allowDevBypass: true }),
   async (req, ctx) => {
     console.log('[Cron] Manual settlement trigger');
