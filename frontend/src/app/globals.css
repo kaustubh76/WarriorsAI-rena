@@ -2023,6 +2023,23 @@ body {
   }
 }
 
+/* Warrior Assistant — scale down on mobile */
+@media (max-width: 640px) {
+  .warrior-sprite {
+    width: 160px;
+    height: 160px;
+  }
+  .warrior-speech-bubble {
+    bottom: 110px;
+    left: 60px;
+    min-width: 150px;
+    max-width: 200px;
+  }
+  .speech-bubble-text {
+    font-size: 9px;
+  }
+}
+
 /* ===========================================
    GAMIFICATION ANIMATIONS
    =========================================== */

@@ -280,7 +280,7 @@ export default function CreateAgentPage() {
       <div className="container mx-auto px-4 max-w-2xl">
         {/* Back Link */}
         <Link href="/ai-agents" className="text-gray-400 hover:text-white mb-6 inline-block">
-          &lt; Back to Agents
+          ← Back to Agents
         </Link>
 
         <h1 className="text-3xl font-bold text-white mb-2">Create AI Agent</h1>

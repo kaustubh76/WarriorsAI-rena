@@ -40,6 +40,9 @@ export default function MirrorPortfolioPage() {
         setError(null);
 
         const response = await fetch(`/api/portfolio/mirror?address=${address}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
         const data = await response.json();
 
         if (!data.success) {

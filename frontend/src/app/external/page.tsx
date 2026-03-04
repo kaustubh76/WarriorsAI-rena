@@ -71,8 +71,10 @@ export default function ExternalMarketsPage() {
     pageSize,
   }), [sourceFilter, statusFilter, categoryFilter, searchQuery, sortBy, sortOrder, page]);
 
-  // Reset page when filters change
-  const resetFilters = () => setPage(1);
+  // Reset page to 1 when any filter changes (not page itself)
+  useEffect(() => {
+    setPage(1);
+  }, [sourceFilter, statusFilter, categoryFilter, searchQuery, sortBy, sortOrder]);
 
   // Fetch markets
   const { markets, loading, error, total, refetch, syncMarkets, syncing } = useExternalMarkets(filters);
@@ -84,6 +86,9 @@ export default function ExternalMarketsPage() {
       try {
         setArbitrageLoading(true);
         const response = await fetch('/api/external/arbitrage');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
         const data = await response.json();
 
         if (data.success && data.data?.opportunities) {
@@ -214,9 +219,9 @@ export default function ExternalMarketsPage() {
         </div>
 
         {/* Filters Row */}
-        <div className="flex flex-wrap items-center gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4 mb-6">
           {/* Search */}
-          <div className="flex-1 min-w-[200px] max-w-md">
+          <div className="w-full sm:flex-1 sm:min-w-[200px] sm:max-w-md">
             <input
               type="text"
               placeholder="Search markets..."

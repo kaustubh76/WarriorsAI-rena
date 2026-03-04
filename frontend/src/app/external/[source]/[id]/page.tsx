@@ -44,6 +44,9 @@ export default function ExternalMarketDetailPage() {
       try {
         setLoadingArbitrage(true);
         const response = await fetch('/api/external/arbitrage');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
         const data = await response.json();
 
         if (data.success && data.data?.opportunities) {
@@ -287,6 +290,7 @@ export default function ExternalMarketDetailPage() {
             )}
 
             {/* External Link */}
+            {market.sourceUrl && (
             <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
               <h2 className="text-lg font-semibold mb-4">Trade on {getSourceName(market.source)}</h2>
               <p className="text-gray-400 text-sm mb-4">
@@ -304,6 +308,7 @@ export default function ExternalMarketDetailPage() {
                 </svg>
               </a>
             </div>
+            )}
           </div>
 
           {/* Sidebar */}

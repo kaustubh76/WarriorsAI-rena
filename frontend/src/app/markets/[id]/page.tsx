@@ -334,7 +334,7 @@ export default function MarketDetailPage({ params }: PageProps) {
                   <p className="text-sm mt-2">Be the first to trade!</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+                <div className="space-y-3 max-h-[50vh] md:max-h-96 overflow-y-auto">
                   {activities.map((activity, index) => (
                     <ActivityItem key={`${activity.txHash}-${index}`} activity={activity} />
                   ))}

@@ -77,7 +77,7 @@ export default function DebatePage() {
       <div className="container mx-auto px-4">
         {/* Back Link */}
         <Link href="/markets" className="text-gray-400 hover:text-white mb-6 inline-block">
-          &lt; Back to Markets
+          ← Back to Markets
         </Link>
 
         {/* Header */}

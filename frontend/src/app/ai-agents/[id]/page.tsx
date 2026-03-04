@@ -117,7 +117,7 @@ export default function AgentProfilePage() {
       <div className="container mx-auto px-4">
         {/* Back Link */}
         <Link href="/ai-agents" className="text-gray-400 hover:text-white mb-6 inline-block">
-          &lt; Back to Agents
+          ← Back to Agents
         </Link>
 
         {/* Hero Section */}

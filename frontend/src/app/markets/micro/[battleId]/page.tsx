@@ -33,7 +33,7 @@ export default function MicroMarketsPage() {
       <div className="container mx-auto px-4">
         {/* Back Link */}
         <Link href="/battles" className="text-gray-400 hover:text-white mb-6 inline-block">
-          &lt; Back to Battles
+          ← Back to Battles
         </Link>
 
         {/* Header */}

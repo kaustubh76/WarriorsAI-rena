@@ -144,11 +144,11 @@ export function ExternalMarketCard({
           <div className="h-3 bg-gray-700 rounded-full overflow-hidden flex">
             <div
               className="bg-gradient-to-r from-green-500 to-green-400 transition-all duration-500"
-              style={{ width: `${market.yesPrice}%` }}
+              style={{ width: `${Math.min(market.yesPrice, 100)}%` }}
             />
             <div
               className="bg-gradient-to-r from-red-400 to-red-500 transition-all duration-500"
-              style={{ width: `${market.noPrice}%` }}
+              style={{ width: `${Math.min(market.noPrice, 100 - Math.min(market.yesPrice, 100))}%` }}
             />
           </div>
         </div>
