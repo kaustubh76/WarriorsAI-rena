@@ -97,7 +97,7 @@ export const ScheduledResolutionCard: React.FC<ScheduledResolutionCardProps> = (
 
   // Flow testnet explorer URL
   const getExplorerUrl = (txHash: string) => {
-    return `https://testnet.flowdiver.io/tx/${txHash}`;
+    return `https://evm-testnet.flowscan.io/tx/${txHash}`;
   };
 
   return (

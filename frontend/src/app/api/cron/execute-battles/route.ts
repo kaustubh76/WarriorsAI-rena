@@ -188,7 +188,7 @@ export const POST = composeMiddleware([
           status: 'success',
           transactionId,
           executionTimeMs: executionTime,
-          explorerUrl: `https://testnet.flowdiver.io/tx/${transactionId}`,
+          explorerUrl: `https://evm-testnet.flowscan.io/tx/${transactionId}`,
         });
 
         successCount++;

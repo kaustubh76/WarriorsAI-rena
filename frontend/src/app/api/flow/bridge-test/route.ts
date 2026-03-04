@@ -263,7 +263,7 @@ export const POST = composeMiddleware([
           name: 'Bridge + COA Setup',
           txId: setupTxId,
           status: setupResult.statusCode === 0 ? 'success' : 'failed',
-          explorerUrl: `https://testnet.flowdiver.io/tx/${setupTxId}`,
+          explorerUrl: `https://evm-testnet.flowscan.io/tx/${setupTxId}`,
           durationMs: Date.now() - step1Start,
           events: setupResult.events?.map((e: any) => ({
             type: e.type,
@@ -339,7 +339,7 @@ export const POST = composeMiddleware([
           name: 'Get COA Address',
           txId: addrTxId,
           coaAddress: coaAddress || '(check explorer for logs)',
-          explorerUrl: `https://testnet.flowdiver.io/tx/${addrTxId}`,
+          explorerUrl: `https://evm-testnet.flowscan.io/tx/${addrTxId}`,
           durationMs: Date.now() - step2Start,
         });
       } catch (error: any) {
@@ -427,7 +427,7 @@ export const POST = composeMiddleware([
         target: CROWN_TOKEN_EVM,
         functionSignature: 'name()',
         status: scheduleTxResult.statusCode === 0 ? 'success' : 'failed',
-        explorerUrl: `https://testnet.flowdiver.io/tx/${scheduledTxId}`,
+        explorerUrl: `https://evm-testnet.flowscan.io/tx/${scheduledTxId}`,
         durationMs: Date.now() - step3Start,
       });
 
@@ -490,7 +490,7 @@ export const POST = composeMiddleware([
         callId: scheduledCallId,
         evmCallSuccess,
         status: executeResult.statusCode === 0 ? 'success' : 'failed',
-        explorerUrl: `https://testnet.flowdiver.io/tx/${executeTxId}`,
+        explorerUrl: `https://evm-testnet.flowscan.io/tx/${executeTxId}`,
         durationMs: Date.now() - step4Start,
         events: executeResult.events?.map((e: any) => ({
           type: e.type,

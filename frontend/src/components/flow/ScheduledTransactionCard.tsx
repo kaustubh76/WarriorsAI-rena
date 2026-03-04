@@ -197,7 +197,7 @@ export function ScheduledTransactionCard({
           </span>
           {battle.transactionId && (
             <Link
-              href={`https://testnet.flowdiver.io/tx/${battle.transactionId}`}
+              href={`https://evm-testnet.flowscan.io/tx/${battle.transactionId}`}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-purple-400 transition-colors"

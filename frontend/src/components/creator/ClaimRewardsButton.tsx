@@ -91,7 +91,7 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
             <span className="font-medium">Rewards claimed successfully!</span>
           </div>
           <a
-            href={`https://testnet.flowscan.io/tx/${txHash}`}
+            href={`https://evm-testnet.flowscan.io/tx/${txHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-green-400/70 hover:text-green-400 mt-2 block"

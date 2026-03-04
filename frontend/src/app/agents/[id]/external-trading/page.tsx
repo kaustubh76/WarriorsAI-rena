@@ -276,7 +276,7 @@ export default function AgentExternalTradingPage({
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-gray-700">
                   <a
-                    href={`https://flowscan.io/tx/${trade.txHash}`}
+                    href={`https://evm-testnet.flowscan.io/tx/${trade.txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-400 hover:text-blue-300 text-sm"

@@ -42,7 +42,7 @@ export const ResolutionDetailsModal: React.FC<ResolutionDetailsModalProps> = ({
   if (!isOpen) return null;
 
   const getExplorerUrl = (txHash: string) => {
-    return `https://testnet.flowdiver.io/tx/${txHash}`;
+    return `https://evm-testnet.flowscan.io/tx/${txHash}`;
   };
 
   return (
