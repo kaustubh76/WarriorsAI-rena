@@ -98,7 +98,7 @@ export const POST = composeMiddleware([
         id: follow.id,
         userAddress: follow.userAddress,
         whaleAddress: follow.whaleAddress,
-        config: JSON.parse(follow.config),
+        config: (() => { try { return JSON.parse(follow.config); } catch { return {}; } })(),
         isActive: follow.isActive,
         createdAt: follow.createdAt.toISOString(),
       },

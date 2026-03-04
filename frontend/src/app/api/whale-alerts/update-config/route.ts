@@ -66,7 +66,12 @@ export const POST = composeMiddleware([
     }
 
     // Merge existing config with new config
-    const existingConfig = JSON.parse(existingFollow.config);
+    let existingConfig: Record<string, unknown> = {};
+    try {
+      existingConfig = JSON.parse(existingFollow.config);
+    } catch {
+      console.warn('[WhaleUpdateConfig] Corrupt config, starting fresh');
+    }
     const mergedConfig = {
       ...existingConfig,
       ...config,

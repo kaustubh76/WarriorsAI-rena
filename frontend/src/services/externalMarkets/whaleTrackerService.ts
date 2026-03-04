@@ -17,7 +17,7 @@ import {
   MarketSource,
   TrackedTrader,
 } from '@/types/externalMarket';
-import { parseEther } from 'viem';
+import { parseUnits } from 'viem';
 import { monitoredCall, externalMarketMonitor } from './monitoring';
 import { polymarketWS } from './polymarketWebSocket';
 import { kalshiWS } from './kalshiWebSocket';
@@ -210,7 +210,12 @@ class WhaleTrackerService {
       promises.push(this.pollKalshi());
     }
 
-    await Promise.all(promises);
+    const results = await Promise.allSettled(promises);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('[WhaleTracker] Poll source error:', result.reason);
+      }
+    }
   }
 
   /**
@@ -220,6 +225,7 @@ class WhaleTrackerService {
     try {
       const markets = await polymarketService.getActiveMarkets(50);
       const lastChecked = this.lastCheckedTimestamp.get('polymarket') || 0;
+      let maxTradeTimestamp = lastChecked;
 
       for (const market of markets) {
         const yesTokenId = polymarketService.getYesTokenId(market);
@@ -236,11 +242,16 @@ class WhaleTrackerService {
           if (trade.timestamp > lastChecked) {
             this.emitAlert(trade);
             await this.saveTrade(trade);
+            if (trade.timestamp > maxTradeTimestamp) {
+              maxTradeTimestamp = trade.timestamp;
+            }
           }
         }
       }
 
-      this.lastCheckedTimestamp.set('polymarket', Date.now());
+      // Use the latest trade timestamp (not Date.now()) to avoid skipping
+      // trades that arrived during the polling window
+      this.lastCheckedTimestamp.set('polymarket', maxTradeTimestamp || Date.now());
     } catch (error) {
       console.error('[WhaleTracker] Polymarket polling error:', error);
     }
@@ -253,6 +264,7 @@ class WhaleTrackerService {
     try {
       const { markets } = await kalshiService.getMarkets('open', 50);
       const lastChecked = this.lastCheckedTimestamp.get('kalshi') || 0;
+      let maxTradeTimestamp = lastChecked;
 
       for (const market of markets) {
         const whaleTrades = await kalshiService.detectWhaleTrades(
@@ -266,11 +278,14 @@ class WhaleTrackerService {
           if (trade.timestamp > lastChecked) {
             this.emitAlert(trade);
             await this.saveTrade(trade);
+            if (trade.timestamp > maxTradeTimestamp) {
+              maxTradeTimestamp = trade.timestamp;
+            }
           }
         }
       }
 
-      this.lastCheckedTimestamp.set('kalshi', Date.now());
+      this.lastCheckedTimestamp.set('kalshi', maxTradeTimestamp || Date.now());
     } catch (error) {
       console.error('[WhaleTracker] Kalshi polling error:', error);
     }
@@ -283,6 +298,7 @@ class WhaleTrackerService {
     let count = 0;
     const markets = await polymarketService.getActiveMarkets(50);
     const lastChecked = this.lastCheckedTimestamp.get('polymarket') || 0;
+    let maxTradeTimestamp = lastChecked;
 
     for (const market of markets) {
       const yesTokenId = polymarketService.getYesTokenId(market);
@@ -299,11 +315,14 @@ class WhaleTrackerService {
           this.emitAlert(trade);
           await this.saveTrade(trade);
           count++;
+          if (trade.timestamp > maxTradeTimestamp) {
+            maxTradeTimestamp = trade.timestamp;
+          }
         }
       }
     }
 
-    this.lastCheckedTimestamp.set('polymarket', Date.now());
+    this.lastCheckedTimestamp.set('polymarket', maxTradeTimestamp || Date.now());
     return count;
   }
 
@@ -314,6 +333,7 @@ class WhaleTrackerService {
     let count = 0;
     const { markets } = await kalshiService.getMarkets('open', 50);
     const lastChecked = this.lastCheckedTimestamp.get('kalshi') || 0;
+    let maxTradeTimestamp = lastChecked;
 
     for (const market of markets) {
       const whaleTrades = await kalshiService.detectWhaleTrades(
@@ -327,11 +347,14 @@ class WhaleTrackerService {
           this.emitAlert(trade);
           await this.saveTrade(trade);
           count++;
+          if (trade.timestamp > maxTradeTimestamp) {
+            maxTradeTimestamp = trade.timestamp;
+          }
         }
       }
     }
 
-    this.lastCheckedTimestamp.set('kalshi', Date.now());
+    this.lastCheckedTimestamp.set('kalshi', maxTradeTimestamp || Date.now());
     return count;
   }
 
@@ -572,17 +595,24 @@ class WhaleTrackerService {
       // Execute copy trades for each follower
       const copyPromises = followers.map(async (follow) => {
         try {
-          const config = follow.config as unknown as WhaleFollowConfig;
+          let config: WhaleFollowConfig;
+          try {
+            const parsed = typeof follow.config === 'string' ? JSON.parse(follow.config) : follow.config;
+            config = parsed as WhaleFollowConfig;
+          } catch {
+            console.warn(`[WhaleTracker] Invalid config for follower ${follow.userAddress}, skipping`);
+            return;
+          }
 
           // Check if source is enabled
-          if (!config.enabledSources.includes(whaleTrade.source)) {
+          if (!config.enabledSources || !config.enabledSources.includes(whaleTrade.source)) {
             return;
           }
 
           const copyAmount = this.calculateCopyAmount(
             whaleTrade.amountUsd,
-            config.maxCopyAmount,
-            config.copyPercentage
+            config.maxCopyAmount || '100',
+            config.copyPercentage || 10
           );
 
           // Execute VRF-protected copy trade
@@ -628,7 +658,8 @@ class WhaleTrackerService {
     marketId: string
   ): Promise<string | null> {
     try {
-      const response = await fetchWithTimeout('/api/flow/execute', {
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+      const response = await fetchWithTimeout(`${baseUrl}/api/flow/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -656,14 +687,18 @@ class WhaleTrackerService {
     maxCopyAmount: string,
     copyPercentage: number
   ): bigint {
-    // Calculate proportional amount
-    const proportionalAmount = (whaleAmountUsd * copyPercentage) / 100;
+    // Validate input — guard against NaN from string coercion
+    const parsedWhaleAmount = typeof whaleAmountUsd === 'string'
+      ? parseFloat(whaleAmountUsd) : whaleAmountUsd;
+    if (isNaN(parsedWhaleAmount) || parsedWhaleAmount <= 0) return 0n;
 
-    // Parse max amount
-    const maxAmountBigInt = parseEther(maxCopyAmount);
+    // Calculate proportional amount in USD
+    const proportionalAmount = (parsedWhaleAmount * copyPercentage) / 100;
 
-    // Use the smaller of proportional or max
-    const proportionalBigInt = parseEther(proportionalAmount.toString());
+    // CRwN token uses 18 decimals — parseUnits converts USD string to token units
+    // Use toFixed to avoid scientific notation from large/small floats
+    const maxAmountBigInt = parseUnits(maxCopyAmount, 18);
+    const proportionalBigInt = parseUnits(proportionalAmount.toFixed(18), 18);
 
     return proportionalBigInt < maxAmountBigInt ? proportionalBigInt : maxAmountBigInt;
   }
@@ -677,7 +712,8 @@ class WhaleTrackerService {
     isYes: boolean,
     amount: bigint
   ): Promise<string> {
-    const response = await fetchWithTimeout('/api/flow/execute', {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const response = await fetchWithTimeout(`${baseUrl}/api/flow/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -784,7 +820,7 @@ class WhaleTrackerService {
 
     return follows.map((f) => ({
       address: f.whaleAddress,
-      config: f.config as unknown as WhaleFollowConfig,
+      config: (() => { try { const p = typeof f.config === 'string' ? JSON.parse(f.config) : f.config; return p as WhaleFollowConfig; } catch { return { maxCopyAmount: '100', copyPercentage: 10, enabledSources: [], autoMirror: false } as WhaleFollowConfig; } })(),
       followedAt: f.createdAt.getTime(),
     }));
   }

@@ -77,7 +77,7 @@ export const GET = composeMiddleware([
       return {
         id: follow.id,
         whaleAddress: follow.whaleAddress,
-        config: JSON.parse(follow.config),
+        config: (() => { try { return JSON.parse(follow.config); } catch { return {}; } })(),
         isActive: follow.isActive,
         createdAt: follow.createdAt.toISOString(),
         updatedAt: follow.updatedAt.toISOString(),
