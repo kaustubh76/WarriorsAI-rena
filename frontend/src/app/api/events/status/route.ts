@@ -45,7 +45,7 @@ export const GET = composeMiddleware([
         orderBy: { timestamp: 'desc' },
         select: {
           mirrorKey: true,
-          trader: true,
+          traderAddress: true,
           isYes: true,
           amount: true,
           txHash: true,
@@ -54,7 +54,7 @@ export const GET = composeMiddleware([
         },
       }),
       prisma.mirrorMarket.aggregate({
-        _sum: { totalVolume: true },
+        _sum: { tradeCount: true },
       }),
       prisma.mirrorMarket.count({
         where: { resolved: true },
@@ -82,15 +82,15 @@ export const GET = composeMiddleware([
         totalTrades,
         resolvedMarkets,
         activeMarkets: totalMarkets - resolvedMarkets,
-        totalVolume: totalVolume._sum.totalVolume || '0',
+        totalTradeCount: totalVolume._sum.tradeCount || 0,
       },
       recentActivity: recentTrades.map(trade => ({
-        mirrorKey: trade.mirrorKey.slice(0, 10) + '...',
-        trader: trade.trader.slice(0, 10) + '...',
+        mirrorKey: (trade.mirrorKey || '').slice(0, 10) + '...',
+        trader: (trade.traderAddress || '').slice(0, 10) + '...',
         direction: trade.isYes ? 'YES' : 'NO',
         amount: trade.amount,
         blockNumber: trade.blockNumber,
-        txHash: trade.txHash.slice(0, 10) + '...',
+        txHash: (trade.txHash || '').slice(0, 10) + '...',
         timestamp: trade.timestamp.toISOString(),
       })),
       health: {

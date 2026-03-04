@@ -16,7 +16,7 @@ export const GET = composeMiddleware([
   async (req, ctx) => {
     const searchParams = req.nextUrl.searchParams;
     const mirrorKey = searchParams.get('mirrorKey');
-    const limit = parseInt(searchParams.get('limit') || '100');
+    const limit = Math.max(parseInt(searchParams.get('limit') || '100') || 100, 1);
 
     // Build where clause
     const where = mirrorKey ? { mirrorKey } : {};
@@ -28,31 +28,28 @@ export const GET = composeMiddleware([
       take: Math.min(limit, 500), // Cap at 500
     });
 
-    // For each sync event, get the mirror market details
-    const eventsWithMarketInfo = await Promise.all(
-      syncEvents.map(async (event) => {
-        const mirrorMarket = await prisma.mirrorMarket.findUnique({
-          where: { mirrorKey: event.mirrorKey },
-          select: {
-            question: true,
-            source: true,
-            externalId: true,
-          },
-        });
+    // Batch-fetch mirror market details (avoids N+1 queries)
+    const uniqueKeys = [...new Set(syncEvents.map((e) => e.mirrorKey))];
+    const mirrorMarkets = await prisma.mirrorMarket.findMany({
+      where: { mirrorKey: { in: uniqueKeys } },
+      select: { mirrorKey: true, question: true, source: true, externalId: true },
+    });
+    const marketMap = new Map(mirrorMarkets.map((m) => [m.mirrorKey, m]));
 
-        return {
-          id: event.id,
-          mirrorKey: event.mirrorKey,
-          marketQuestion: mirrorMarket?.question || 'Unknown Market',
-          source: mirrorMarket?.source || 'unknown',
-          externalId: mirrorMarket?.externalId || '',
-          oldPrice: event.oldPrice,
-          newPrice: event.newPrice,
-          priceDifference: Math.abs(event.newPrice - event.oldPrice),
-          timestamp: event.syncedAt.toISOString(),
-        };
-      })
-    );
+    const eventsWithMarketInfo = syncEvents.map((event) => {
+      const mirrorMarket = marketMap.get(event.mirrorKey);
+      return {
+        id: event.id,
+        mirrorKey: event.mirrorKey,
+        marketQuestion: mirrorMarket?.question || 'Unknown Market',
+        source: mirrorMarket?.source || 'unknown',
+        externalId: mirrorMarket?.externalId || '',
+        oldPrice: event.oldPrice,
+        newPrice: event.newPrice,
+        priceDifference: Math.abs(event.newPrice - event.oldPrice),
+        timestamp: event.syncedAt.toISOString(),
+      };
+    });
 
     return NextResponse.json({
       success: true,
