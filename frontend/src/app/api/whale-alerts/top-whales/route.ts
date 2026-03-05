@@ -57,7 +57,7 @@ export const GET = composeMiddleware([
 
         const key = `${trade.traderAddress}-${trade.source}`;
         const existing = traderMap.get(key);
-        const amount = parseFloat(trade.amountUsd);
+        const amount = parseFloat(trade.amountUsd) || 0;
 
         if (existing) {
           existing.volume += amount;

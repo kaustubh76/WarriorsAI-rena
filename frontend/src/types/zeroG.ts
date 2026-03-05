@@ -389,11 +389,15 @@ export function serializeBattleData(data: BattleDataIndex): string {
  * Deserialize battle data from JSON
  */
 export function deserializeBattleData(json: string): BattleDataIndex {
-  return JSON.parse(json, (key, value) => {
-    // Convert known bigint fields back
-    if (['battleId', 'id', 'warriorId', 'totalVolume', 'marketId'].includes(key) && typeof value === 'string') {
-      return BigInt(value);
-    }
-    return value;
-  });
+  try {
+    return JSON.parse(json, (key, value) => {
+      // Convert known bigint fields back
+      if (['battleId', 'id', 'warriorId', 'totalVolume', 'marketId'].includes(key) && typeof value === 'string') {
+        return BigInt(value);
+      }
+      return value;
+    });
+  } catch {
+    throw new Error('Failed to deserialize battle data: invalid JSON');
+  }
 }

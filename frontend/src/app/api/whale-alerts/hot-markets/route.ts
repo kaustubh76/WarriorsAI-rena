@@ -55,7 +55,7 @@ export const GET = composeMiddleware([
 
       for (const trade of trades) {
         const existing = marketMap.get(trade.marketId);
-        const amount = parseFloat(trade.amountUsd);
+        const amount = parseFloat(trade.amountUsd) || 0;
 
         if (existing) {
           existing.tradeCount += 1;

@@ -35,7 +35,8 @@ export const POST = composeMiddleware([
     }
 
     // Calculate fee (2% of trade volume by default)
-    const calculatedFee = feeAmount ? parseFloat(feeAmount) : volume * 0.02;
+    const parsedFee = feeAmount ? parseFloat(feeAmount) : NaN;
+    const calculatedFee = isNaN(parsedFee) ? volume * 0.02 : parsedFee;
 
     // Check if creator exists
     let creator = await prisma.creator.findUnique({

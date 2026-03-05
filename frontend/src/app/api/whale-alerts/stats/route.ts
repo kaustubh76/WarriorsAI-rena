@@ -54,7 +54,7 @@ export const GET = composeMiddleware([
 
       // Calculate current 24h stats
       const totalVolume24h = trades24h.reduce(
-        (sum, t) => sum + parseFloat(t.amountUsd),
+        (sum, t) => sum + (parseFloat(t.amountUsd) || 0),
         0
       );
       const tradeCount24h = trades24h.length;
@@ -62,7 +62,7 @@ export const GET = composeMiddleware([
 
       // Calculate previous 24h stats for change comparison
       const prevVolume = tradesPrev24h.reduce(
-        (sum, t) => sum + parseFloat(t.amountUsd),
+        (sum, t) => sum + (parseFloat(t.amountUsd) || 0),
         0
       );
       const prevTradeCount = tradesPrev24h.length;

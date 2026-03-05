@@ -23,7 +23,8 @@ export const GET = composeMiddleware([
     logger.start();
 
     const { searchParams } = new URL(req.url);
-    const windowMs = parseInt(searchParams.get('window') || '300000'); // 5 min default
+    const rawWindow = parseInt(searchParams.get('window') || '300000');
+    const windowMs = isNaN(rawWindow) ? 300000 : rawWindow; // 5 min default
     const includeDetails = searchParams.get('details') === 'true';
 
     // Get aggregated metrics

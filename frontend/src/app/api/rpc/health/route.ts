@@ -51,7 +51,11 @@ async function testRPCEndpoint(url: string): Promise<RPCHealthResult> {
       ),
     ]);
 
-    const chainIdData = await (chainIdResponse as Response).json();
+    const chainIdRes = chainIdResponse as Response;
+    if (!chainIdRes.ok) {
+      throw new Error(`eth_chainId failed: HTTP ${chainIdRes.status}`);
+    }
+    const chainIdData = await chainIdRes.json();
     const chainId = chainIdData.result;
 
     // Test eth_blockNumber
@@ -66,6 +70,9 @@ async function testRPCEndpoint(url: string): Promise<RPCHealthResult> {
       }),
     });
 
+    if (!blockResponse.ok) {
+      throw new Error(`eth_blockNumber failed: HTTP ${blockResponse.status}`);
+    }
     const blockData = await blockResponse.json();
     const blockNumber = blockData.result;
 

@@ -180,11 +180,11 @@ export default function CreateArbitrageBattleModal({
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create arbitrage battle');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to create arbitrage battle');
       }
+      const data = await response.json();
 
       showSuccess('Arbitrage battle created successfully!');
       onSuccess(data.battle.id);
