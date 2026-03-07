@@ -41,15 +41,15 @@ export async function getUserExposure(userId: string): Promise<{
     },
   });
 
-  // Sum up exposure: amount × entryPrice gives approximate USD value
-  // amount is BigInt in CRwN, entryPrice is 0-100%
+  // Sum up exposure: (amount in CRwN tokens) × (entryPrice / 100) ≈ USD value
+  // amount is BigInt in CRwN wei (18 decimals), entryPrice is 0-100%
   let totalExposure = 0;
   for (const bet of openBets) {
-    // Convert BigInt amount to number (safe for reasonable trade sizes)
-    const amountNum = Number(bet.amount);
-    if (!isNaN(amountNum) && isFinite(amountNum)) {
-      // entryPrice is 0-100 (percentage)
-      totalExposure += amountNum / 1e18; // Convert from wei to tokens
+    const amountTokens = Number(bet.amount) / 1e18; // Convert wei → tokens
+    if (!isNaN(amountTokens) && isFinite(amountTokens)) {
+      // Approximate USD: tokens × (entryPrice as fraction)
+      const usdValue = amountTokens * (bet.entryPrice / 100);
+      totalExposure += usdValue;
     }
   }
 
@@ -65,9 +65,9 @@ export async function getUserExposure(userId: string): Promise<{
   });
 
   for (const arb of openArbs) {
-    const amount = Number(arb.investmentAmount);
-    if (!isNaN(amount) && isFinite(amount)) {
-      totalExposure += amount / 1e18;
+    const amountTokens = Number(arb.investmentAmount) / 1e18;
+    if (!isNaN(amountTokens) && isFinite(amountTokens)) {
+      totalExposure += amountTokens;
     }
   }
 
