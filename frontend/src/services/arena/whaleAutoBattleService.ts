@@ -93,6 +93,8 @@ export async function createWhaleTriggeredBattle(
     endTime: market.endTime.toISOString(),
     category: market.category ?? undefined,
     source: market.source as MarketSource,
+    isTrending: market.isTrending,
+    trendingReason: market.trendingReason ?? undefined,
   };
 
   // 6. Optional: pre-generate AI debate strategies via 0G (non-blocking, 5s timeout)

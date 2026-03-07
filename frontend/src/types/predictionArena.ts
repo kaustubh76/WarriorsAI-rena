@@ -164,6 +164,9 @@ export interface RealMarketData {
   crossPlatformPrice?: number;  // Other platform's YES price (0-100)
   crossPlatformSource?: string;
   spread?: number;              // Absolute price difference between platforms
+  // Trending context (from topic system)
+  isTrending?: boolean;
+  trendingReason?: string;
 }
 
 export interface DebateContext {

@@ -37,6 +37,8 @@ export async function fetchMarketDataForBattle(
       endTime: externalMarket.endTime.toISOString(),
       category: externalMarket.category ?? undefined,
       source: source as MarketSource,
+      isTrending: externalMarket.isTrending,
+      trendingReason: externalMarket.trendingReason ?? undefined,
     };
 
     // For arbitrage battles, fetch explicit cross-platform data

@@ -277,6 +277,20 @@ function buildContextEvidence(
   question: string,
   qualityBonus: number,
 ): DebateEvidence {
+  // If this is a trending topic, use the trending reason as expert context
+  if (md.isTrending && md.trendingReason) {
+    return {
+      type: 'expert',
+      source: 'Trending Topic Intelligence',
+      title: `Trending: ${md.trendingReason}`,
+      snippet: side === 'yes'
+        ? `This is a trending topic — ${md.trendingReason}. When expert forecasters disagree this strongly, it signals genuine uncertainty, and the YES thesis may be underpriced.`
+        : `This is a trending topic — ${md.trendingReason}. Cross-platform disagreement among expert forecasters suggests the market is overly confident in YES, favoring the NO position.`,
+      relevance: Math.round(72 + qualityBonus + Math.random() * 10),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   const keywords = question.split(' ').filter(w => w.length > 4).slice(0, 3).join(' ');
   const category = md.category || 'General';
 
