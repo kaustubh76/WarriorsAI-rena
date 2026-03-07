@@ -26,34 +26,51 @@ export const GET = composeMiddleware([
       return NextResponse.json(cached);
     }
 
-    const where = includeSubcategories ? {} : { subcategory: null };
+    try {
+      const where = includeSubcategories ? {} : { subcategory: null };
 
-    const aggregates = await prisma.topicAggregate.findMany({
-      where,
-      orderBy: { marketCount: 'desc' },
-    });
+      const aggregates = await prisma.topicAggregate.findMany({
+        where,
+        orderBy: { marketCount: 'desc' },
+      });
 
-    const categories = aggregates.map((agg) => ({
-      category: agg.category,
-      subcategory: agg.subcategory,
-      marketCount: agg.marketCount,
-      activeBattles: agg.activeBattles,
-      totalVolume: agg.totalVolume,
-      avgBattleScore: agg.avgBattleScore,
-      topMarketIds: JSON.parse(agg.topMarketIds) as string[],
-      updatedAt: agg.updatedAt.toISOString(),
-    }));
+      const categories = aggregates.map((agg) => {
+        let topMarketIds: string[] = [];
+        try {
+          topMarketIds = JSON.parse(agg.topMarketIds) as string[];
+        } catch {
+          // Malformed JSON — return empty array
+        }
 
-    const response = {
-      success: true,
-      categories,
-      total: categories.length,
-      timestamp: new Date().toISOString(),
-    };
+        return {
+          category: agg.category,
+          subcategory: agg.subcategory,
+          marketCount: agg.marketCount,
+          activeBattles: agg.activeBattles,
+          totalVolume: agg.totalVolume,
+          avgBattleScore: agg.avgBattleScore,
+          topMarketIds,
+          updatedAt: agg.updatedAt.toISOString(),
+        };
+      });
 
-    // Cache for 5 minutes
-    marketDataCache.set(cacheKey, response, 5 * 60 * 1000);
+      const response = {
+        success: true,
+        categories,
+        total: categories.length,
+        timestamp: new Date().toISOString(),
+      };
 
-    return NextResponse.json(response);
+      // Cache for 5 minutes
+      marketDataCache.set(cacheKey, response, 5 * 60 * 1000);
+
+      return NextResponse.json(response);
+    } catch (err) {
+      console.error('[/api/topics] Error:', err);
+      return NextResponse.json(
+        { success: false, error: 'Failed to fetch topic categories' },
+        { status: 500 }
+      );
+    }
   },
 ]);

@@ -31,45 +31,53 @@ export const GET = composeMiddleware([
       return NextResponse.json(cached);
     }
 
-    const [entries, total] = await Promise.all([
-      prisma.userTopicStats.findMany({
-        where: { category, predictions: { gt: 0 } },
-        orderBy: [{ correct: 'desc' }, { currentStreak: 'desc' }],
-        skip: offset,
-        take: limit,
-      }),
-      prisma.userTopicStats.count({
-        where: { category, predictions: { gt: 0 } },
-      }),
-    ]);
+    try {
+      const [entries, total] = await Promise.all([
+        prisma.userTopicStats.findMany({
+          where: { category, predictions: { gt: 0 } },
+          orderBy: [{ correct: 'desc' }, { currentStreak: 'desc' }],
+          skip: offset,
+          take: limit,
+        }),
+        prisma.userTopicStats.count({
+          where: { category, predictions: { gt: 0 } },
+        }),
+      ]);
 
-    const leaderboard = entries.map((entry, index) => ({
-      rank: offset + index + 1,
-      userId: entry.userId,
-      predictions: entry.predictions,
-      correct: entry.correct,
-      accuracy: entry.predictions > 0
-        ? Math.round((entry.correct / entry.predictions) * 10000) / 100
-        : 0,
-      currentStreak: entry.currentStreak,
-      longestStreak: entry.longestStreak,
-      earnings: entry.earnings,
-      badge: entry.badge,
-    }));
+      const leaderboard = entries.map((entry, index) => ({
+        rank: offset + index + 1,
+        userId: entry.userId,
+        predictions: entry.predictions,
+        correct: entry.correct,
+        accuracy: entry.predictions > 0
+          ? Math.round((entry.correct / entry.predictions) * 10000) / 100
+          : 0,
+        currentStreak: entry.currentStreak,
+        longestStreak: entry.longestStreak,
+        earnings: entry.earnings,
+        badge: entry.badge,
+      }));
 
-    const response = {
-      success: true,
-      category,
-      leaderboard,
-      total,
-      limit,
-      offset,
-      timestamp: new Date().toISOString(),
-    };
+      const response = {
+        success: true,
+        category,
+        leaderboard,
+        total,
+        limit,
+        offset,
+        timestamp: new Date().toISOString(),
+      };
 
-    // Cache for 5 minutes
-    marketDataCache.set(cacheKey, response, 5 * 60 * 1000);
+      // Cache for 5 minutes
+      marketDataCache.set(cacheKey, response, 5 * 60 * 1000);
 
-    return NextResponse.json(response);
+      return NextResponse.json(response);
+    } catch (err) {
+      console.error(`[/api/topics/${category}/leaderboard] Error:`, err);
+      return NextResponse.json(
+        { success: false, error: 'Failed to fetch leaderboard' },
+        { status: 500 }
+      );
+    }
   },
 ]);

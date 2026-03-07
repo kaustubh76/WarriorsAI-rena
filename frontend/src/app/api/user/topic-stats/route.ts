@@ -32,64 +32,72 @@ export const GET = composeMiddleware([
       );
     }
 
-    const stats = await prisma.userTopicStats.findMany({
-      where: { userId },
-      orderBy: { correct: 'desc' },
-    });
+    try {
+      const stats = await prisma.userTopicStats.findMany({
+        where: { userId },
+        orderBy: { correct: 'desc' },
+      });
 
-    const badgeUpdates: Promise<unknown>[] = [];
+      const badgeUpdates: Promise<unknown>[] = [];
 
-    const categoryStats = stats.map((entry) => {
-      const computedBadge = computeBadge(entry.correct);
+      const categoryStats = stats.map((entry) => {
+        const computedBadge = computeBadge(entry.correct);
 
-      // Persist badge if it changed
-      if (computedBadge !== entry.badge) {
-        badgeUpdates.push(
-          prisma.userTopicStats.update({
-            where: { id: entry.id },
-            data: { badge: computedBadge },
-          })
-        );
+        // Persist badge if it changed
+        if (computedBadge !== entry.badge) {
+          badgeUpdates.push(
+            prisma.userTopicStats.update({
+              where: { id: entry.id },
+              data: { badge: computedBadge },
+            })
+          );
+        }
+
+        return {
+          category: entry.category,
+          predictions: entry.predictions,
+          correct: entry.correct,
+          accuracy: entry.predictions > 0
+            ? Math.round((entry.correct / entry.predictions) * 10000) / 100
+            : 0,
+          currentStreak: entry.currentStreak,
+          longestStreak: entry.longestStreak,
+          earnings: entry.earnings,
+          badge: computedBadge,
+        };
+      });
+
+      // Fire badge updates in background (non-blocking)
+      if (badgeUpdates.length > 0) {
+        Promise.all(badgeUpdates).catch(() => {});
       }
 
-      return {
-        category: entry.category,
-        predictions: entry.predictions,
-        correct: entry.correct,
-        accuracy: entry.predictions > 0
-          ? Math.round((entry.correct / entry.predictions) * 10000) / 100
-          : 0,
-        currentStreak: entry.currentStreak,
-        longestStreak: entry.longestStreak,
-        earnings: entry.earnings,
-        badge: computedBadge,
-      };
-    });
+      // Compute overall stats
+      const totalPredictions = categoryStats.reduce((s, c) => s + c.predictions, 0);
+      const totalCorrect = categoryStats.reduce((s, c) => s + c.correct, 0);
+      const bestStreak = categoryStats.reduce((s, c) => Math.max(s, c.longestStreak), 0);
 
-    // Fire badge updates in background (non-blocking)
-    if (badgeUpdates.length > 0) {
-      Promise.all(badgeUpdates).catch(() => {});
+      return NextResponse.json({
+        success: true,
+        userId,
+        overall: {
+          totalPredictions,
+          totalCorrect,
+          accuracy: totalPredictions > 0
+            ? Math.round((totalCorrect / totalPredictions) * 10000) / 100
+            : 0,
+          bestStreak,
+          categoriesActive: categoryStats.length,
+        },
+        categories: categoryStats,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[/api/user/topic-stats] Error:', err);
+      return NextResponse.json(
+        { success: false, error: 'Failed to fetch topic stats' },
+        { status: 500 }
+      );
     }
-
-    // Compute overall stats
-    const totalPredictions = categoryStats.reduce((s, c) => s + c.predictions, 0);
-    const totalCorrect = categoryStats.reduce((s, c) => s + c.correct, 0);
-    const bestStreak = categoryStats.reduce((s, c) => Math.max(s, c.longestStreak), 0);
-
-    return NextResponse.json({
-      success: true,
-      userId,
-      overall: {
-        totalPredictions,
-        totalCorrect,
-        accuracy: totalPredictions > 0
-          ? Math.round((totalCorrect / totalPredictions) * 10000) / 100
-          : 0,
-        bestStreak,
-        categoriesActive: categoryStats.length,
-      },
-      categories: categoryStats,
-      timestamp: new Date().toISOString(),
-    });
   },
 ]);

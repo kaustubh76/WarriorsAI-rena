@@ -22,7 +22,7 @@ export const GET = composeMiddleware([
       timestamp: new Date().toISOString(),
     });
   },
-]);
+], { errorContext: 'API:MarketTools' });
 
 /** POST — Dispatch a tool call */
 export const POST = composeMiddleware([
@@ -64,4 +64,4 @@ export const POST = composeMiddleware([
       { status }
     );
   },
-]);
+], { errorContext: 'API:MarketTools' });
