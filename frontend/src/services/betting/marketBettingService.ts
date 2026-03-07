@@ -10,6 +10,7 @@ import { kalshiService } from '../externalMarkets/kalshiService';
 import { kalshiCircuitBreaker, polymarketCircuitBreaker } from './tradingCircuitBreaker';
 import { tradingConfig } from '../config';
 import { escrowService } from '../escrow';
+import { recordPredictionOutcome } from '../topics/userTopicStatsService';
 
 // ============================================
 // TYPES
@@ -116,9 +117,9 @@ class MarketBettingService {
 
       // 4. Get current market price
       const currentPrice =
-        params.side === 'YES' ? market.yesPrice / 100 : market.noPrice / 100;
+        params.side === 'YES' ? market.yesPrice / 10000 : market.noPrice / 10000;
 
-      // 5. Validate slippage (use current price as expected)
+      // 5. Validate slippage (use current price as expected, 0-1 decimal)
       await this.validateSlippage(params.externalMarketId, params.side, currentPrice);
 
       // 6. Create bet AND lock escrow in a single atomic transaction
@@ -136,7 +137,7 @@ class MarketBettingService {
               question: market.question,
               side: params.side === 'YES',
               amount: params.amount,
-              entryPrice: currentPrice,
+              entryPrice: currentPrice * 100, // Store as 0-100% (currentPrice is 0-1 decimal)
               status: 'pending',
             },
           });
@@ -388,6 +389,15 @@ class MarketBettingService {
 
         console.log(`[MarketBettingService] Bet ${betId} lost - escrow forfeited`);
 
+        // Track prediction outcome for topic stats
+        if (bet.externalMarket.topicCategory) {
+          recordPredictionOutcome({
+            userId: bet.userId,
+            category: bet.externalMarket.topicCategory,
+            won: false,
+          }).catch(() => {});
+        }
+
         return {
           success: false,
           error: 'Bet lost',
@@ -470,6 +480,16 @@ class MarketBettingService {
       });
 
       console.log(`[MarketBettingService] Successfully claimed winnings for bet ${betId}: ${payoutUSD} USD`);
+
+      // Track prediction outcome for topic stats
+      if (bet.externalMarket.topicCategory) {
+        recordPredictionOutcome({
+          userId: bet.userId,
+          category: bet.externalMarket.topicCategory,
+          won: true,
+          earnings: payout,
+        }).catch(() => {});
+      }
 
       return {
         success: true,
@@ -576,7 +596,7 @@ class MarketBettingService {
     }
 
     const currentPrice = side === 'YES' ? market.yesPrice : market.noPrice;
-    const currentPriceDecimal = currentPrice / 100;
+    const currentPriceDecimal = currentPrice / 10000;
 
     // Calculate slippage percentage
     const slippage = Math.abs((currentPriceDecimal - expectedPrice) / expectedPrice) * 100;
@@ -613,9 +633,9 @@ class MarketBettingService {
       // Convert CRwN to USDC (1:1 for simplicity)
       const usdcAmount = Number(params.amount) / 1e18;
 
-      // Get current price from market
+      // Get current price from market (DB stores 0-10000 basis points → convert to 0-1 decimal)
       const currentPrice = params.side === 'YES' ? market.yesPrice : market.noPrice;
-      const priceDecimal = currentPrice / 100;
+      const priceDecimal = currentPrice / 10000;
 
       // Calculate size (shares)
       const size = usdcAmount / priceDecimal;
@@ -739,7 +759,7 @@ class MarketBettingService {
 
       // Get current price from market
       const currentPrice = params.side === 'YES' ? market.yesPrice : market.noPrice;
-      const priceInCents = Math.round((currentPrice / 100) * 100); // Convert to 1-99 range
+      const priceInCents = Math.round(currentPrice / 100); // basis points → 0-100 cents
 
       // Calculate contracts based on price
       const contracts = Math.floor((usdAmount * 100) / priceInCents);
