@@ -13,7 +13,8 @@ import { RealMarketData, MarketSource } from '@/types/predictionArena';
 
 /**
  * Fetch market data for a battle from the ExternalMarket table.
- * For arbitrage battles, also fetches cross-platform data.
+ * For arbitrage battles, fetches explicit cross-platform data.
+ * For trending markets, auto-discovers cross-platform pair via MatchedMarketPair.
  */
 export async function fetchMarketDataForBattle(
   externalMarketId: string,
@@ -38,7 +39,7 @@ export async function fetchMarketDataForBattle(
       source: source as MarketSource,
     };
 
-    // For arbitrage battles, fetch cross-platform data
+    // For arbitrage battles, fetch explicit cross-platform data
     if (isArbitrageBattle && kalshiMarketId) {
       const crossMarket = await prisma.externalMarket.findFirst({
         where: { externalId: kalshiMarketId },
@@ -49,6 +50,32 @@ export async function fetchMarketDataForBattle(
         marketData.crossPlatformSource = crossMarket.source;
         marketData.spread = Math.abs(
           (externalMarket.yesPrice - crossMarket.yesPrice) / 100
+        );
+      }
+    }
+
+    // For non-arbitrage battles, auto-discover cross-platform data from MatchedMarketPair
+    // This enriches trending topic debates with "expert forecasters disagree" context
+    if (!isArbitrageBattle && !marketData.crossPlatformPrice) {
+      const matchedPair = source === 'polymarket'
+        ? await prisma.matchedMarketPair.findFirst({
+            where: { polymarketId: externalMarket.id, isActive: true, hasArbitrage: true },
+            select: { kalshiYesPrice: true, priceDifference: true },
+          })
+        : await prisma.matchedMarketPair.findFirst({
+            where: { kalshiId: externalMarket.id, isActive: true, hasArbitrage: true },
+            select: { polymarketYesPrice: true, priceDifference: true },
+          });
+
+      if (matchedPair) {
+        const crossPrice = source === 'polymarket'
+          ? (matchedPair as { kalshiYesPrice: number }).kalshiYesPrice
+          : (matchedPair as { polymarketYesPrice: number }).polymarketYesPrice;
+
+        marketData.crossPlatformPrice = crossPrice / 100;
+        marketData.crossPlatformSource = source === 'polymarket' ? 'kalshi' : 'polymarket';
+        marketData.spread = Math.abs(
+          (externalMarket.yesPrice - crossPrice) / 100
         );
       }
     }
