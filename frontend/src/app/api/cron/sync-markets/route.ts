@@ -52,7 +52,7 @@ export const GET = composeMiddleware([
     try {
       curation = await withCronTimeout(
         curateTopics(),
-        10_000,
+        30_000,
         'Topic curation timed out'
       );
       console.log('[Cron] Topic curation:', curation);

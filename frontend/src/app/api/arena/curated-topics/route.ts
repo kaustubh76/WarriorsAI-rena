@@ -65,15 +65,19 @@ export const GET = composeMiddleware([
           endTime: true,
           sourceUrl: true,
           tags: true,
+          topicCategory: true,
+          topicSubcategory: true,
+          battleScore: true,
+          isTrending: true,
+          trendingReason: true,
         },
       }),
       prisma.externalMarket.count({ where }),
     ]);
 
-    // Sort by balance (closest to 50/50 first) — Prisma doesn't support ABS() in orderBy
-    // Curated markets are typically <100 so in-app sort is fine
+    // Sort by battleScore (highest first), then by 50/50 balance as tiebreaker
     const sorted = markets.sort((a, b) =>
-      Math.abs(a.yesPrice - 5000) - Math.abs(b.yesPrice - 5000)
+      (b.battleScore - a.battleScore) || (Math.abs(a.yesPrice - 5000) - Math.abs(b.yesPrice - 5000))
     );
 
     // Apply pagination after sorting
@@ -86,6 +90,8 @@ export const GET = composeMiddleware([
       externalId: m.externalId,
       question: m.question,
       category: m.category,
+      topicCategory: m.topicCategory,
+      topicSubcategory: m.topicSubcategory,
       yesPrice: m.yesPrice / 100,
       noPrice: m.noPrice / 100,
       volume: m.volume,
@@ -93,6 +99,9 @@ export const GET = composeMiddleware([
       endTime: m.endTime.toISOString(),
       sourceUrl: m.sourceUrl,
       tags: m.tags,
+      battleScore: m.battleScore,
+      isTrending: m.isTrending,
+      trendingReason: m.trendingReason,
     }));
 
     const response = {
