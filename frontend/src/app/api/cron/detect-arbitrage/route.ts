@@ -19,6 +19,7 @@ import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 import { sendAlert } from '@/lib/monitoring/alerts';
+import { detectTrendingTopics } from '@/services/topics/trendingDetectionService';
 
 export const GET = composeMiddleware([
   withRateLimit({ prefix: 'cron-detect-arbitrage', ...RateLimitPresets.cronJobs }),
@@ -50,6 +51,15 @@ export const GET = composeMiddleware([
       errors: results.errors.length > 0 ? results.errors : undefined
     };
 
+    // After detection, mark trending topics from matched pairs
+    let trendingResult = { marked: 0, unmarked: 0, pairsProcessed: 0 };
+    try {
+      trendingResult = await detectTrendingTopics();
+      console.log('[Cron] Trending detection complete:', trendingResult);
+    } catch (trendingErr) {
+      console.error('[Cron] Trending detection failed:', trendingErr);
+    }
+
     console.log('[Cron] Arbitrage detection complete:', summary);
 
     // Alert on detection errors
@@ -73,7 +83,14 @@ export const GET = composeMiddleware([
 
     return NextResponse.json({
       success: true,
-      data: summary
+      data: {
+        ...summary,
+        trending: {
+          marked: trendingResult.marked,
+          unmarked: trendingResult.unmarked,
+          pairsProcessed: trendingResult.pairsProcessed,
+        },
+      },
     });
   },
 ], { errorContext: 'CRON:DetectArbitrage' });

@@ -8,10 +8,15 @@
  * - Balanced odds (15%-85% YES price — not foregone conclusions)
  * - Meaningful volume (> $10,000)
  *
+ * After flagging, assigns topic categories, battle scores, trending status,
+ * and refreshes aggregate stats.
+ *
  * Called after sync-markets cron completes.
  */
 
 import { prisma } from '@/lib/prisma';
+import { batchAssignTopicFields } from '@/services/topics/topicCategoryService';
+import { refreshTopicAggregates } from '@/services/topics/topicAggregationService';
 
 /** Minimum hours until resolution for a market to be battle-worthy */
 const MIN_HOURS_UNTIL_RESOLUTION = 48;
@@ -31,10 +36,13 @@ const EXCLUDED_CATEGORIES = new Set([
   'memes',
 ]);
 
-interface CurationResult {
+export interface CurationResult {
   flagged: number;
   unflagged: number;
   totalActive: number;
+  categorized: number;
+  trendingMarked: number;
+  categoriesUpdated: number;
 }
 
 /**
@@ -62,7 +70,62 @@ function parseVolume(volume: string): number {
 }
 
 /**
- * Flag battle-worthy markets as curatedForArena.
+ * Mark markets as trending based on MatchedMarketPair data.
+ * Markets that appear in active cross-platform pairs get isTrending=true.
+ */
+async function markTrendingMarkets(): Promise<number> {
+  // Reset all trending flags first
+  await prisma.externalMarket.updateMany({
+    where: { isTrending: true },
+    data: { isTrending: false, trendingReason: null },
+  });
+
+  // Find all active matched pairs with arbitrage
+  const pairs = await prisma.matchedMarketPair.findMany({
+    where: { isActive: true, hasArbitrage: true },
+    select: {
+      polymarketId: true,
+      kalshiId: true,
+      priceDifference: true,
+    },
+  });
+
+  if (pairs.length === 0) return 0;
+
+  let marked = 0;
+
+  // Batch update in groups
+  const batchSize = 20;
+  for (let i = 0; i < pairs.length; i += batchSize) {
+    const batch = pairs.slice(i, i + batchSize);
+
+    await prisma.$transaction(
+      batch.flatMap((pair) => {
+        const reason = `Markets disagree by ${Math.round(pair.priceDifference)}% — hot debate topic!`;
+        return [
+          prisma.externalMarket.update({
+            where: { id: pair.polymarketId },
+            data: { isTrending: true, trendingReason: reason },
+          }),
+          prisma.externalMarket.update({
+            where: { id: pair.kalshiId },
+            data: { isTrending: true, trendingReason: reason },
+          }),
+        ];
+      })
+    );
+
+    marked += batch.length * 2;
+  }
+
+  return marked;
+}
+
+/**
+ * Flag battle-worthy markets as curatedForArena, then:
+ *   1. Assign topic categories + battle scores
+ *   2. Mark trending markets from MatchedMarketPair data
+ *   3. Refresh TopicAggregate stats
  *
  * Strategy: clean-slate approach — unflag all, then flag matches.
  * This ensures markets that no longer meet criteria get un-curated.
@@ -117,10 +180,19 @@ export async function curateTopics(): Promise<CurationResult> {
     flagged = result.count;
   }
 
+  // Step 5: Assign topic categories + battle scores to flagged markets
+  const categorized = await batchAssignTopicFields(idsToFlag);
+
+  // Step 6: Mark trending markets from cross-platform pairs
+  const trendingMarked = await markTrendingMarkets();
+
+  // Step 7: Refresh TopicAggregate stats
+  const { categoriesUpdated } = await refreshTopicAggregates();
+
   // Count total active for reporting
   const totalActive = await prisma.externalMarket.count({
     where: { status: 'active' },
   });
 
-  return { flagged, unflagged, totalActive };
+  return { flagged, unflagged, totalActive, categorized, trendingMarked, categoriesUpdated };
 }
