@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAccount } from 'wagmi';
 import { useClaimCreatorRewards, usePendingRewards } from '@/hooks/useCreatorRevenue';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface ClaimRewardsButtonProps {
   onSuccess?: () => void;
@@ -91,7 +92,7 @@ export function ClaimRewardsButton({ onSuccess }: ClaimRewardsButtonProps) {
             <span className="font-medium">Rewards claimed successfully!</span>
           </div>
           <a
-            href={`https://evm-testnet.flowscan.io/tx/${txHash}`}
+            href={`${getFlowExplorerUrl()}/tx/${txHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-green-400/70 hover:text-green-400 mt-2 block"

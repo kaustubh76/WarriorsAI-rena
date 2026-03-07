@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface SyncEvent {
   id: string;
@@ -234,7 +235,7 @@ export default function SyncHistoryPage() {
                     {/* Footer Links */}
                     <div className="mt-4 pt-4 border-t border-gray-700 flex items-center gap-4">
                       <a
-                        href={`https://evm-testnet.flowscan.io/tx/${event.txHash}`}
+                        href={`${getFlowExplorerUrl()}/tx/${event.txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"

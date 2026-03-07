@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { WhaleTrade, MarketSource } from '@/types/externalMarket';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface WhaleAlertCardProps {
   trade: WhaleTrade;
@@ -146,7 +147,7 @@ export function WhaleAlertCard({ trade, compact = false }: WhaleAlertCardProps) 
           </div>
           {trade.txHash && (
             <a
-              href={`https://evm-testnet.flowscan.io/tx/${trade.txHash}`}
+              href={`${getFlowExplorerUrl()}/tx/${trade.txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-400 hover:text-white text-xs"

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, ExternalLink, Play, X, Info, AlertTriangle } from 'lucide-react';
 import { ResolutionStatusBadge, OracleSourceBadge, OutcomeBadge } from './ResolutionStatusBadge';
 import type { ScheduledResolution } from '@/hooks/useScheduledResolutions';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface ScheduledResolutionCardProps {
   resolution: ScheduledResolution;
@@ -97,7 +98,7 @@ export const ScheduledResolutionCard: React.FC<ScheduledResolutionCardProps> = (
 
   // Flow testnet explorer URL
   const getExplorerUrl = (txHash: string) => {
-    return `https://evm-testnet.flowscan.io/tx/${txHash}`;
+    return `${getFlowExplorerUrl()}/tx/${txHash}`;
   };
 
   return (

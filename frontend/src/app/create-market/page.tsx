@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
 import { useCreateMarket } from '@/hooks/useCreateMarket';
+import { getFlowExplorerUrl } from '@/constants';
 
 // Categories for markets
 const CATEGORIES = [
@@ -374,7 +375,7 @@ export default function CreateMarketPage() {
                     <p className="text-green-300 text-sm mt-1">
                       Transaction:{' '}
                       <a
-                        href={`https://evm-testnet.flowscan.io/tx/${createState.txHash}`}
+                        href={`${getFlowExplorerUrl()}/tx/${createState.txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="underline hover:text-green-200"

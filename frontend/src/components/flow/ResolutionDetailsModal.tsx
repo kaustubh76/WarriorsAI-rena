@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, ExternalLink, Calendar, Clock, User, Hash, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { ResolutionStatusBadge, OracleSourceBadge, OutcomeBadge } from './ResolutionStatusBadge';
 import type { ScheduledResolution } from '@/hooks/useScheduledResolutions';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface ResolutionDetailsModalProps {
   resolutionId: string;
@@ -42,7 +43,7 @@ export const ResolutionDetailsModal: React.FC<ResolutionDetailsModalProps> = ({
   if (!isOpen) return null;
 
   const getExplorerUrl = (txHash: string) => {
-    return `https://evm-testnet.flowscan.io/tx/${txHash}`;
+    return `${getFlowExplorerUrl()}/tx/${txHash}`;
   };
 
   return (

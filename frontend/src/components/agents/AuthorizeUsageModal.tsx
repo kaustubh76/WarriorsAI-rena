@@ -8,6 +8,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import type { Address } from 'viem';
+import { getFlowExplorerUrl } from '@/constants';
 import { isAddress } from 'viem';
 import { useAuthorizeUsage, useAgentINFT, useAgentAuthorization } from '@/hooks/useAgentINFT';
 import { INFTBadge } from './INFTBadge';
@@ -332,7 +333,7 @@ export function AuthorizeUsageModal({
               </p>
               {txHash && (
                 <a
-                  href={`https://evm-testnet.flowscan.io/tx/${txHash}`}
+                  href={`${getFlowExplorerUrl()}/tx/${txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-purple-400 hover:text-purple-300 text-sm underline"

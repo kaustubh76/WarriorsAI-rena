@@ -10,6 +10,7 @@ import { MarketStatus, MarketOutcome } from '@/services/predictionMarketService'
 import { TradePanel } from '@/components/markets/TradePanel';
 import { LiquidityPanel } from '@/components/markets/LiquidityPanel';
 import { MarketChart } from '@/components/markets/MarketChart';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -544,7 +545,7 @@ function ActivityItem({ activity }: { activity: MarketActivity }) {
         </p>
       </div>
       <a
-        href={`https://evm-testnet.flowscan.io/tx/${activity.txHash}`}
+        href={`${getFlowExplorerUrl()}/tx/${activity.txHash}`}
         target="_blank"
         rel="noopener noreferrer"
         className="ml-3 text-purple-400 hover:text-purple-300 text-sm"

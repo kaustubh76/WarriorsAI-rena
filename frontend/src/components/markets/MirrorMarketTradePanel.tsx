@@ -6,6 +6,7 @@ import { parseEther, formatEther } from 'viem';
 import { useMirrorMarketTrade, useVRFTrade, useMirrorMarketQuery, MirrorMarketState } from '@/hooks/useMirrorMarket';
 import { UnifiedMarket, MarketSource } from '@/types/externalMarket';
 import { formatTokenAmount } from '@/utils/format';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface MirrorMarketTradePanelProps {
   market: UnifiedMarket;
@@ -282,7 +283,7 @@ export function MirrorMarketTradePanel({
         <div className="mb-4 p-3 bg-green-900/30 border border-green-700 rounded-lg">
           <p className="text-green-400 text-sm mb-1">Trade successful!</p>
           <a
-            href={`https://evm-testnet.flowscan.io/tx/${txResult.txHash}`}
+            href={`${getFlowExplorerUrl()}/tx/${txResult.txHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-green-300 hover:underline font-mono"

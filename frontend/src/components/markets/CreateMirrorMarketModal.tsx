@@ -6,6 +6,7 @@ import { parseEther, formatEther } from 'viem';
 import { useMirrorMarketCreation } from '@/hooks/useMirrorMarket';
 import { UnifiedMarket, MarketSource } from '@/types/externalMarket';
 import { formatTokenAmount } from '@/utils/format';
+import { getFlowExplorerUrl } from '@/constants';
 
 interface CreateMirrorMarketModalProps {
   market: UnifiedMarket;
@@ -239,7 +240,7 @@ export function CreateMirrorMarketModal({
               <div className="bg-gray-800 rounded-lg p-3 mb-4">
                 <p className="text-xs text-gray-400 mb-1">Transaction Hash</p>
                 <a
-                  href={`https://evm-testnet.flowscan.io/tx/${txResult.txHash}`}
+                  href={`${getFlowExplorerUrl()}/tx/${txResult.txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-yellow-400 hover:text-yellow-300 text-sm font-mono break-all"
