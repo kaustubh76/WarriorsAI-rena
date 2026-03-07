@@ -17,6 +17,7 @@
 import { prisma } from '@/lib/prisma';
 import { batchAssignTopicFields } from '@/services/topics/topicCategoryService';
 import { refreshTopicAggregates } from '@/services/topics/topicAggregationService';
+import { detectTrendingTopics } from '@/services/topics/trendingDetectionService';
 
 /** Minimum hours until resolution for a market to be battle-worthy */
 const MIN_HOURS_UNTIL_RESOLUTION = 48;
@@ -67,58 +68,6 @@ function parseVolume(volume: string): number {
 
   const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;
-}
-
-/**
- * Mark markets as trending based on MatchedMarketPair data.
- * Markets that appear in active cross-platform pairs get isTrending=true.
- */
-async function markTrendingMarkets(): Promise<number> {
-  // Reset all trending flags first
-  await prisma.externalMarket.updateMany({
-    where: { isTrending: true },
-    data: { isTrending: false, trendingReason: null },
-  });
-
-  // Find all active matched pairs with arbitrage
-  const pairs = await prisma.matchedMarketPair.findMany({
-    where: { isActive: true, hasArbitrage: true },
-    select: {
-      polymarketId: true,
-      kalshiId: true,
-      priceDifference: true,
-    },
-  });
-
-  if (pairs.length === 0) return 0;
-
-  let marked = 0;
-
-  // Batch update in groups
-  const batchSize = 20;
-  for (let i = 0; i < pairs.length; i += batchSize) {
-    const batch = pairs.slice(i, i + batchSize);
-
-    await prisma.$transaction(
-      batch.flatMap((pair) => {
-        const reason = `Markets disagree by ${Math.round(pair.priceDifference)}% — hot debate topic!`;
-        return [
-          prisma.externalMarket.update({
-            where: { id: pair.polymarketId },
-            data: { isTrending: true, trendingReason: reason },
-          }),
-          prisma.externalMarket.update({
-            where: { id: pair.kalshiId },
-            data: { isTrending: true, trendingReason: reason },
-          }),
-        ];
-      })
-    );
-
-    marked += batch.length * 2;
-  }
-
-  return marked;
 }
 
 /**
@@ -183,8 +132,8 @@ export async function curateTopics(): Promise<CurationResult> {
   // Step 5: Assign topic categories + battle scores to flagged markets
   const categorized = await batchAssignTopicFields(idsToFlag);
 
-  // Step 6: Mark trending markets from cross-platform pairs
-  const trendingMarked = await markTrendingMarkets();
+  // Step 6: Mark trending markets from cross-platform pairs (single source of truth)
+  const { marked: trendingMarked } = await detectTrendingTopics();
 
   // Step 7: Refresh TopicAggregate stats
   const { categoriesUpdated } = await refreshTopicAggregates();

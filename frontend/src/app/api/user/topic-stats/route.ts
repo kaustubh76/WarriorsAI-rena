@@ -37,9 +37,20 @@ export const GET = composeMiddleware([
       orderBy: { correct: 'desc' },
     });
 
+    const badgeUpdates: Promise<unknown>[] = [];
+
     const categoryStats = stats.map((entry) => {
-      // Auto-update badge if it has changed
       const computedBadge = computeBadge(entry.correct);
+
+      // Persist badge if it changed
+      if (computedBadge !== entry.badge) {
+        badgeUpdates.push(
+          prisma.userTopicStats.update({
+            where: { id: entry.id },
+            data: { badge: computedBadge },
+          })
+        );
+      }
 
       return {
         category: entry.category,
@@ -54,6 +65,11 @@ export const GET = composeMiddleware([
         badge: computedBadge,
       };
     });
+
+    // Fire badge updates in background (non-blocking)
+    if (badgeUpdates.length > 0) {
+      Promise.all(badgeUpdates).catch(() => {});
+    }
 
     // Compute overall stats
     const totalPredictions = categoryStats.reduce((s, c) => s + c.predictions, 0);
