@@ -8,9 +8,6 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { createFlowWalletClient, createFlowPublicClient } from '@/lib/flowClient';
 import '../home-glass.css';
 import { Button } from '../../components/ui/button';
-// Unused UI components removed for lint cleanup
-// import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-// import { Badge } from '../../components/ui/badge';
 import { useArenas, type RankCategory, type ArenaWithDetails } from '../../hooks/useArenas';
 import { arenaService, isValidBettingAmount, getClosestValidBettingAmount } from '../../services/arenaService';
 import { ArenaAbi, warriorsNFTAbi, getChainId, getContracts, getArenaBackendUrl } from '../../constants';

@@ -74,8 +74,9 @@ export function ArbitrageOpportunityList({
       {showControls && (
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
-            <label className="text-gray-400 text-sm">Min Spread:</label>
+            <label htmlFor="minSpread" className="text-gray-400 text-sm">Min Spread:</label>
             <select
+              id="minSpread"
               value={minSpread}
               onChange={(e) => setMinSpread(parseInt(e.target.value))}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1 text-white text-sm focus:outline-none focus:border-purple-500"
@@ -95,6 +96,7 @@ export function ArbitrageOpportunityList({
               onClick={() => refetch()}
               className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
               title="Refresh"
+              aria-label="Refresh opportunities"
             >
               <svg
                 className="w-4 h-4 text-gray-400"

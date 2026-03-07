@@ -5,21 +5,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useWarriorMessage } from '../contexts/WarriorMessageContext';
 import { getWarriorMessage, getRandomMessage, WARRIOR_MESSAGES } from '../utils/warriorMessages';
 
+const ANIMATION_FRAME_COUNT = 6;
+const ANIMATION_INTERVAL_MS = 120;
+const WELCOME_DISPLAY_MS = 6000;
+
+const WARRIOR_FRAMES = Array.from(
+  { length: ANIMATION_FRAME_COUNT },
+  (_, i) => `/warrior/Warrior_Idle_${i + 1}.png`
+);
+
 const WarriorAssistant: React.FC = () => {
   const [currentFrame, setCurrentFrame] = useState(0);
   const [showWelcome, setShowWelcome] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState<string>('');
   const { currentMessage, isVisible } = useWarriorMessage();
-
-  // Warrior idle animation frames
-  const warriorFrames = [
-    '/warrior/Warrior_Idle_1.png',
-    '/warrior/Warrior_Idle_2.png',
-    '/warrior/Warrior_Idle_3.png',
-    '/warrior/Warrior_Idle_4.png',
-    '/warrior/Warrior_Idle_5.png',
-    '/warrior/Warrior_Idle_6.png',
-  ];
 
   // Set welcome message once on component mount
   useEffect(() => {
@@ -29,8 +28,8 @@ const WarriorAssistant: React.FC = () => {
   // Cycle through warrior frames for idle animation
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentFrame((prev) => (prev + 1) % 6);
-    }, 120); // Changed from 150ms to 120ms (20% faster)
+      setCurrentFrame((prev) => (prev + 1) % ANIMATION_FRAME_COUNT);
+    }, ANIMATION_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, []);
@@ -39,7 +38,7 @@ const WarriorAssistant: React.FC = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowWelcome(false);
-    }, 6000);
+    }, WELCOME_DISPLAY_MS);
 
     return () => clearTimeout(timer);
   }, []);
@@ -58,7 +57,7 @@ const WarriorAssistant: React.FC = () => {
         transition={{ duration: 0.8, ease: "easeOut" }}
       >
         <img
-          src={warriorFrames[currentFrame]}
+          src={WARRIOR_FRAMES[currentFrame]}
           alt="Warrior Assistant"
           className="warrior-sprite"
         />

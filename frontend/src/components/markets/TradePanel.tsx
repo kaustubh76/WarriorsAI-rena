@@ -10,6 +10,8 @@ import { formatTokenAmount } from '@/utils/format';
 import { useGamificationContext } from '@/contexts/GamificationContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 
+const DEFAULT_SLIPPAGE_PERCENT = 1;
+
 interface TradePanelProps {
   market: Market;
   onTradeComplete?: () => void;
@@ -37,7 +39,7 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
   const [mode, setMode] = useState<TradeMode>('buy');
   const [selectedOutcome, setSelectedOutcome] = useState<Outcome>('yes');
   const [amount, setAmount] = useState('');
-  const [slippage, setSlippage] = useState(1); // 1% default
+  const [slippage, setSlippage] = useState(DEFAULT_SLIPPAGE_PERCENT);
 
   // AI Agent Trading State
   const [useAgent, setUseAgent] = useState(false);
