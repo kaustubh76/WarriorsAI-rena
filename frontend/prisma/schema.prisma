@@ -49,6 +49,13 @@ model ExternalMarket {
   // Curation (P3 — battle-worthy markets flagged after sync)
   curatedForArena Boolean @default(false)
 
+  // Topic system (P1 — category, scoring, trending)
+  topicCategory    String?   // "politics", "economics", "crypto", "science", "geopolitics", "culture"
+  topicSubcategory String?   // "us_elections", "fed_decisions", "bitcoin_price", etc.
+  battleScore      Float     @default(0)    // 0-100 composite battle worthiness
+  isTrending       Boolean   @default(false) // Cross-platform disagreement flag
+  trendingReason   String?   // "Markets disagree by 8% — hot debate topic!"
+
   // Relations
   scheduledResolutions ScheduledResolution[]
   marketBets MarketBet[]
@@ -58,6 +65,8 @@ model ExternalMarket {
   @@unique([source, externalId])
   @@index([source])
   @@index([curatedForArena, status])
+  @@index([topicCategory, battleScore])
+  @@index([isTrending])
 }
 
 // ============================================
@@ -1221,4 +1230,42 @@ model TradeAuditLog {
   @@index([success])
   @@index([tradeType])
   @@index([action])
+}
+
+// ============================================
+// TOPIC SYSTEM (Gamified Prediction Categories)
+// ============================================
+
+// Aggregated stats per topic category for browsing UI
+model TopicAggregate {
+  id              String   @id @default(cuid())
+  category        String   // "politics", "economics", "crypto", etc.
+  subcategory     String?  // "us_elections", "fed_decisions", etc.
+  marketCount     Int      @default(0)    // Total markets in category
+  activeBattles   Int      @default(0)    // Ongoing warrior battles
+  totalVolume     String   @default("0")  // Aggregate USD volume
+  avgBattleScore  Float    @default(0)    // Average battle worthiness
+  topMarketIds    String   @default("[]") // JSON: top 5 market IDs by score
+  updatedAt       DateTime @updatedAt
+
+  @@unique([category, subcategory])
+  @@index([category])
+}
+
+// Per-user prediction stats and badges per topic category
+model UserTopicStats {
+  id              String   @id @default(cuid())
+  userId          String   // Wallet address
+  category        String   // "politics", "economics", "crypto"
+  predictions     Int      @default(0)    // Total predictions made
+  correct         Int      @default(0)    // Correct predictions
+  currentStreak   Int      @default(0)    // Consecutive correct
+  longestStreak   Int      @default(0)    // All-time best streak
+  earnings        String   @default("0")  // Total CRwN earned in category
+  badge           String?  // "novice" (5+) | "expert" (25+) | "oracle" (100+)
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, category])
+  @@index([userId])
+  @@index([category, correct])
 }

@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE "MarketBet" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "warriorId" INTEGER,
     "externalMarketId" TEXT NOT NULL,
@@ -8,23 +8,24 @@ CREATE TABLE "MarketBet" (
     "question" TEXT NOT NULL,
     "side" BOOLEAN NOT NULL,
     "amount" BIGINT NOT NULL,
-    "entryPrice" REAL NOT NULL,
-    "shares" REAL,
+    "entryPrice" DOUBLE PRECISION NOT NULL,
+    "shares" DOUBLE PRECISION,
     "orderId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "outcome" BOOLEAN,
     "payout" BIGINT,
     "placementTxHash" TEXT,
     "claimTxHash" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "placedAt" DATETIME,
-    "settledAt" DATETIME,
-    CONSTRAINT "MarketBet_externalMarketId_fkey" FOREIGN KEY ("externalMarketId") REFERENCES "ExternalMarket" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "placedAt" TIMESTAMP(3),
+    "settledAt" TIMESTAMP(3),
+
+    CONSTRAINT "MarketBet_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "ArbitrageTrade" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "opportunityId" TEXT NOT NULL,
     "market1Source" TEXT NOT NULL,
@@ -38,31 +39,36 @@ CREATE TABLE "ArbitrageTrade" (
     "investmentAmount" BIGINT NOT NULL,
     "market1Amount" BIGINT NOT NULL,
     "market2Amount" BIGINT NOT NULL,
-    "expectedProfit" REAL NOT NULL,
-    "expectedSpread" REAL NOT NULL,
+    "expectedProfit" DOUBLE PRECISION NOT NULL,
+    "expectedSpread" DOUBLE PRECISION NOT NULL,
     "actualProfit" BIGINT,
-    "actualSpread" REAL,
+    "actualSpread" DOUBLE PRECISION,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "market1OrderId" TEXT,
     "market1Filled" BOOLEAN NOT NULL DEFAULT false,
-    "market1Shares" REAL,
-    "market1ExecutionPrice" REAL,
+    "market1Shares" DOUBLE PRECISION,
+    "market1ExecutionPrice" DOUBLE PRECISION,
     "market2OrderId" TEXT,
     "market2Filled" BOOLEAN NOT NULL DEFAULT false,
-    "market2Shares" REAL,
-    "market2ExecutionPrice" REAL,
+    "market2Shares" DOUBLE PRECISION,
+    "market2ExecutionPrice" DOUBLE PRECISION,
     "market1Outcome" BOOLEAN,
     "market2Outcome" BOOLEAN,
     "settled" BOOLEAN NOT NULL DEFAULT false,
     "error" TEXT,
     "lastError" TEXT,
     "attempts" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "executedAt" DATETIME,
-    "market1FilledAt" DATETIME,
-    "market2FilledAt" DATETIME,
-    "settledAt" DATETIME
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "executedAt" TIMESTAMP(3),
+    "market1FilledAt" TIMESTAMP(3),
+    "market2FilledAt" TIMESTAMP(3),
+    "settledAt" TIMESTAMP(3),
+
+    CONSTRAINT "ArbitrageTrade_pkey" PRIMARY KEY ("id")
 );
+
+-- AddForeignKey
+ALTER TABLE "MarketBet" ADD CONSTRAINT "MarketBet_externalMarketId_fkey" FOREIGN KEY ("externalMarketId") REFERENCES "ExternalMarket"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- CreateIndex
 CREATE INDEX "MarketBet_userId_idx" ON "MarketBet"("userId");
