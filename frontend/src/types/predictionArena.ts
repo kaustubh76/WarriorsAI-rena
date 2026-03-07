@@ -330,3 +330,72 @@ export const MOVE_TRAIT_SCALING: Record<DebateMove, (keyof WarriorTraits)[]> = {
   [DebateMove.SPECIAL]: ['strength', 'charisma', 'wit'],
   [DebateMove.RECOVER]: ['defence', 'charisma'],
 };
+
+// ============================================
+// TOPIC SYSTEM TYPES
+// ============================================
+
+export type TopicCategory =
+  | 'politics'
+  | 'economics'
+  | 'crypto'
+  | 'science'
+  | 'geopolitics'
+  | 'culture';
+
+export type BadgeTier = 'novice' | 'expert' | 'oracle';
+
+export interface TopicAggregateResponse {
+  category: TopicCategory;
+  subcategory?: string | null;
+  marketCount: number;
+  activeBattles: number;
+  totalVolume: string;
+  avgBattleScore: number;
+  topMarketIds: string[];
+}
+
+export interface TrendingTopicResponse {
+  id: string;
+  question: string;
+  category: TopicCategory;
+  isTrending: boolean;
+  trendingReason: string | null;
+  polymarketPrice?: number; // 0-100
+  kalshiPrice?: number;     // 0-100
+  battleScore: number;
+  volume: string;
+  endTime: string;
+  source: MarketSource;
+}
+
+export interface UserTopicStatsResponse {
+  userId: string;
+  category: TopicCategory;
+  predictions: number;
+  correct: number;
+  accuracy: number; // 0-100%
+  currentStreak: number;
+  longestStreak: number;
+  earnings: string;
+  badge: BadgeTier | null;
+}
+
+export interface TopicMarketResponse {
+  id: string;
+  source: string;
+  externalId: string;
+  question: string;
+  category: string | null;
+  topicCategory: TopicCategory | null;
+  topicSubcategory: string | null;
+  yesPrice: number; // 0-100
+  noPrice: number;  // 0-100
+  volume: string;
+  liquidity: string;
+  endTime: string;
+  sourceUrl: string;
+  battleScore: number;
+  isTrending: boolean;
+  trendingReason: string | null;
+}
