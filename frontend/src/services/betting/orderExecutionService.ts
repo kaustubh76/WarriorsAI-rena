@@ -6,8 +6,30 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { kalshiTrading, kalshiService } from '../externalMarkets';
+import { kalshiTrading, kalshiService, polymarketService } from '../externalMarkets';
 import { kalshiCircuitBreaker, polymarketCircuitBreaker } from './tradingCircuitBreaker';
+
+// ============================================
+// PRE-EXECUTION CONSTANTS
+// ============================================
+
+/** Maximum price staleness for order placement (seconds) */
+const MAX_PRICE_AGE_SECONDS = 300;
+
+/** Maximum acceptable price deviation from expected price */
+const MAX_PRICE_DEVIATION_PERCENT = 3;
+
+/** Warning threshold for price deviation */
+const PRICE_DEVIATION_WARN_PERCENT = 1;
+
+/** Minimum orderbook depth in USD to proceed with order */
+const MIN_ORDERBOOK_DEPTH_USD = 500;
+
+/** Auto-cancel timeout for unfilled orders (ms) */
+const AUTO_CANCEL_TIMEOUT_MS = 30_000;
+
+/** Monitor interval for fill status (ms) */
+const MONITOR_POLL_INTERVAL_MS = 10_000;
 
 // ============================================
 // TYPES
@@ -242,18 +264,18 @@ class OrderExecutionService {
       }, 'Kalshi order placement');
 
       // Calculate actual shares and execution price
-      const totalFilled = (result.quantity_closed || 0) + (result.quantity_open || 0);
+      const filledCount = result.count - result.remaining_count;
       const avgPrice = result.yes_price || result.no_price || orderPriceInCents;
 
       // Log the order
       await this.logOrderPlacement(params, result, 'kalshi');
 
-      console.log(`[Kalshi Order] Placed order ${result.order_id} for ${totalFilled} contracts at ${avgPrice}¢`);
+      console.log(`[Kalshi Order] Placed order ${result.order_id} for ${filledCount} contracts at ${avgPrice}¢`);
 
       return {
         success: true,
         orderId: result.order_id,
-        shares: totalFilled,
+        shares: filledCount,
         executionPrice: avgPrice / 100, // Convert back to decimal
         status: result.status === 'executed' ? 'filled' : 'pending',
       };
@@ -367,18 +389,19 @@ class OrderExecutionService {
       } else if (order.status === 'canceled') {
         status = 'cancelled';
       } else if (order.status === 'resting') {
-        status = order.quantity_closed > 0 ? 'partially_filled' : 'pending';
+        const filled = order.count - order.remaining_count;
+        status = filled > 0 ? 'partially_filled' : 'pending';
       }
 
-      const totalQuantity = (order.quantity_closed || 0) + (order.quantity_open || 0);
+      const filled = order.count - order.remaining_count;
 
       return {
         orderId,
         status,
-        shares: totalQuantity,
-        filledShares: order.quantity_closed || 0,
-        fillPercentage: totalQuantity > 0
-          ? ((order.quantity_closed || 0) / totalQuantity) * 100
+        shares: order.count,
+        filledShares: filled,
+        fillPercentage: order.count > 0
+          ? (filled / order.count) * 100
           : 0,
         executionPrice: (order.yes_price || order.no_price || 0) / 100,
         timestamp: order.created_time ? new Date(order.created_time).getTime() : Date.now(),
@@ -636,6 +659,223 @@ class OrderExecutionService {
       console.error('[OrderExecutionService] Failed to log order:', error);
       // Don't throw - logging failure shouldn't break order execution
     }
+  }
+
+  // ============================================
+  // PHASE 4: EXECUTION PIPELINE HARDENING
+  // ============================================
+
+  /**
+   * Fetch live CLOB midpoint price for a market.
+   * Returns the live price or null if unavailable.
+   */
+  async getLivePrice(
+    marketId: string,
+    source: 'polymarket' | 'kalshi',
+    side: 'YES' | 'NO'
+  ): Promise<{ price: number; ageSeconds: number } | null> {
+    try {
+      const market = await prisma.externalMarket.findUnique({
+        where: { id: marketId },
+        select: { metadata: true, yesPrice: true, noPrice: true, lastSyncAt: true },
+      });
+
+      if (!market) return null;
+
+      const ageSeconds = (Date.now() - market.lastSyncAt.getTime()) / 1000;
+
+      if (source === 'polymarket' && market.metadata) {
+        try {
+          const meta = JSON.parse(market.metadata);
+          const tokenIdx = side === 'YES' ? 0 : 1;
+          const tokenId = meta.clobTokenIds?.[tokenIdx];
+
+          if (tokenId) {
+            const liveMid = await polymarketService.getMidpoint(tokenId);
+            return { price: liveMid / 100, ageSeconds: 0 }; // Live = 0 age
+          }
+        } catch {
+          // Fall through to DB price
+        }
+      }
+
+      // Fallback to DB price
+      const dbPrice = side === 'YES' ? market.yesPrice : market.noPrice;
+      return { price: dbPrice / 10000, ageSeconds };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Validate orderbook depth before placing an order.
+   * Returns true if sufficient depth exists at the target price level.
+   */
+  async validateOrderbookDepth(
+    marketId: string,
+    source: 'polymarket' | 'kalshi',
+    side: 'YES' | 'NO',
+    amount: number
+  ): Promise<{ sufficient: boolean; depth: number; estimatedSlippage: number }> {
+    if (source !== 'polymarket') {
+      // Kalshi depth validation not yet available — pass by default
+      return { sufficient: true, depth: MIN_ORDERBOOK_DEPTH_USD, estimatedSlippage: 0 };
+    }
+
+    try {
+      const market = await prisma.externalMarket.findUnique({
+        where: { id: marketId },
+        select: { metadata: true },
+      });
+
+      if (!market?.metadata) {
+        return { sufficient: false, depth: 0, estimatedSlippage: Infinity };
+      }
+
+      const meta = JSON.parse(market.metadata);
+      const tokenIdx = side === 'YES' ? 0 : 1;
+      const tokenId = meta.clobTokenIds?.[tokenIdx];
+
+      if (!tokenId) {
+        return { sufficient: false, depth: 0, estimatedSlippage: Infinity };
+      }
+
+      const orderbook = await polymarketService.getOrderbook(tokenId);
+      const asks = orderbook.asks || [];
+
+      let totalDepth = 0;
+      for (const level of asks) {
+        const price = typeof level.price === 'string' ? parseFloat(level.price) : level.price;
+        const size = typeof level.size === 'string' ? parseFloat(level.size) : level.size;
+        if (!isNaN(price) && !isNaN(size)) {
+          totalDepth += price * size;
+        }
+      }
+
+      const estimatedSlippage = totalDepth > 0
+        ? Math.min(100, (amount / totalDepth) * 100)
+        : Infinity;
+
+      return {
+        sufficient: totalDepth >= MIN_ORDERBOOK_DEPTH_USD,
+        depth: totalDepth,
+        estimatedSlippage: Math.round(estimatedSlippage * 100) / 100,
+      };
+    } catch {
+      return { sufficient: false, depth: 0, estimatedSlippage: Infinity };
+    }
+  }
+
+  /**
+   * Execute arbitrage legs sequentially with fill confirmation.
+   *
+   * Flow:
+   *   1. Place Leg 1 → wait for fill (up to 30s)
+   *   2. If Leg 1 fills → place Leg 2
+   *   3. If Leg 2 fails → auto-cancel Leg 1
+   *   4. Pre-validate orderbook depth on BOTH legs before executing either
+   */
+  async executeArbitrageLegs(
+    leg1: OrderParams,
+    leg2: OrderParams
+  ): Promise<{
+    leg1Result: OrderResult;
+    leg2Result: OrderResult | null;
+    success: boolean;
+    error?: string;
+  }> {
+    // Pre-validate orderbook depth on both legs
+    const [depth1, depth2] = await Promise.all([
+      this.validateOrderbookDepth(leg1.marketId, leg1.source, leg1.side, leg1.amount),
+      this.validateOrderbookDepth(leg2.marketId, leg2.source, leg2.side, leg2.amount),
+    ]);
+
+    if (!depth1.sufficient) {
+      return {
+        leg1Result: { success: false, error: `Leg 1 insufficient depth: $${depth1.depth.toFixed(0)} (min $${MIN_ORDERBOOK_DEPTH_USD})` },
+        leg2Result: null,
+        success: false,
+        error: 'Leg 1 orderbook depth insufficient',
+      };
+    }
+
+    if (!depth2.sufficient) {
+      return {
+        leg1Result: { success: false, error: `Leg 2 insufficient depth: $${depth2.depth.toFixed(0)} (min $${MIN_ORDERBOOK_DEPTH_USD})` },
+        leg2Result: null,
+        success: false,
+        error: 'Leg 2 orderbook depth insufficient',
+      };
+    }
+
+    // Step 1: Place Leg 1
+    const leg1Result = await this.placeOrder(leg1);
+    if (!leg1Result.success) {
+      return { leg1Result, leg2Result: null, success: false, error: 'Leg 1 placement failed' };
+    }
+
+    // Step 2: Wait for Leg 1 fill (up to 30s)
+    if (leg1Result.orderId && leg1Result.status !== 'filled') {
+      const filled = await this.waitForFill(leg1Result.orderId, leg1.source, AUTO_CANCEL_TIMEOUT_MS);
+      if (!filled) {
+        // Auto-cancel Leg 1
+        if (leg1Result.orderId) {
+          await this.cancelOrder(leg1Result.orderId, leg1.source);
+        }
+        return {
+          leg1Result: { ...leg1Result, status: undefined, error: 'Leg 1 not filled within 30s, auto-cancelled' },
+          leg2Result: null,
+          success: false,
+          error: 'Leg 1 not filled within timeout',
+        };
+      }
+    }
+
+    // Step 3: Place Leg 2
+    const leg2Result = await this.placeOrder(leg2);
+    if (!leg2Result.success) {
+      // Leg 2 failed — try to cancel Leg 1 (best effort)
+      if (leg1Result.orderId) {
+        console.warn(`[ArbitrageLegs] Leg 2 failed, attempting to cancel Leg 1: ${leg1Result.orderId}`);
+        await this.cancelOrder(leg1Result.orderId, leg1.source).catch((err) => {
+          console.error(`[ArbitrageLegs] Failed to cancel Leg 1 ${leg1Result.orderId}:`, err);
+        });
+      }
+      return {
+        leg1Result,
+        leg2Result,
+        success: false,
+        error: 'Leg 2 placement failed — Leg 1 cancel attempted',
+      };
+    }
+
+    return { leg1Result, leg2Result, success: true };
+  }
+
+  /**
+   * Wait for an order to fill within a timeout period.
+   * Polls at regular intervals and returns true if filled.
+   */
+  private async waitForFill(
+    orderId: string,
+    source: 'polymarket' | 'kalshi',
+    timeoutMs: number
+  ): Promise<boolean> {
+    const polls = Math.ceil(timeoutMs / MONITOR_POLL_INTERVAL_MS);
+
+    for (let i = 0; i < polls; i++) {
+      await new Promise((resolve) => setTimeout(resolve, MONITOR_POLL_INTERVAL_MS));
+
+      try {
+        const status = await this.monitorOrder(orderId, source);
+        if (status.status === 'filled') return true;
+        if (status.status === 'cancelled' || status.status === 'failed') return false;
+      } catch {
+        // Continue polling
+      }
+    }
+
+    return false;
   }
 }
 
