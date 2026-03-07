@@ -105,11 +105,17 @@ class OrderExecutionService {
       // Create wallet signer from private key
       const signer = new ethers.Wallet(process.env.POLYMARKET_TRADING_PRIVATE_KEY);
 
-      // Get current price from market
-      const currentPrice = params.side === 'YES' ? market.yesPrice : market.noPrice;
-      const priceDecimal = currentPrice / 10000; // Convert from basis points
+      // Fetch live CLOB price if available, fall back to DB price
+      let priceDecimal: number;
+      const liveResult = await this.getLivePrice(params.marketId, 'polymarket', params.side);
+      if (liveResult && liveResult.ageSeconds <= MAX_PRICE_AGE_SECONDS) {
+        priceDecimal = liveResult.price;
+      } else {
+        const currentPrice = params.side === 'YES' ? market.yesPrice : market.noPrice;
+        priceDecimal = currentPrice / 10000; // Convert from basis points
+      }
 
-      // Use limit price if provided, otherwise use market price
+      // Use limit price if provided, otherwise use live/market price
       const orderPrice = params.limitPrice ?? priceDecimal;
 
       // Calculate size (shares)
@@ -231,9 +237,15 @@ class OrderExecutionService {
         return { success: false, error: 'Market not found in database' };
       }
 
-      // Get current price from market (stored as 0-10000 basis points)
-      const currentPrice = params.side === 'YES' ? market.yesPrice : market.noPrice;
-      const priceInCents = Math.round(currentPrice / 100); // Convert to 1-99 range
+      // Fetch live price if available, fall back to DB price
+      let priceInCents: number;
+      const liveResult = await this.getLivePrice(params.marketId, 'kalshi', params.side);
+      if (liveResult && liveResult.ageSeconds <= MAX_PRICE_AGE_SECONDS) {
+        priceInCents = Math.round(liveResult.price * 100); // 0-1 decimal → 1-99 cents
+      } else {
+        const currentPrice = params.side === 'YES' ? market.yesPrice : market.noPrice;
+        priceInCents = Math.round(currentPrice / 100); // basis points → 1-99 cents
+      }
 
       // Use limit price if provided (convert from decimal to cents)
       const orderPriceInCents = params.limitPrice
