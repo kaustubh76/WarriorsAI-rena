@@ -149,25 +149,15 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
     e?.stopPropagation();
 
     try {
-      console.log('[TradePanel] Generating prediction, autoExecute:', autoExecute);
       // Use default max amount (100 CRwN) instead of full balance
       // This prevents accidentally trading the entire wallet
       const result = await generatePrediction();
 
-      console.log('[TradePanel] Prediction result:', {
-        hasResult: !!result,
-        validationValid: result?.validation?.valid,
-        shouldTrade: result?.recommendation?.shouldTrade,
-        autoExecute
-      });
-
       if (result && autoExecute && result.validation?.valid && result.recommendation?.shouldTrade) {
-        console.log('[TradePanel] Auto-executing trade...');
         // Auto-execute trade using server-side wallet (not user wallet)
         autoTradeTimerRef.current = setTimeout(async () => {
           try {
             const tradeResult = await executeAgentTrade();
-            console.log('[TradePanel] Trade result:', tradeResult);
             if (tradeResult?.success) {
               // Clear caches and refresh data after successful agent trade
               clearMarketCache();
@@ -193,8 +183,6 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
             console.error('[TradePanel] Auto-execute error:', execError);
           }
         }, 500);
-      } else if (result && autoExecute) {
-        console.log('[TradePanel] Auto-execute skipped - validation failed or not recommended');
       }
     } catch (error) {
       console.error('[TradePanel] Prediction generation error:', error);
@@ -257,22 +245,18 @@ export function TradePanel({ market, onTradeComplete }: TradePanelProps) {
 
   const handleTrade = async () => {
     if (!amount || parseFloat(amount) <= 0) {
-      console.log('Trade aborted: invalid amount', amount);
       return;
     }
 
     try {
       if (needsApproval) {
-        console.log('Approving tokens:', amount);
         await approveTokens(amount);
         return;
       }
 
       if (mode === 'buy') {
-        console.log('Buying', selectedOutcome, 'with amount:', amount, 'slippage:', slippage);
         await buy(selectedOutcome === 'yes', amount, slippage * 100);
       } else {
-        console.log('Selling', selectedOutcome, 'shares:', amount, 'slippage:', slippage);
         await sell(selectedOutcome === 'yes', amount, slippage * 100);
       }
     } catch (err) {

@@ -384,14 +384,17 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
     logger.debug('useUserNFTs - contractAddress for chain', chainId, ':', contractAddress);
   }
 
-  // Read user's NFT token IDs
+  // Read user's NFT token IDs — always target the chain where Warriors NFTs are deployed
   const { data: userTokenIds, isError: tokenIdsError, isLoading: tokenIdsLoading, refetch: refetchTokenIds } = useReadContract({
     address: contractAddress as `0x${string}`,
     abi: warriorsNFTAbi,
     functionName: 'getNFTsOfAOwner',
     args: connectedAddress ? [connectedAddress] : undefined,
+    chainId,
     query: {
-      enabled: !!connectedAddress && isActive && !!contractAddress,
+      enabled: !!connectedAddress && isActive && !!contractAddress && contractAddress !== '0x0000000000000000000000000000000000000000',
+      retry: 3,
+      retryDelay: 1000,
     },
   });
 

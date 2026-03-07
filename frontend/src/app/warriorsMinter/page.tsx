@@ -13,7 +13,7 @@ import '../home-glass.css';
 
 // gameMasterSigningService moved to server-side /api/sign-traits
 import { ipfsService } from '../../services/ipfsService';
-import { getContracts, chainsToContracts, warriorsNFTAbi } from '../../constants';
+import { getContracts, chainsToContracts, warriorsNFTAbi, DEFAULT_CHAIN_ID } from '../../constants';
 import { useUserNFTs } from '../../hooks/useUserNFTs';
 import { useWarriorsMinterMessages } from '../../hooks/useWarriorsMinterMessages';
 import { usePromoteWarrior, getRankLabel, WarriorRank } from '../../hooks/usePromoteWarrior';
@@ -126,7 +126,8 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   }, [wagmiConfig]);
 
   // Custom hook to manage user NFTs
-  const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', chainId);
+  // Always use Flow Testnet (545) for Warriors NFTs — they only exist on that chain
+  const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', DEFAULT_CHAIN_ID);
 
   // Track when we just minted so we can clear cache AFTER manage tab becomes active
   const justMintedRef = useRef(false);
@@ -1667,12 +1668,22 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
                 </div>
               ) : tokenIdsError ? (
                 <div className="col-span-full text-center py-12">
-                  <p 
+                  <p
                     className="text-red-400 text-sm"
                     style={{fontFamily: 'Press Start 2P, monospace'}}
                   >
                     ERROR LOADING NFTS. CHECK NETWORK CONNECTION.
                   </p>
+                  <button
+                    onClick={() => clearCache()}
+                    className="mt-4 px-6 py-3 arcade-button text-xs tracking-wide"
+                    style={{
+                      fontFamily: 'Press Start 2P, monospace',
+                      borderRadius: '12px'
+                    }}
+                  >
+                    RETRY
+                  </button>
                 </div>
               ) : userNFTs.length > 0 ? (
                 userNFTs.map((warriors) => (
