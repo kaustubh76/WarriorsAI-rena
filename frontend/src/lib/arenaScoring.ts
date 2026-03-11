@@ -21,11 +21,11 @@ const MAX_TRAIT_VALUE = 10000;
 
 // Bonus percentages (as decimals)
 const TRAIT_BONUS_CAPS = {
-  strength: 0.25,    // +25% max to argument quality
-  wit: 0.20,         // +20% max to rebuttal effectiveness
-  charisma: 0.15,    // +15% max to persuasiveness
-  defence: 0.20,     // -20% max damage reduction
-  luck: 0.10,        // +10% max to evidence quality
+  strength: 0.25,    // ALPHA: +25% max to position concentration
+  wit: 0.20,         // COMPLEXITY: +20% max to multi-hop strategy depth
+  charisma: 0.15,    // MOMENTUM: +15% max to rebalance effectiveness
+  defence: 0.20,     // HEDGE: -20% max downside protection
+  luck: 0.10,        // TIMING: +10% max to entry/exit precision
 };
 
 // Move effectiveness multipliers

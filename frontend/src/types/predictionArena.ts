@@ -32,20 +32,26 @@ export enum MarketSource {
 // ============================================
 
 export interface WarriorTraits {
-  strength: number;   // 0-10000 (2 decimal precision)
-  wit: number;        // 0-10000
-  charisma: number;   // 0-10000
-  defence: number;    // 0-10000
-  luck: number;       // 0-10000
+  strength: number;   // 0-10000 — ALPHA (Conviction/position concentration)
+  wit: number;        // 0-10000 — COMPLEXITY (Strategy depth/protocol hops)
+  charisma: number;   // 0-10000 — MOMENTUM (Trend sensitivity/rebalance frequency)
+  defence: number;    // 0-10000 — HEDGE (Downside protection/stablecoin allocation)
+  luck: number;       // 0-10000 — TIMING (Entry/exit precision)
 }
 
+/** DeFi strategy alias — same shape as WarriorTraits, mapped to contract fields */
+export type DeFiStrategyTraits = WarriorTraits;
+
 export interface WarriorMoves {
-  strike: string;
-  taunt: string;
-  dodge: string;
-  special: string;
-  recover: string;
+  strike: string;     // REBALANCE — shift allocation between pools
+  taunt: string;      // CONCENTRATE — double down on best position
+  dodge: string;      // HEDGE UP — move to stables/defensive
+  special: string;    // COMPOSE — multi-hop Flow Actions
+  recover: string;    // FLASH — VRF-optimized entry/exit
 }
+
+/** DeFi strategy alias — same shape as WarriorMoves, mapped to contract fields */
+export type DeFiStrategyMoves = WarriorMoves;
 
 export interface Warrior {
   id: number;
