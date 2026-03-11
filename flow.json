@@ -21,6 +21,7 @@
     "ScheduledBattle": "./cadence/contracts/ScheduledBattle.cdc",
     "ScheduledMarketResolver": "./cadence/contracts/ScheduledMarketResolver.cdc",
     "EVMBridge": "./cadence/contracts/EVMBridge.cdc",
+    "ScheduledVault": "./cadence/contracts/ScheduledVault.cdc",
     "EVM": {
       "aliases": {
         "emulator": "0xf8d6e0586b0a20c7",
@@ -45,14 +46,16 @@
       "emulator-account": [
         "ScheduledBattle",
         "ScheduledMarketResolver",
-        "EVMBridge"
+        "EVMBridge",
+        "ScheduledVault"
       ]
     },
     "testnet": {
       "testnet-account": [
         "ScheduledBattle",
         "ScheduledMarketResolver",
-        "EVMBridge"
+        "EVMBridge",
+        "ScheduledVault"
       ]
     }
   }
