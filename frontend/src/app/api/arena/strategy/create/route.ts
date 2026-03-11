@@ -1,0 +1,50 @@
+/**
+ * POST /api/arena/strategy/create
+ *
+ * Create a Strategy-vs-Strategy arena battle.
+ * Both warriors must have active vaults.
+ */
+
+import { NextResponse } from 'next/server';
+import { ErrorResponses } from '@/lib/api';
+import { RateLimitPresets } from '@/lib/api/rateLimit';
+import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { strategyArenaService } from '@/services/arena/strategyArenaService';
+
+interface CreateRequest {
+  warrior1Id: number;
+  warrior1Owner: string;
+  warrior2Id: number;
+  warrior2Owner: string;
+  stakes: string;
+}
+
+export const POST = composeMiddleware([
+  withRateLimit({ prefix: 'arena-strategy-create', ...RateLimitPresets.marketCreation }),
+  async (req) => {
+    const body: CreateRequest = await req.json();
+    const { warrior1Id, warrior1Owner, warrior2Id, warrior2Owner, stakes } = body;
+
+    if (!warrior1Id || !warrior1Owner || !warrior2Id || !warrior2Owner) {
+      throw ErrorResponses.badRequest('warrior1Id, warrior1Owner, warrior2Id, warrior2Owner are required');
+    }
+    if (!stakes || isNaN(Number(stakes)) || Number(stakes) <= 0) {
+      throw ErrorResponses.badRequest('stakes must be a positive number');
+    }
+
+    const result = await strategyArenaService.createStrategyBattle({
+      warrior1Id: Number(warrior1Id),
+      warrior1Owner,
+      warrior2Id: Number(warrior2Id),
+      warrior2Owner,
+      stakes,
+    });
+
+    return NextResponse.json({
+      success: true,
+      battle: result.battle,
+      bettingPoolId: result.bettingPoolId,
+      message: `Strategy battle created: NFT#${warrior1Id} vs NFT#${warrior2Id}`,
+    });
+  },
+], { errorContext: 'API:Arena:Strategy:Create:POST' });
