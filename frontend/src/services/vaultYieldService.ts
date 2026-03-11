@@ -215,9 +215,9 @@ class VaultYieldService {
 
     const balanceBefore = onChainState.depositAmount.toString();
 
-    // 3. Call evaluate-cycle API for AI allocation (45s timeout — fits within 240s cron budget)
+    // 3. Call evaluate-cycle API for AI allocation (60s timeout — fits within 240s cron budget)
     const evalAbort = new AbortController();
-    const evalTimeout = setTimeout(() => evalAbort.abort(), 45000);
+    const evalTimeout = setTimeout(() => evalAbort.abort(), 60000);
     const evalResponse = await fetch(
       `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/vault/evaluate-cycle`,
       {
