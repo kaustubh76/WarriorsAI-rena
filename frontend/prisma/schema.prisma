@@ -850,6 +850,13 @@ model PredictionBattle {
   whaleTriggered      Boolean  @default(false)
   triggerWhaleTradeId String?  // WhaleTrade.id that triggered this battle
 
+  // Phase 4: Strategy Battle fields (null for debate-only battles)
+  isStrategyBattle  Boolean   @default(false)
+  vault1Id          String?   // Vault.id for warrior1's vault
+  vault2Id          String?   // Vault.id for warrior2's vault
+  w1TotalYield      String?   // Cumulative yield warrior1 (wei string)
+  w2TotalYield      String?   // Cumulative yield warrior2 (wei string)
+
   createdAt         DateTime @default(now())
   completedAt       DateTime?
 
@@ -862,6 +869,7 @@ model PredictionBattle {
   @@index([warrior1Id])
   @@index([warrior2Id])
   @@index([isArbitrageBattle])
+  @@index([isStrategyBattle])
 }
 
 model PredictionRound {
@@ -889,6 +897,23 @@ model PredictionRound {
 
   // 0G Storage
   argumentsHash   String?  // Hash of arguments stored in 0G
+
+  // Phase 4: DeFi cycle fields (null for debate-only rounds)
+  w1DeFiMove         String?  // REBALANCE | CONCENTRATE | HEDGE_UP | COMPOSE | FLASH | HOLD
+  w2DeFiMove         String?
+  w1AllocationBefore String?  // JSON: {highYield, stable, lp}
+  w2AllocationBefore String?
+  w1AllocationAfter  String?  // JSON: {highYield, stable, lp}
+  w2AllocationAfter  String?
+  w1YieldEarned      String?  // Wei string
+  w2YieldEarned      String?
+  w1BalanceBefore    String?  // Wei string
+  w2BalanceBefore    String?
+  w1BalanceAfter     String?
+  w2BalanceAfter     String?
+  w1TxHash           String?  // Rebalance tx hash
+  w2TxHash           String?
+  poolAPYsSnapshot   String?  // JSON: {highYield, stable, lp}
 
   startedAt       DateTime @default(now())
   endedAt         DateTime?
@@ -1268,4 +1293,68 @@ model UserTopicStats {
   @@unique([userId, category])
   @@index([userId])
   @@index([category, correct])
+}
+
+// ============================================
+// STRATEGY VAULTS (Phase 2 — DeFi Pivot)
+// ============================================
+
+model Vault {
+  id                  String   @id @default(cuid())
+  nftId               Int      @unique            // WarriorsNFT tokenId
+  ownerAddress        String
+  depositAmount       String                      // BigInt as string
+  allocationHighYield Int                          // Basis points (0-10000)
+  allocationStable    Int
+  allocationLP        Int
+  aiProof             String?                      // 0G proof JSON
+  status              String   @default("active") // active | paused | withdrawn
+  scheduledTxId       String?                      // Cadence scheduled tx ID
+  cyclesExecuted      Int      @default(0)        // Total cycles completed
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deposits            VaultDeposit[]
+  cycles              VaultCycle[]
+
+  @@index([ownerAddress])
+  @@index([status])
+}
+
+model VaultDeposit {
+  id        String   @id @default(cuid())
+  vaultId   String
+  vault     Vault    @relation(fields: [vaultId], references: [id])
+  amount    String
+  txHash    String
+  type      String   // deposit | withdraw | yield_claim
+  createdAt DateTime @default(now())
+
+  @@index([vaultId])
+}
+
+model VaultCycle {
+  id                    String   @id @default(cuid())
+  vaultId               String
+  vault                 Vault    @relation(fields: [vaultId], references: [id])
+  cycleNumber           Int
+  move                  String   // REBALANCE | CONCENTRATE | HEDGE_UP | COMPOSE | FLASH | HOLD
+  rationale             String?  // AI reasoning
+  allocationBeforeHY    Int      // basis points before rebalance
+  allocationBeforeST    Int
+  allocationBeforeLP    Int
+  allocationAfterHY     Int      // basis points after rebalance
+  allocationAfterST     Int
+  allocationAfterLP     Int
+  yieldEarned           String   // BigInt as string — yield accrued during this cycle
+  balanceBefore         String   // total vault balance before cycle
+  balanceAfter          String   // total vault balance after cycle (incl. yield)
+  poolAPYHighYield      Int      // APYs at time of cycle (basis points)
+  poolAPYStable         Int
+  poolAPYLP             Int
+  aiProof               String?  // 0G proof JSON
+  txHash                String?  // rebalance tx hash
+  executedAt            DateTime @default(now())
+
+  @@unique([vaultId, cycleNumber])
+  @@index([vaultId])
 }
