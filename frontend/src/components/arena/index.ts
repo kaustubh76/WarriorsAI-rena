@@ -9,6 +9,9 @@ export { Achievements, AchievementsBadge } from './Achievements';
 export { CreateChallengeModal } from './CreateChallengeModal';
 export { AcceptChallengeModal } from './AcceptChallengeModal';
 
+// Strategy battle components
+export { default as StrategyBattleCard } from './StrategyBattleCard';
+
 // Arbitrage battle components
 export { default as CreateArbitrageBattleModal } from './CreateArbitrageBattleModal';
 export { default as MarketSearchWithArbitrage } from './MarketSearchWithArbitrage';
