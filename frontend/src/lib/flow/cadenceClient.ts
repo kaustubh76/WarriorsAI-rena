@@ -74,6 +74,25 @@ export interface FlowEvent {
   blockHeight: number;
 }
 
+export interface ScheduledVaultStatus {
+  id: number;
+  nftId: number;
+  vaultAddress: string;
+  ownerAddress: string;
+  cycleInterval: number;
+  nextExecutionTime: number;
+  cyclesExecuted: number;
+  active: boolean;
+  createdAt: number;
+}
+
+export interface ScheduleVaultParams {
+  nftId: number;
+  vaultAddress: string;
+  ownerAddress: string;
+  cycleInterval: number; // seconds (86400 = daily)
+}
+
 // Helper function to format battle data from Cadence
 function formatBattle(cadenceBattle: any): ScheduledBattle {
   return {
@@ -386,6 +405,176 @@ export const cadenceClient = {
       await fcl.unauthenticate();
     } catch (error) {
       console.error('[Cadence] Unauthentication failed:', error);
+      throw error;
+    }
+  },
+
+  // ============================================
+  // VAULT SCHEDULING (ScheduledVault contract)
+  // ============================================
+
+  /**
+   * Schedule a vault for recurring yield cycles on Cadence.
+   * Creates a Scheduler resource if needed, then calls scheduleVault().
+   * User's Flow Wallet signs the transaction (client-side via fcl.authz).
+   */
+  async scheduleVault(params: ScheduleVaultParams): Promise<string> {
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
+    }
+
+    try {
+      const transactionId = await withTimeout(
+        fcl.mutate({
+          cadence: `
+            import ScheduledVault from ${CONTRACT_ADDRESS}
+
+            transaction(nftId: UInt64, vaultAddress: String, ownerAddress: String, cycleInterval: UFix64) {
+              let scheduler: &ScheduledVault.Scheduler
+
+              prepare(signer: auth(Storage, SaveValue, LoadValue, BorrowValue) &Account) {
+                // Create Scheduler resource if it doesn't exist
+                if signer.storage.borrow<&ScheduledVault.Scheduler>(from: ScheduledVault.SchedulerStoragePath) == nil {
+                  let newScheduler <- ScheduledVault.createScheduler()
+                  signer.storage.save(<-newScheduler, to: ScheduledVault.SchedulerStoragePath)
+                }
+                self.scheduler = signer.storage.borrow<&ScheduledVault.Scheduler>(from: ScheduledVault.SchedulerStoragePath)
+                  ?? panic("Could not borrow Scheduler")
+              }
+
+              execute {
+                let vaultId = self.scheduler.scheduleVault(
+                  nftId: nftId,
+                  vaultAddress: vaultAddress,
+                  ownerAddress: ownerAddress,
+                  cycleInterval: cycleInterval
+                )
+                log("Vault scheduled with ID: ".concat(vaultId.toString()))
+              }
+            }
+          `,
+          args: (arg, t) => [
+            arg(String(params.nftId), types.UInt64),
+            arg(params.vaultAddress, types.String),
+            arg(params.ownerAddress, types.String),
+            arg(params.cycleInterval.toFixed(1), types.UFix64),
+          ],
+          proposer: fcl.authz as any,
+          payer: fcl.authz as any,
+          authorizations: [fcl.authz as any],
+          limit: 1000,
+        }),
+        30000,
+        'Schedule vault transaction timed out'
+      );
+
+      const txResult = await withTimeout(
+        fcl.tx(transactionId).onceSealed(),
+        60000,
+        'Transaction sealing timed out'
+      );
+      console.log('[Cadence] Vault scheduled, TX:', transactionId, 'Status:', txResult.status);
+
+      return transactionId;
+    } catch (error) {
+      console.error('[Cadence] Failed to schedule vault:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Query a vault's schedule status by NFT ID.
+   * Returns null if no vault is scheduled for this NFT.
+   */
+  async queryVaultStatus(nftId: number): Promise<ScheduledVaultStatus | null> {
+    if (!CONTRACT_ADDRESS) {
+      console.warn('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
+      return null;
+    }
+
+    try {
+      const result = await withTimeout(
+        fcl.query({
+          cadence: `
+            import ScheduledVault from ${CONTRACT_ADDRESS}
+
+            access(all) fun main(nftId: UInt64): ScheduledVault.ScheduledVaultEntry? {
+              return ScheduledVault.getVaultByNFTId(nftId: nftId)
+            }
+          `,
+          args: (arg, t) => [arg(String(nftId), types.UInt64)],
+        }),
+        30000,
+        'Query vault status timed out'
+      );
+
+      if (!result) return null;
+
+      return {
+        id: parseInt(result.id, 10),
+        nftId: parseInt(result.nftId, 10),
+        vaultAddress: result.vaultAddress,
+        ownerAddress: result.ownerAddress,
+        cycleInterval: parseFloat(result.cycleInterval),
+        nextExecutionTime: parseFloat(result.nextExecutionTime),
+        cyclesExecuted: parseInt(result.cyclesExecuted, 10),
+        active: result.active,
+        createdAt: parseFloat(result.createdAt),
+      };
+    } catch (error) {
+      console.error('[Cadence] Failed to query vault status:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Cancel a scheduled vault (user must be the creator).
+   */
+  async cancelVault(vaultId: number): Promise<string> {
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
+    }
+
+    try {
+      const transactionId = await withTimeout(
+        fcl.mutate({
+          cadence: `
+            import ScheduledVault from ${CONTRACT_ADDRESS}
+
+            transaction(vaultId: UInt64) {
+              let scheduler: &ScheduledVault.Scheduler
+
+              prepare(signer: auth(Storage, BorrowValue) &Account) {
+                self.scheduler = signer.storage.borrow<&ScheduledVault.Scheduler>(from: ScheduledVault.SchedulerStoragePath)
+                  ?? panic("Scheduler not found - you must schedule a vault first")
+              }
+
+              execute {
+                self.scheduler.cancelVault(vaultId: vaultId)
+                log("Vault cancelled: ".concat(vaultId.toString()))
+              }
+            }
+          `,
+          args: (arg, t) => [arg(String(vaultId), types.UInt64)],
+          proposer: fcl.authz as any,
+          payer: fcl.authz as any,
+          authorizations: [fcl.authz as any],
+          limit: 1000,
+        }),
+        30000,
+        'Cancel vault transaction timed out'
+      );
+
+      const txResult = await withTimeout(
+        fcl.tx(transactionId).onceSealed(),
+        60000,
+        'Transaction sealing timed out'
+      );
+      console.log('[Cadence] Vault cancelled, TX:', transactionId, 'Status:', txResult.status);
+
+      return transactionId;
+    } catch (error) {
+      console.error('[Cadence] Failed to cancel vault:', error);
       throw error;
     }
   },

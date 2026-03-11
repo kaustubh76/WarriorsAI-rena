@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
-import { chainsToContracts, warriorsNFTAbi } from '../constants';
+import { chainsToContracts, warriorsNFTAbi, getChainId } from '../constants';
 import { logger } from '../lib/logger';
 
 interface WarriorsTraits {
@@ -374,14 +374,14 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
 
   // Debug logging (only when params change)
   if (hasParamsChanged) {
-    logger.debug('useUserNFTs - chainId:', chainId, 'isActive:', isActive, 'connectedAddress:', connectedAddress);
+    logger.debug(`useUserNFTs - chainId: ${chainId}, isActive: ${isActive}, connectedAddress: ${connectedAddress}`);
     lastParamsRef.current = stableParams.key;
   }
 
   // Get contract address for the current chain
   const contractAddress = chainsToContracts[chainId]?.warriorsNFT;
   if (hasParamsChanged) {
-    logger.debug('useUserNFTs - contractAddress for chain', chainId, ':', contractAddress);
+    logger.debug(`useUserNFTs - contractAddress for chain ${chainId}: ${contractAddress}`);
   }
 
   // Read user's NFT token IDs — always target the chain where Warriors NFTs are deployed
@@ -472,8 +472,10 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
 
       // Extract values (handling potential failures)
       const encryptedURI = encryptedURIResult?.success ? encryptedURIResult.result : null;
-      const contractTraits = traitsResult?.success ? traitsResult.result : null;
-      const ranking = rankingResult?.success ? rankingResult.result : 0;
+      const contractTraits = traitsResult?.success
+        ? (traitsResult.result as { strength: number; wit: number; charisma: number; defence: number; luck: number })
+        : null;
+      const ranking = rankingResult?.success ? (rankingResult.result as number) : 0;
       const winnings = winningsResult?.success ? winningsResult.result : '0';
 
       // Use encrypted URI (where the actual 0G storage root hash is stored)
@@ -776,7 +778,7 @@ export const useUserNFTs = (isActive: boolean = false, chainId: number = getChai
       logger.debug('- chainId:', chainId);
       logger.debug('- cache size:', metadataCache.size);
       logger.debug('- cached keys:', Array.from(metadataCache.keys()));
-      userNFTs.forEach((nft, index) => {
+      userNFTs.forEach((nft: UserWarriors, index: number) => {
         logger.debug(`- NFT ${index + 1}: ${nft.name} (Token ${nft.tokenId})`);
       });
     }
