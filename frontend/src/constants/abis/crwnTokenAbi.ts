@@ -121,10 +121,9 @@ export const CRWN_TOKEN_ABI = [
   {
     name: 'mint',
     type: 'function',
-    stateMutability: 'nonpayable',
+    stateMutability: 'payable',
     inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'amount', type: 'uint256' },
+      { name: '_amount', type: 'uint256' },
     ],
     outputs: [],
   },

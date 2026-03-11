@@ -14,5 +14,9 @@ export type { ExternalMarketMirrorABI } from './externalMarketMirrorAbi';
 export { CRWN_TOKEN_ABI } from './crwnTokenAbi';
 export type { CRwNTokenABI } from './crwnTokenAbi';
 
+export { STRATEGY_VAULT_ABI } from './strategyVaultAbi';
+
+export { POOL_ABI } from './poolAbi';
+
 // Contract addresses - re-export from constants for convenience
 export { FLOW_TESTNET_CONTRACTS, FLOW_MAINNET_CONTRACTS } from '../index';
