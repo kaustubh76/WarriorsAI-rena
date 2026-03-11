@@ -1,6 +1,6 @@
 /**
- * Generate Warrior Attributes API Route
- * POST: Generate AI warrior character attributes via 0G inference
+ * Generate DeFi Strategy Profile API Route
+ * POST: Generate AI DeFi strategist profile attributes via 0G inference
  */
 
 import { NextResponse } from 'next/server';
@@ -11,6 +11,20 @@ import { ErrorResponses } from '@/lib/api/errorHandler';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { internalFetch } from '@/lib/api/internalFetch';
 
+/** Extract JSON from AI response — handles markdown code fences */
+function extractJSON(response: string): unknown {
+  const trimmed = response.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) return JSON.parse(jsonMatch[1].trim());
+    const objectMatch = trimmed.match(/\{[\s\S]*\}/);
+    if (objectMatch) return JSON.parse(objectMatch[0]);
+    throw new Error('Could not extract JSON from AI response');
+  }
+}
+
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'generate-warrior-attributes', ...RateLimitPresets.inference }),
   async (req, ctx) => {
@@ -20,29 +34,29 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Prompt is required and must be a string');
     }
 
-    logger.debug('Generating warrior attributes');
+    logger.debug('Generating DeFi strategy profile');
 
     // Call the 0G AI inference API
     const inferenceResponse = await internalFetch(`${getApiBaseUrl()}/api/0g/inference`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: `You are a creative game character designer for a blockchain warrior battle game. Create a unique warrior character based on this description: ${prompt}
+        prompt: `You are an AI-powered DeFi strategy architect for an autonomous trading protocol on Flow blockchain. Based on this life story, create a unique DeFi trading strategy profile: ${prompt}
 
-Generate a COMPLETE warrior profile as JSON with this EXACT format:
+Generate a COMPLETE strategy profile as JSON with this EXACT format:
 {
-  "name": "<unique warrior name>",
-  "bio": "<2-3 sentence character bio/backstory>",
-  "life_history": "<paragraph about the warrior's background, training, and how they became a warrior>",
-  "adjectives": ["<personality trait 1>", "<trait 2>", "<trait 3>", "<trait 4>", "<trait 5>"],
-  "knowledge_areas": ["<skill/expertise 1>", "<skill 2>", "<skill 3>", "<skill 4>"]
+  "name": "<creative strategy name — e.g. 'The Surgeon', 'Momentum Hawk', 'Yield Fortress'>",
+  "bio": "<2-3 sentence strategy thesis explaining the trading philosophy and approach>",
+  "life_history": "<paragraph about how this person's life experiences shape their DeFi strategy — risk tolerance, decision-making speed, analytical depth, protective instincts, timing intuition>",
+  "adjectives": ["<strategy characteristic 1>", "<char 2>", "<char 3>", "<char 4>", "<char 5>"],
+  "knowledge_areas": ["<DeFi expertise 1>", "<expertise 2>", "<expertise 3>", "<expertise 4>"]
 }
 
 IMPORTANT:
-- Be creative and base the character on the user's description
-- adjectives should be personality traits like: Brave, Cunning, Fierce, Wise, Agile, Strategic, etc.
-- knowledge_areas should be skills like: Combat, Strategy, Warfare, Stealth, Leadership, etc.
-- Make the character unique and interesting
+- Be creative and derive the strategy personality from the user's life story
+- adjectives should be DeFi strategy characteristics like: Yield-hunting, Risk-averse, Momentum-driven, Hedge-heavy, Precision-timed, Alpha-seeking, Composable, Contrarian, etc.
+- knowledge_areas should be DeFi protocol expertise like: DEX Aggregation, Lending Protocols, Yield Farming, Liquidity Provision, Stablecoin Vaults, Flash Loans, Cross-chain Bridges, Options Strategies, etc.
+- The strategy name should reflect the person's personality (e.g., a surgeon → "The Surgeon" with precise timing)
 
 Respond with valid JSON only, no explanation.`,
         maxTokens: 600,
@@ -75,22 +89,22 @@ Respond with valid JSON only, no explanation.`,
       logger.warn('0G inference returned unverified result - blocking for testnet');
       return NextResponse.json({
         success: false,
-        error: '0G Compute services unavailable. Cannot generate verified character.',
+        error: '0G Compute services unavailable. Cannot generate verified strategy profile.',
         fallbackMode: true,
         isVerified: false,
-        message: 'Character generation requires verified 0G inference. Please try again later.'
+        message: 'Strategy profile generation requires verified 0G inference. Please try again later.'
       }, { status: 503 });
     }
 
     const attributesJson = inferenceResult.content || inferenceResult.response;
 
-    logger.debug('Generated warrior attributes');
+    logger.debug('Generated DeFi strategy profile');
 
     // Parse and validate attributes
     let attributes;
     try {
       attributes = typeof attributesJson === 'string'
-        ? JSON.parse(attributesJson)
+        ? extractJSON(attributesJson)
         : attributesJson;
     } catch (parseError) {
       logger.error('Failed to parse AI response:', attributesJson);
@@ -110,13 +124,13 @@ Respond with valid JSON only, no explanation.`,
     if (!Array.isArray(attributes.adjectives)) {
       attributes.adjectives = typeof attributes.adjectives === 'string'
         ? attributes.adjectives.split(',').map((s: string) => s.trim())
-        : ['Brave', 'Skilled', 'Strategic'];
+        : ['Yield-hunting', 'Risk-aware', 'Strategic'];
     }
 
     if (!Array.isArray(attributes.knowledge_areas)) {
       attributes.knowledge_areas = typeof attributes.knowledge_areas === 'string'
         ? attributes.knowledge_areas.split(',').map((s: string) => s.trim())
-        : ['Combat', 'Strategy', 'Leadership'];
+        : ['Yield Farming', 'DEX Aggregation', 'Risk Management'];
     }
 
     // Return the JSON response as string (page expects to JSON.parse it)
