@@ -7,8 +7,10 @@ import { encodePacked, keccak256, decodeEventLog } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createFlowWalletClient, createFlowPublicClient } from '@/lib/flowClient';
 import '../home-glass.css';
+import './page-glass.css';
 import { Button } from '../../components/ui/button';
 import { useArenas, type RankCategory, type ArenaWithDetails } from '../../hooks/useArenas';
+import { StrategyBattleCard } from '../../components/arena';
 import { arenaService, isValidBettingAmount, getClosestValidBettingAmount } from '../../services/arenaService';
 import { ArenaAbi, warriorsNFTAbi, getChainId, getContracts, getArenaBackendUrl } from '../../constants';
 import { waitForTransactionReceipt, readContract } from '@wagmi/core';
@@ -512,6 +514,9 @@ export default function ArenaPage() {
   const { arenasWithDetails, isLoading, error, refetch } = useArenas();
   const [selectedArena, setSelectedArena] = useState<Arena | null>(null);
   const [activeRank, setActiveRank] = useState<RankCategory>('UNRANKED');
+  const [viewMode, setViewMode] = useState<'debate' | 'strategy'>('debate');
+  const [strategyBattles, setStrategyBattles] = useState<any[]>([]);
+  const [strategyLoading, setStrategyLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [betAmount, setBetAmount] = useState('');
   const [selectedWarriors, setSelectedWarriors] = useState<'ONE' | 'TWO' | null>(null);
@@ -788,7 +793,7 @@ export default function ArenaPage() {
         });
 
         // Update battle notification with HIT/MISS status
-        setBattleNotification(prev => prev ? {
+        setBattleNotification((prev: BattleNotification | null) => prev ? {
           ...prev,
           warriorsOneHitStatus,
           warriorsTwoHitStatus
@@ -932,7 +937,7 @@ export default function ArenaPage() {
         });
 
         // Update battle notification with HIT/MISS status
-        setBattleNotification(prev => prev ? {
+        setBattleNotification((prev: BattleNotification | null) => prev ? {
           ...prev,
           warriorsOneHitStatus,
           warriorsTwoHitStatus
@@ -958,7 +963,7 @@ export default function ArenaPage() {
       console.error('❌ Failed to execute battle with API signature:', error);
       
       // Update notification with error
-      setBattleNotification(prev => prev ? {
+      setBattleNotification((prev: BattleNotification | null) => prev ? {
         ...prev,
         warriorsOneHitStatus: 'MISS',
         warriorsTwoHitStatus: 'MISS'
@@ -1077,7 +1082,29 @@ export default function ArenaPage() {
   }, [arenasWithDetails, selectedArena?.address, activeRank, convertArenaWithDetailsToArena]);
 
   // Get arenas for the active rank
-  const currentRankArenasWithDetails = arenasWithDetails[activeRank] || [];
+  const currentRankArenasWithDetails = arenasWithDetails[activeRank as RankCategory] || [];
+
+  // Fetch strategy battles when strategy view is selected
+  useEffect(() => {
+    if (viewMode !== 'strategy') return;
+    let cancelled = false;
+    const fetchStrategyBattles = async () => {
+      setStrategyLoading(true);
+      try {
+        const res = await fetch('/api/arena/strategy/list');
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setStrategyBattles(data.battles || []);
+        }
+      } catch {
+        // silently fail — user can retry
+      } finally {
+        if (!cancelled) setStrategyLoading(false);
+      }
+    };
+    fetchStrategyBattles();
+    return () => { cancelled = true; };
+  }, [viewMode]);
 
   // Manual automation functions - updated for command-based system
   const manualStartGame = async () => {
@@ -2336,7 +2363,8 @@ export default function ArenaPage() {
           </div>
         </div>
 
-        <div className="flex justify-center mb-8">
+        {/* View Mode Toggle: Debate vs Strategy */}
+        <div className="flex justify-center mb-4">
           <div
             className="p-2 flex gap-2"
             style={ {
@@ -2348,129 +2376,229 @@ export default function ArenaPage() {
               borderRadius: '20px'
             } }
           >
-            { (['UNRANKED', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM'] as RankCategory[]).map((rank) => (
+            { (['debate', 'strategy'] as const).map((mode) => (
               <button
-                key={ rank }
-                onClick={ () => setActiveRank(rank) }
-                className={ `px-6 py-3 text-xs tracking-wide transition-all duration-300 ${activeRank === rank
+                key={ mode }
+                onClick={ () => setViewMode(mode) }
+                className={ `px-6 py-3 text-xs tracking-wide transition-all duration-300 ${viewMode === mode
                     ? 'arcade-button'
                     : 'border-2 border-gray-600 text-gray-300 hover:border-yellow-600 hover:text-yellow-400'
                   }` }
                 style={ {
                   fontFamily: 'Press Start 2P, monospace',
                   borderRadius: '12px',
-                  background: activeRank === rank ? undefined : 'rgba(0, 0, 0, 0.3)'
+                  background: viewMode === mode ? undefined : 'rgba(0, 0, 0, 0.3)'
                 } }
               >
-                { rank }
+                { mode === 'debate' ? 'DEBATE BATTLES' : 'STRATEGY BATTLES' }
               </button>
             )) }
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto">
-          {/* Arena List */}
-          <div className="space-y-6">
-            { isLoading ? (
-              <div className="text-center py-12">
-                <div
-                  className="p-8"
+        {/* Rank Tabs — only shown in debate mode */}
+        {viewMode === 'debate' && (
+          <div className="flex justify-center mb-8">
+            <div
+              className="p-2 flex gap-2"
+              style={ {
+                background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
+                border: '3px solid #ff8c00',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
+                borderRadius: '20px'
+              } }
+            >
+              { (['UNRANKED', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM'] as RankCategory[]).map((rank) => (
+                <button
+                  key={ rank }
+                  onClick={ () => setActiveRank(rank) }
+                  className={ `px-6 py-3 text-xs tracking-wide transition-all duration-300 ${activeRank === rank
+                      ? 'arcade-button'
+                      : 'border-2 border-gray-600 text-gray-300 hover:border-yellow-600 hover:text-yellow-400'
+                    }` }
                   style={ {
-                    background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
-                    border: '3px solid #ff8c00',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
-                    borderRadius: '24px'
+                    fontFamily: 'Press Start 2P, monospace',
+                    borderRadius: '12px',
+                    background: activeRank === rank ? undefined : 'rgba(0, 0, 0, 0.3)'
                   } }
                 >
-                  <div
-                    className="text-orange-400 text-lg mb-4"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    Loading arenas...
-                  </div>
-                  <div
-                    className="text-orange-400"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    ⚡ Fetching battlefield data...
-                  </div>
-                </div>
-              </div>
-            ) : error ? (
-              <div className="text-center py-12">
-                <div
-                  className="p-8"
-                  style={ {
-                    background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
-                    border: '3px solid #ff8c00',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
-                    borderRadius: '24px'
-                  } }
-                >
-                  <div
-                    className="text-red-400 text-lg mb-4"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    Error loading arenas
-                  </div>
-                  <p
-                    className="text-orange-400 mb-4"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    { error }
-                  </p>
-                  <button
-                    onClick={ () => refetch() }
-                    className="arcade-button text-xs px-4 py-2"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    RETRY
-                  </button>
-                </div>
-              </div>
-            ) : currentRankArenasWithDetails.length > 0 ? (
-              currentRankArenasWithDetails.map((arenaWithDetails, index) => (
-                <EnhancedArenaCard
-                  key={ arenaWithDetails.address }
-                  arenaWithDetails={ arenaWithDetails }
-                  ranking={ activeRank }
-                  index={ index }
-                  onClick={ () => handleEnhancedArenaClick(arenaWithDetails) }
-                />
-              ))
-            ) : (
-              <div className="text-center py-12">
-                <div
-                  className="p-8"
-                  style={ {
-                    background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
-                    border: '3px solid #ff8c00',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
-                    borderRadius: '24px'
-                  } }
-                >
-                  <div
-                    className="text-orange-400 text-lg mb-4"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    No arenas found for { activeRank } rank
-                  </div>
-                  <p
-                    className="text-orange-400"
-                    style={ { fontFamily: 'Press Start 2P, monospace' } }
-                  >
-                    Check other ranks or create a new arena
-                  </p>
-                </div>
-              </div>
-            ) }
+                  { rank }
+                </button>
+              )) }
+            </div>
           </div>
+        )}
+
+        <div className="max-w-7xl mx-auto">
+          {viewMode === 'strategy' ? (
+            /* Strategy Battles List */
+            <div className="space-y-6">
+              { strategyLoading ? (
+                <div className="text-center py-12">
+                  <div
+                    className="p-8"
+                    style={ {
+                      background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
+                      border: '3px solid #ff8c00',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
+                      borderRadius: '24px'
+                    } }
+                  >
+                    <div
+                      className="text-orange-400 text-lg mb-4"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      Loading strategy battles...
+                    </div>
+                    <div
+                      className="text-orange-400"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      ⚡ Fetching DeFi arena data...
+                    </div>
+                  </div>
+                </div>
+              ) : strategyBattles.length > 0 ? (
+                strategyBattles.map((battle: any) => (
+                  <StrategyBattleCard key={ battle.id } battle={ battle } />
+                ))
+              ) : (
+                <div className="text-center py-12">
+                  <div
+                    className="p-8"
+                    style={ {
+                      background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
+                      border: '3px solid #ff8c00',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
+                      borderRadius: '24px'
+                    } }
+                  >
+                    <div
+                      className="text-orange-400 text-lg mb-4"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      No strategy battles yet
+                    </div>
+                    <p
+                      className="text-orange-400"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      Create a vault and challenge another warrior!
+                    </p>
+                  </div>
+                </div>
+              ) }
+            </div>
+          ) : (
+            /* Debate Arena List */
+            <div className="space-y-6">
+              { isLoading ? (
+                <div className="text-center py-12">
+                  <div
+                    className="p-8"
+                    style={ {
+                      background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
+                      border: '3px solid #ff8c00',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
+                      borderRadius: '24px'
+                    } }
+                  >
+                    <div
+                      className="text-orange-400 text-lg mb-4"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      Loading arenas...
+                    </div>
+                    <div
+                      className="text-orange-400"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      ⚡ Fetching battlefield data...
+                    </div>
+                  </div>
+                </div>
+              ) : error ? (
+                <div className="text-center py-12">
+                  <div
+                    className="p-8"
+                    style={ {
+                      background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
+                      border: '3px solid #ff8c00',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
+                      borderRadius: '24px'
+                    } }
+                  >
+                    <div
+                      className="text-red-400 text-lg mb-4"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      Error loading arenas
+                    </div>
+                    <p
+                      className="text-orange-400 mb-4"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      { error }
+                    </p>
+                    <button
+                      onClick={ () => refetch() }
+                      className="arcade-button text-xs px-4 py-2"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      RETRY
+                    </button>
+                  </div>
+                </div>
+              ) : currentRankArenasWithDetails.length > 0 ? (
+                currentRankArenasWithDetails.map((arenaWithDetails: ArenaWithDetails, index: number) => (
+                  <EnhancedArenaCard
+                    key={ arenaWithDetails.address }
+                    arenaWithDetails={ arenaWithDetails }
+                    ranking={ activeRank }
+                    index={ index }
+                    onClick={ () => handleEnhancedArenaClick(arenaWithDetails) }
+                  />
+                ))
+              ) : (
+                <div className="text-center py-12">
+                  <div
+                    className="p-8"
+                    style={ {
+                      background: 'radial-gradient(circle at top left, rgba(120, 160, 200, 0.15), rgba(100, 140, 180, 0.1) 50%), linear-gradient(135deg, rgba(120, 160, 200, 0.2) 0%, rgba(100, 140, 180, 0.15) 30%, rgba(120, 160, 200, 0.2) 100%)',
+                      border: '3px solid #ff8c00',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 0 8px rgba(255, 140, 0, 0.3)',
+                      borderRadius: '24px'
+                    } }
+                  >
+                    <div
+                      className="text-orange-400 text-lg mb-4"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      No arenas found for { activeRank } rank
+                    </div>
+                    <p
+                      className="text-orange-400"
+                      style={ { fontFamily: 'Press Start 2P, monospace' } }
+                    >
+                      Check other ranks or create a new arena
+                    </p>
+                  </div>
+                </div>
+              ) }
+            </div>
+          )}
         </div>
 
         {/* Arena Detail Modal */}
@@ -3054,11 +3182,11 @@ const ArenaModal = ({
                     >
                       TRAITS
                     </div>
-                    <TraitBar label="Strength" value={ arena.warriorsOne.strength } />
-                    <TraitBar label="Defense" value={ arena.warriorsOne.defense } />
-                    <TraitBar label="Charisma" value={ arena.warriorsOne.charisma } />
-                    <TraitBar label="Wit" value={ arena.warriorsOne.wit } />
-                    <TraitBar label="Luck" value={ arena.warriorsOne.luck } />
+                    <TraitBar label="Alpha" value={ arena.warriorsOne.strength } />
+                    <TraitBar label="Hedge" value={ arena.warriorsOne.defense } />
+                    <TraitBar label="Momentum" value={ arena.warriorsOne.charisma } />
+                    <TraitBar label="Complexity" value={ arena.warriorsOne.wit } />
+                    <TraitBar label="Timing" value={ arena.warriorsOne.luck } />
                   </div>
 
                   {/* Action Buttons */}
@@ -3337,11 +3465,11 @@ const ArenaModal = ({
                     >
                       TRAITS
                     </div>
-                    <TraitBar label="Strength" value={ arena.warriorsTwo.strength } />
-                    <TraitBar label="Defense" value={ arena.warriorsTwo.defense } />
-                    <TraitBar label="Charisma" value={ arena.warriorsTwo.charisma } />
-                    <TraitBar label="Wit" value={ arena.warriorsTwo.wit } />
-                    <TraitBar label="Luck" value={ arena.warriorsTwo.luck } />
+                    <TraitBar label="Alpha" value={ arena.warriorsTwo.strength } />
+                    <TraitBar label="Hedge" value={ arena.warriorsTwo.defense } />
+                    <TraitBar label="Momentum" value={ arena.warriorsTwo.charisma } />
+                    <TraitBar label="Complexity" value={ arena.warriorsTwo.wit } />
+                    <TraitBar label="Timing" value={ arena.warriorsTwo.luck } />
                   </div>
 
                   {/* Action Buttons */}
