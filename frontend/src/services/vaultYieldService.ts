@@ -8,7 +8,6 @@
  * Called by the execute-yield-cycles cron job.
  */
 
-import { Wallet } from 'ethers';
 import { prisma } from '@/lib/prisma';
 import { vaultService } from '@/services/vaultService';
 import { createPublicClient, createWalletClient, http, type Address, formatEther } from 'viem';
@@ -16,6 +15,7 @@ import { flowTestnet } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainsToContracts } from '@/constants';
 import { STRATEGY_VAULT_ABI } from '@/constants/abis/strategyVaultAbi';
+import AIAgentINFTAbiJson from '@/constants/aiAgentINFTAbi.json';
 
 const FLOW_CHAIN_ID = 545;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
@@ -317,7 +317,69 @@ class VaultYieldService {
       }),
     ]);
 
-    console.log(`[VaultYield] NFT#${vault.nftId} cycle ${nextCycle} complete: ${move}, yield: ${formatEther(BigInt(yieldEarned))} CRwN`);
+    // 7. Update on-chain P&L + tier via AIAgentINFT.recordTrade()
+    // pnl is in wei (same unit as yieldEarned). won = yield > 0.
+    const yieldBig = BigInt(yieldEarned);
+    try {
+      const serverPrivateKey = process.env.SERVER_WALLET_PRIVATE_KEY;
+      if (serverPrivateKey && contracts.aiAgentINFT && contracts.aiAgentINFT !== '0x0000000000000000000000000000000000000000') {
+        const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
+        const wc = createWalletClient({ account, chain: flowTestnet, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
+        await wc.writeContract({
+          address: contracts.aiAgentINFT as Address,
+          abi: AIAgentINFTAbiJson,
+          functionName: 'recordTrade',
+          args: [BigInt(vault.nftId), yieldBig >= 0n, yieldBig],
+        });
+        console.log(`[VaultYield] NFT#${vault.nftId} recordTrade called — pnl: ${formatEther(yieldBig)} CRwN`);
+      } else {
+        console.warn(`[VaultYield] Skipping recordTrade — aiAgentINFT address not configured`);
+      }
+    } catch (recordError) {
+      // Non-fatal: DB cycle is already recorded; log and continue
+      console.error(`[VaultYield] NFT#${vault.nftId} recordTrade failed (non-fatal):`, recordError);
+    }
+
+    // P3-3: Upload cycle proof to 0G Storage for decentralized audit trail (non-fatal)
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const zeroGPayload = {
+        battle: {
+          battleId: `vault-cycle-${vault.id}-${nextCycle}`,
+          timestamp: Date.now(),
+          warriors: [
+            { id: String(vault.nftId), totalBattles: nextCycle, wins: yieldBig > 0n ? 1 : 0, losses: yieldBig <= 0n ? 1 : 0 },
+            { id: 'vault-pool', totalBattles: nextCycle, wins: 0, losses: 0 },
+          ],
+          rounds: [],
+          outcome: yieldBig > 0n ? 'warrior1' : 'warrior2',
+          totalDamage: { warrior1: 0, warrior2: 0 },
+          totalRounds: nextCycle,
+          _predictionData: {
+            prediction: move,
+            confidence: 1,
+            reasoning: `Vault cycle ${nextCycle}: ${move}, yield ${formatEther(yieldBig)} CRwN`,
+          },
+        },
+      };
+      const storeAbort = new AbortController();
+      const storeTimer = setTimeout(() => storeAbort.abort(), 10_000);
+      try {
+        await fetch(`${appUrl}/api/0g/store`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(zeroGPayload),
+          signal: storeAbort.signal,
+        });
+        console.log(`[VaultYield] NFT#${vault.nftId} cycle ${nextCycle} stored on 0G`);
+      } finally {
+        clearTimeout(storeTimer);
+      }
+    } catch (storeErr) {
+      console.warn(`[VaultYield] 0G storage upload failed (non-fatal):`, storeErr);
+    }
+
+    console.log(`[VaultYield] NFT#${vault.nftId} cycle ${nextCycle} complete: ${move}, yield: ${formatEther(yieldBig)} CRwN`);
 
     return {
       nftId: vault.nftId,
@@ -344,13 +406,29 @@ class VaultYieldService {
 
     const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
 
-    const walletClient = createWalletClient({
-      account,
+    const publicClient = createPublicClient({
       chain: flowTestnet,
       transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
     });
 
-    const publicClient = createPublicClient({
+    // P3-13: Warn if server wallet is not the contract owner — rebalances will revert
+    try {
+      const ownerAbi = [{ type: 'function', name: 'owner', inputs: [], outputs: [{ type: 'address' }], stateMutability: 'view' }] as const;
+      const ownerResult = await publicClient.readContract({
+        address: contracts.strategyVault as Address,
+        abi: ownerAbi,
+        functionName: 'owner',
+        args: [],
+      }) as string;
+      if (ownerResult.toLowerCase() !== account.address.toLowerCase()) {
+        console.error(`[VaultYield] CRITICAL: server wallet ${account.address} is NOT StrategyVault owner (${ownerResult}). Rebalance will revert.`);
+      }
+    } catch {
+      // Non-fatal — contract may not expose owner() with this exact signature
+    }
+
+    const walletClient = createWalletClient({
+      account,
       chain: flowTestnet,
       transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
     });
