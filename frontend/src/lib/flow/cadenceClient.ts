@@ -578,4 +578,58 @@ export const cadenceClient = {
       throw error;
     }
   },
+
+  /**
+   * Add an EVM address as a trusted vault executor on the ScheduledVault contract.
+   * Must be called by the contract admin account.
+   * This authorizes the server wallet to trigger executeVault() calls.
+   */
+  async addVaultExecutor(executorAddress: string): Promise<string> {
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('NEXT_PUBLIC_FLOW_CADENCE_ADDRESS not configured');
+    }
+
+    try {
+      const transactionId = await withTimeout(
+        fcl.mutate({
+          cadence: `
+            import ScheduledVault from ${CONTRACT_ADDRESS}
+
+            transaction(executorAddress: String) {
+              let admin: &ScheduledVault.Admin
+
+              prepare(signer: auth(Storage, BorrowValue) &Account) {
+                self.admin = signer.storage.borrow<&ScheduledVault.Admin>(from: ScheduledVault.AdminStoragePath)
+                  ?? panic("Admin resource not found — only the contract deployer can call this")
+              }
+
+              execute {
+                self.admin.addExecutor(address: executorAddress)
+                log("Executor added: ".concat(executorAddress))
+              }
+            }
+          `,
+          args: (arg, t) => [arg(executorAddress, types.String)],
+          proposer: fcl.authz as any,
+          payer: fcl.authz as any,
+          authorizations: [fcl.authz as any],
+          limit: 1000,
+        }),
+        30000,
+        'Add vault executor transaction timed out'
+      );
+
+      const txResult = await withTimeout(
+        fcl.tx(transactionId).onceSealed(),
+        60000,
+        'Transaction sealing timed out'
+      );
+      console.log('[Cadence] Vault executor added, TX:', transactionId, 'Status:', txResult.status);
+
+      return transactionId;
+    } catch (error) {
+      console.error('[Cadence] Failed to add vault executor:', error);
+      throw error;
+    }
+  },
 };

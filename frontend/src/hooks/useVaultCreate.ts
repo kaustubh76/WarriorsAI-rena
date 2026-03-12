@@ -230,6 +230,11 @@ export function useVaultCreate() {
         chain: flowTestnet,
       });
 
+      // Wait for on-chain confirmation before recording in DB (P2-2a fix)
+      const { createFlowPublicClient: createFlowPC } = await import('@/lib/flowClient');
+      const depositPc = createFlowPC();
+      await depositPc.waitForTransactionReceipt({ hash: depositTx, timeout: 30_000 });
+
       // Record in DB
       setState((prev) => ({ ...prev, step: 'recording', txHash: depositTx }));
 
@@ -249,6 +254,13 @@ export function useVaultCreate() {
       // Schedule yield cycles on Cadence (non-fatal — vault works via DB fallback)
       setState((prev) => ({ ...prev, step: 'scheduling' }));
       try {
+        // P2-2c: Verify FCL wallet is authenticated before attempting Cadence scheduling
+        const fcl = await import('@onflow/fcl');
+        const currentUser = await fcl.currentUser.snapshot();
+        if (!currentUser?.loggedIn || !currentUser?.addr) {
+          throw new Error('Flow wallet not connected — Cadence scheduling skipped');
+        }
+
         const { cadenceClient } = await import('@/lib/flow/cadenceClient');
         const { chainsToContracts } = await import('@/constants');
         const vaultAddr = chainsToContracts[FLOW_CHAIN_ID]?.strategyVault;
