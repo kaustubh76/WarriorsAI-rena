@@ -661,6 +661,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
           traitsData.recover,
           signature
         ],
+        gas: 5_000_000n, // Flow Testnet block gas cap is 16,777,216; auto-estimate overshoots
       });
 
       contractCallInitiated = true;
