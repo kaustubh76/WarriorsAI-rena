@@ -262,19 +262,29 @@ export function selectOptimalMove(
 const ELO_K_FACTOR = 32;
 
 /**
+ * Dynamic K-factor: higher for new warriors (fast convergence), lower for veterans (stable ratings)
+ */
+export function getDynamicKFactor(totalBattles: number): number {
+  if (totalBattles < 10) return 48;
+  if (totalBattles < 30) return 32;
+  return 24;
+}
+
+/**
  * Calculate new Elo ratings after a battle
  */
 export function calculateEloChange(
   winnerRating: number,
-  loserRating: number
+  loserRating: number,
+  kFactor: number = ELO_K_FACTOR,
 ): { winnerNewRating: number; loserNewRating: number } {
   // Expected scores
   const expectedWinner = 1 / (1 + Math.pow(10, (loserRating - winnerRating) / 400));
   const expectedLoser = 1 - expectedWinner;
 
   // New ratings
-  const winnerNewRating = Math.round(winnerRating + ELO_K_FACTOR * (1 - expectedWinner));
-  const loserNewRating = Math.round(loserRating + ELO_K_FACTOR * (0 - expectedLoser));
+  const winnerNewRating = Math.round(winnerRating + kFactor * (1 - expectedWinner));
+  const loserNewRating = Math.round(loserRating + kFactor * (0 - expectedLoser));
 
   return {
     winnerNewRating: Math.max(100, winnerNewRating), // Minimum rating of 100
@@ -287,14 +297,15 @@ export function calculateEloChange(
  */
 export function calculateEloChangeDraw(
   rating1: number,
-  rating2: number
+  rating2: number,
+  kFactor: number = ELO_K_FACTOR,
 ): { newRating1: number; newRating2: number } {
   const expected1 = 1 / (1 + Math.pow(10, (rating2 - rating1) / 400));
   const expected2 = 1 - expected1;
 
   return {
-    newRating1: Math.round(rating1 + ELO_K_FACTOR * (0.5 - expected1)),
-    newRating2: Math.round(rating2 + ELO_K_FACTOR * (0.5 - expected2)),
+    newRating1: Math.round(rating1 + kFactor * (0.5 - expected1)),
+    newRating2: Math.round(rating2 + kFactor * (0.5 - expected2)),
   };
 }
 

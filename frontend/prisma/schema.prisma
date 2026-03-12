@@ -857,6 +857,13 @@ model PredictionBattle {
   w1TotalYield      String?   // Cumulative yield warrior1 (wei string)
   w2TotalYield      String?   // Cumulative yield warrior2 (wei string)
 
+  // Phase 4: Matchmaking metadata (null for pre-matchmaking battles)
+  w1RatingAtStart   Int?      // Warrior1 ELO at battle creation
+  w2RatingAtStart   Int?      // Warrior2 ELO at battle creation
+  w1TierAtStart     String?   // UNRANKED/BRONZE/SILVER/GOLD/PLATINUM/DIAMOND
+  w2TierAtStart     String?
+  tierMultiplier    Float?    // Higher-tier battles earn more ELO (1.0-1.5x)
+
   createdAt         DateTime @default(now())
   completedAt       DateTime?
 
