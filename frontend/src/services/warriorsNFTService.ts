@@ -84,7 +84,7 @@ const fetchMetadataFrom0G = async (rootHash: string, tokenId: number): Promise<W
 
     return metadata;
   } catch (error) {
-    console.error(`❌ Warriors ${tokenId}: 0G Storage fetch failed:`, error instanceof Error ? error.message : 'Unknown error');
+    console.warn(`⚠️ Warriors ${tokenId}: 0G Storage unavailable, will use fallback:`, error instanceof Error ? error.message : 'Unknown error');
     return null;
   }
 };

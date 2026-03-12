@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAccount, useWriteContract, useWatchContractEvent } from 'wagmi';
-import { encodePacked, keccak256, decodeEventLog } from 'viem';
+import { encodePacked, keccak256, decodeEventLog, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createFlowWalletClient, createFlowPublicClient } from '@/lib/flowClient';
 import '../home-glass.css';
@@ -1127,7 +1127,7 @@ export default function ArenaPage() {
           warrior1Owner: address,
           warrior2Id: Number(nft2),
           warrior2Owner: nft2Owner,
-          stakes,
+          stakes: parseEther(stakes).toString(),
         }),
       });
       const data = await res.json();
