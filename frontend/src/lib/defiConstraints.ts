@@ -27,7 +27,7 @@ export interface VaultAllocation {
 
 // ─── Constraint Calculators ─────────────────────────────
 
-/** Max any single pool can hold (basis points). High ALPHA → up to 8000 bps (80%). */
+/** Max any risky pool (highYield/lp) can hold (basis points). High ALPHA → up to 8000 bps (80%). */
 export function maxConcentration(alpha: number): number {
   // 2000 bps (20%) base + up to 6000 bps scaled by alpha
   return Math.round(2000 + (alpha / 10000) * 6000);
@@ -61,15 +61,14 @@ export function enforceTraitConstraints(
   const maxConc = maxConcentration(traits.alpha);
   const minStable = minStableAllocation(traits.hedge);
 
-  // 1. Cap each pool at maxConcentration
+  // 1. Cap risky pools at maxConcentration (stable is excluded — governed by minStable instead)
   if (highYield > maxConc) highYield = maxConc;
   if (lp > maxConc) lp = maxConc;
-  if (stable > maxConc) stable = maxConc;
 
   // 2. Floor stable at minStable
   if (stable < minStable) stable = minStable;
 
-  // 3. Re-normalise to 10000
+  // 3. Re-normalise to 10000, then re-check caps (normalization can push above maxConc)
   const rawSum = highYield + stable + lp;
   if (rawSum !== 10000) {
     // Scale non-stable pools proportionally
@@ -82,6 +81,18 @@ export function enforceTraitConstraints(
       highYield = Math.round(nonStable / 2);
       lp = nonStable - highYield;
     }
+  }
+
+  // 3b. Re-check concentration caps after normalization
+  if (highYield > maxConc) {
+    const excess = highYield - maxConc;
+    highYield = maxConc;
+    lp += excess;
+  }
+  if (lp > maxConc) {
+    const excess = lp - maxConc;
+    lp = maxConc;
+    stable += excess;
   }
 
   // 4. Enforce momentum-based rebalance delta (if previous allocation provided)

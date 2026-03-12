@@ -11,6 +11,7 @@ import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { vaultService } from '@/services/vaultService';
 import { TRAIT_MAP } from '@/constants/defiTraitMapping';
+import { enforceTraitConstraints } from '@/lib/defiConstraints';
 
 interface CreateVaultRequest {
   nftId: number;
@@ -66,32 +67,43 @@ export const POST = composeMiddleware([
 
     try {
       const prompt = buildAllocationPrompt(defiTraits, poolAPYs);
-      const inferenceResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/0g/inference`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt,
-            model: 'meta-llama/Llama-3.2-3B-Instruct',
-            maxTokens: 500,
-            temperature: 0.3,
-          }),
-        }
-      );
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15_000); // 15s — matches evaluate-cycle
+      try {
+        const inferenceResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/0g/inference`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt,
+              model: 'meta-llama/Llama-3.2-3B-Instruct',
+              maxTokens: 500,
+              temperature: 0.3,
+            }),
+            signal: controller.signal,
+          }
+        );
 
-      if (inferenceResponse.ok) {
-        const inferenceData = await inferenceResponse.json();
-        allocation = parseAllocationResponse(inferenceData.response, defiTraits);
-        proof = inferenceData.proof || null;
-      } else {
-        // Fallback: deterministic allocation from traits
-        allocation = computeFallbackAllocation(defiTraits);
+        if (inferenceResponse.ok) {
+          const inferenceData = await inferenceResponse.json();
+          allocation = parseAllocationResponse(inferenceData.response, defiTraits);
+          proof = inferenceData.proof || null;
+        } else {
+          allocation = computeFallbackAllocation(defiTraits);
+        }
+      } finally {
+        clearTimeout(timeout);
       }
     } catch (error) {
       console.warn('[vault/create] 0G inference failed, using fallback allocation:', error);
       allocation = computeFallbackAllocation(defiTraits);
     }
+
+    // Enforce trait constraints on the AI-returned allocation.
+    // This ensures ALPHA max-concentration and HEDGE min-stable limits are respected
+    // even if the 0G model ignores the rules (or the fallback computes an edge case).
+    allocation = enforceTraitConstraints(allocation, defiTraits);
 
     // 4. Calculate projected APY
     const blendedAPY = vaultService.calculateBlendedAPY(allocation, poolAPYs);
@@ -154,8 +166,24 @@ function parseAllocationResponse(
   traits: { alpha: number; complexity: number; momentum: number; hedge: number; timing: number }
 ): { highYield: number; stable: number; lp: number } {
   try {
-    // Extract JSON from response
-    const jsonMatch = response.match(/\{[^}]*"highYield"[^}]*\}/);
+    // Strip markdown code fences (```json ... ``` or ``` ... ```) that 0G models sometimes wrap responses in
+    const stripped = response.replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1').trim();
+
+    // Try direct JSON parse first (handles clean responses)
+    try {
+      const direct = JSON.parse(stripped);
+      if (typeof direct === 'object' && 'highYield' in direct) {
+        const hy = Math.round(Number(direct.highYield));
+        const st = Math.round(Number(direct.stable));
+        const lp = Math.round(Number(direct.lp));
+        if (hy >= 0 && st >= 0 && lp >= 0 && hy + st + lp === 10000) {
+          return { highYield: hy, stable: st, lp };
+        }
+      }
+    } catch { /* fall through to regex */ }
+
+    // Regex fallback: find first JSON object containing "highYield" (handles nested or extra text)
+    const jsonMatch = stripped.match(/\{[^{}]*"highYield"[^{}]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       const hy = Math.round(Number(parsed.highYield));

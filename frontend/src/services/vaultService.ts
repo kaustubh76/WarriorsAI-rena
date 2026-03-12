@@ -149,24 +149,35 @@ class VaultService {
 
   /** Get current APYs from all 3 pools */
   async getPoolAPYs(): Promise<PoolAPYs> {
+    const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
+    const highYieldAddr = contracts.highYieldPool;
+    const stableAddr = contracts.stablePool;
+    const lpAddr = contracts.lpPool;
+
+    if (!highYieldAddr || highYieldAddr === ZERO_ADDR ||
+        !stableAddr || stableAddr === ZERO_ADDR ||
+        !lpAddr || lpAddr === ZERO_ADDR) {
+      throw new Error('Pool contract addresses not configured');
+    }
+
     const [highYield, stable, lp] = await Promise.all([
       executeWithFallback((client) =>
         client.readContract({
-          address: contracts.highYieldPool as Address,
+          address: highYieldAddr as Address,
           abi: POOL_ABI,
           functionName: 'getAPY',
         })
       ),
       executeWithFallback((client) =>
         client.readContract({
-          address: contracts.stablePool as Address,
+          address: stableAddr as Address,
           abi: POOL_ABI,
           functionName: 'getAPY',
         })
       ),
       executeWithFallback((client) =>
         client.readContract({
-          address: contracts.lpPool as Address,
+          address: lpAddr as Address,
           abi: POOL_ABI,
           functionName: 'getAPY',
         })
