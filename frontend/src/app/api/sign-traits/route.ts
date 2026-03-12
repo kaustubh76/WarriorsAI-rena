@@ -100,10 +100,13 @@ export const POST = composeMiddleware([
 
     const account = privateKeyToAccount(formattedKey);
 
-    // Encode the data including timestamp for replay attack prevention
-    // The contract should verify the timestamp is recent when consuming the signature
+    // Encode exactly the 11 fields the contract hashes in assignTraitsAndMoves():
+    //   keccak256(abi.encodePacked(_tokenId, _strength, _wit, _charisma, _defence, _luck,
+    //                              _strike, _taunt, _dodge, _special, _recover))
+    // Timestamp is validated above for anti-replay but must NOT be included here —
+    // adding it would cause ECDSA.recover() to return a different address than i_AiPublicKey.
     const encodedData = encodePacked(
-      ['uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'string', 'string', 'string', 'string', 'string', 'uint64'],
+      ['uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'uint16', 'string', 'string', 'string', 'string', 'string'],
       [
         tokenId,
         strength,
@@ -115,8 +118,7 @@ export const POST = composeMiddleware([
         taunt,
         dodge,
         special,
-        recover,
-        BigInt(signatureTimestamp) // Include timestamp in signed data
+        recover
       ]
     );
 
