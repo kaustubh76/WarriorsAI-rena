@@ -6,10 +6,13 @@
  */
 
 import { NextResponse } from 'next/server';
+import { parseEther } from 'viem';
 import { ErrorResponses } from '@/lib/api';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { strategyArenaService } from '@/services/arena/strategyArenaService';
+
+const MIN_STAKES = parseEther('5'); // 5 CRwN minimum — matches vault balance floor
 
 interface CreateRequest {
   warrior1Id: number;
@@ -30,6 +33,14 @@ export const POST = composeMiddleware([
     }
     if (!stakes || isNaN(Number(stakes)) || Number(stakes) <= 0) {
       throw ErrorResponses.badRequest('stakes must be a positive number');
+    }
+    try {
+      if (BigInt(stakes) < MIN_STAKES) {
+        throw ErrorResponses.badRequest('Stakes must be at least 5 CRwN');
+      }
+    } catch (e) {
+      if (e && typeof e === 'object' && 'status' in e) throw e; // re-throw ErrorResponses
+      throw ErrorResponses.badRequest('stakes must be a valid wei amount');
     }
 
     const result = await strategyArenaService.createStrategyBattle({

@@ -25,6 +25,29 @@ export const POST = composeMiddleware([
     console.log('[Cron] Starting strategy battle cycle execution...');
     const startTime = Date.now();
 
+    // --- Stuck-battle catch-up (P4-11) ---
+    // Battles that completed all 5 cycles but whose settleBattle() call failed
+    // (e.g. cron killed mid-execution) need to be settled before processing new cycles.
+    const stuckBattles = await prisma.predictionBattle.findMany({
+      where: {
+        isStrategyBattle: true,
+        status: 'active',
+        currentRound: { gte: 5 },
+      },
+      take: 5,
+    });
+    if (stuckBattles.length > 0) {
+      console.log(`[Cron] Found ${stuckBattles.length} stuck battles (round >=5 but still active) — settling now`);
+      for (const stuck of stuckBattles) {
+        try {
+          await strategyArenaService.settleBattle(stuck.id);
+          console.log(`[Cron] Settled stuck battle ${stuck.id}`);
+        } catch (settleErr) {
+          console.error(`[Cron] Failed to settle stuck battle ${stuck.id}:`, settleErr);
+        }
+      }
+    }
+
     // Find all active strategy battles that need a cycle
     const activeBattles = await prisma.predictionBattle.findMany({
       where: {

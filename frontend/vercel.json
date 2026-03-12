@@ -9,6 +9,9 @@
   "functions": {
     "app/api/**/*": {
       "maxDuration": 60
+    },
+    "app/api/cron/**/*": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -35,6 +38,14 @@
     {
       "path": "/api/cron/sync-whale-trades",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/execute-yield-cycles",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/execute-strategy-cycles",
+      "schedule": "0 2 * * *"
     }
   ],
   "env": {
