@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useVaultCreate, type VaultStep } from '@/hooks/useVaultCreate';
 import { TRAIT_MAP } from '@/constants/defiTraitMapping';
@@ -22,6 +22,7 @@ const STEP_LABELS: Record<VaultStep, string> = {
   approving: 'Approving CRwN tokens...',
   depositing: 'Depositing into vault...',
   recording: 'Recording vault on-chain...',
+  connect_flow: 'Connect your Flow Wallet to schedule yield cycles',
   scheduling: 'Scheduling yield cycles on Flow...',
   success: 'Vault created successfully!',
   error: 'Something went wrong',
@@ -32,9 +33,13 @@ export default function VaultCreatePage() {
     state,
     fetchAllocation,
     approveAndDeposit,
+    scheduleOnCadence,
+    skipScheduling,
     reset,
     hasEnoughBalance,
     isConnected,
+    isFlowConnected,
+    connectFlowWallet,
   } = useVaultCreate();
 
   const [depositInput, setDepositInput] = useState('');
@@ -99,7 +104,7 @@ export default function VaultCreatePage() {
                   }`}
                 >
                   <div className="text-center">
-                    <span className="text-2xl">🎯</span>
+                    <span className="text-2xl">&#127919;</span>
                     <p className="text-white font-mono mt-1">#{nftId}</p>
                   </div>
                 </button>
@@ -142,7 +147,7 @@ export default function VaultCreatePage() {
           >
             {state.step === 'fetching_allocation' ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="animate-spin">⚙️</span> Generating AI Allocation...
+                <span className="animate-spin">&#9881;&#65039;</span> Generating AI Allocation...
               </span>
             ) : (
               'Generate AI Allocation'
@@ -151,7 +156,7 @@ export default function VaultCreatePage() {
         </div>
 
         {/* Step 3: Allocation Preview */}
-        {state.allocation && state.step !== 'idle' && (
+        {state.allocation && state.step !== 'idle' && state.step !== 'connect_flow' && state.step !== 'success' && (
           <div className="glass-panel p-6">
             <h2 className="text-lg font-semibold text-white mb-4">3. AI ALLOCATION PREVIEW</h2>
 
@@ -207,7 +212,7 @@ export default function VaultCreatePage() {
               {state.proof && (
                 <div className="text-right">
                   <p className="text-xs text-gray-500">0G Proof</p>
-                  <p className="text-green-400 text-sm">✓ Verified</p>
+                  <p className="text-green-400 text-sm">&#10003; Verified</p>
                 </div>
               )}
             </div>
@@ -220,13 +225,13 @@ export default function VaultCreatePage() {
                 className="flex-1 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 text-black"
               >
                 {state.step === 'approving'
-                  ? '⏳ Approving CRwN...'
+                  ? 'Approving CRwN...'
                   : state.step === 'depositing'
-                    ? '⏳ Depositing...'
+                    ? 'Depositing...'
                     : state.step === 'recording'
-                      ? '⏳ Recording...'
+                      ? 'Recording...'
                       : state.step === 'scheduling'
-                        ? '⏳ Scheduling on Flow...'
+                        ? 'Scheduling on Flow...'
                         : `Deposit ${depositInput} CRwN`}
               </button>
               <button
@@ -239,11 +244,51 @@ export default function VaultCreatePage() {
           </div>
         )}
 
+        {/* Connect Flow Wallet Step */}
+        {state.step === 'connect_flow' && (
+          <div className="glass-panel p-6 border-purple-500/30">
+            <div className="text-center">
+              <span className="text-4xl">&#128279;</span>
+              <h2 className="text-xl font-bold text-purple-400 mt-2">Connect Flow Wallet</h2>
+              <p className="text-gray-400 mt-2">
+                Your vault deposit is confirmed on-chain!
+              </p>
+              <p className="text-gray-500 text-sm mt-1">
+                Connect your Flow Wallet to schedule automated yield cycles via Cadence.
+              </p>
+              {state.txHash && (
+                <a
+                  href={`https://evm-testnet.flowscan.io/tx/${state.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 text-sm mt-2 inline-block"
+                >
+                  View deposit tx &rarr;
+                </a>
+              )}
+              <div className="mt-6 space-y-3">
+                <button
+                  onClick={connectFlowWallet}
+                  className="w-full py-3 rounded-lg font-semibold bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white transition-all"
+                >
+                  Connect Flow Wallet
+                </button>
+                <button
+                  onClick={skipScheduling}
+                  className="text-gray-500 hover:text-gray-300 text-sm underline"
+                >
+                  Skip — use automated cron instead
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Success */}
         {state.step === 'success' && (
           <div className="glass-panel p-6 border-green-500/30">
             <div className="text-center">
-              <span className="text-4xl">🏦</span>
+              <span className="text-4xl">&#127974;</span>
               <h2 className="text-xl font-bold text-green-400 mt-2">Vault Created!</h2>
               <p className="text-gray-400 mt-1">
                 Strategy #{state.selectedNftId} is now managing {state.depositAmount} CRwN

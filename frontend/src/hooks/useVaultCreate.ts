@@ -11,6 +11,7 @@ import { useAccount, useWalletClient, useSwitchChain } from 'wagmi';
 import { parseEther, formatEther, type Address, keccak256, toHex } from 'viem';
 import { flowTestnet } from 'viem/chains';
 import { vaultService } from '@/services/vaultService';
+import { useFlowWallet } from '@/contexts/FlowWalletContext';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ export type VaultStep =
   | 'approving'
   | 'depositing'
   | 'recording'
+  | 'connect_flow'
   | 'scheduling'
   | 'success'
   | 'error';
@@ -80,6 +82,7 @@ export function useVaultCreate() {
   const { address, isConnected, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
+  const { isFlowConnected, connectFlowWallet } = useFlowWallet();
   const [state, setState] = useState<VaultCreateState>(initialState);
 
   // ─── Fetch balance + NFTs on connect ──────────────────
@@ -194,6 +197,7 @@ export function useVaultCreate() {
           args: [vaultAddr, amount],
           account: address,
           chain: flowTestnet,
+          gas: 5_000_000n,
         });
 
         // Wait for approval to be mined
@@ -228,6 +232,7 @@ export function useVaultCreate() {
         args: [BigInt(state.selectedNftId), amount, allocationBps, proofHash],
         account: address,
         chain: flowTestnet,
+        gas: 5_000_000n,
       });
 
       // Wait for on-chain confirmation before recording in DB (P2-2a fix)
@@ -251,44 +256,14 @@ export function useVaultCreate() {
         }),
       });
 
-      // Schedule yield cycles on Cadence (non-fatal — vault works via DB fallback)
-      setState((prev) => ({ ...prev, step: 'scheduling' }));
-      try {
-        // P2-2c: Verify FCL wallet is authenticated before attempting Cadence scheduling
-        const fcl = await import('@onflow/fcl');
-        const currentUser = await fcl.currentUser.snapshot();
-        if (!currentUser?.loggedIn || !currentUser?.addr) {
-          throw new Error('Flow wallet not connected — Cadence scheduling skipped');
-        }
-
-        const { cadenceClient } = await import('@/lib/flow/cadenceClient');
-        const { chainsToContracts } = await import('@/constants');
-        const vaultAddr = chainsToContracts[FLOW_CHAIN_ID]?.strategyVault;
-        if (!vaultAddr || !vaultAddr.startsWith('0x') || vaultAddr.length !== 42) {
-          throw new Error('strategyVault address not configured or invalid');
-        }
-
-        const schedulingTx = await cadenceClient.scheduleVault({
-          nftId: state.selectedNftId!,
-          vaultAddress: vaultAddr,
-          ownerAddress: address,
-          cycleInterval: 86400, // daily
-        });
-
-        setState((prev) => ({ ...prev, schedulingTxHash: schedulingTx }));
-
-        // Update DB with scheduledTxId
-        await fetch('/api/vault/schedule', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            nftId: state.selectedNftId,
-            scheduledTxId: schedulingTx,
-          }),
-        });
-      } catch (scheduleError) {
-        // Non-fatal: vault still works via DB-only cron path
-        console.warn('[useVaultCreate] Cadence scheduling failed (non-fatal):', scheduleError);
+      // Check if Flow wallet is connected for Cadence scheduling
+      if (isFlowConnected) {
+        // Flow wallet connected — schedule directly
+        await _doSchedule();
+      } else {
+        // Prompt user to connect Flow wallet
+        setState((prev) => ({ ...prev, step: 'connect_flow', isLoading: false }));
+        return; // User must connect Flow wallet or skip
       }
 
       setState((prev) => ({
@@ -305,7 +280,66 @@ export function useVaultCreate() {
         error: error?.shortMessage || error?.message || 'Transaction failed',
       }));
     }
-  }, [walletClient, address, state.allocation, state.selectedNftId, state.depositAmount, state.proof, ensureCorrectChain]);
+  }, [walletClient, address, state.allocation, state.selectedNftId, state.depositAmount, state.proof, ensureCorrectChain, isFlowConnected]);
+
+  // ─── Cadence Scheduling (extracted) ────────────────────
+
+  const _doSchedule = async () => {
+    setState((prev) => ({ ...prev, step: 'scheduling', isLoading: true }));
+    try {
+      const { cadenceClient } = await import('@/lib/flow/cadenceClient');
+      const { chainsToContracts } = await import('@/constants');
+      const vaultAddr = chainsToContracts[FLOW_CHAIN_ID]?.strategyVault;
+      if (!vaultAddr || !vaultAddr.startsWith('0x') || vaultAddr.length !== 42) {
+        throw new Error('strategyVault address not configured or invalid');
+      }
+
+      const schedulingTx = await cadenceClient.scheduleVault({
+        nftId: state.selectedNftId!,
+        vaultAddress: vaultAddr,
+        ownerAddress: address!,
+        cycleInterval: 86400, // daily
+      });
+
+      setState((prev) => ({ ...prev, schedulingTxHash: schedulingTx }));
+
+      // Update DB with scheduledTxId
+      await fetch('/api/vault/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nftId: state.selectedNftId,
+          scheduledTxId: schedulingTx,
+        }),
+      });
+    } catch (scheduleError) {
+      // Non-fatal: vault still works via DB-only cron path
+      console.warn('[useVaultCreate] Cadence scheduling failed (non-fatal):', scheduleError);
+    }
+  };
+
+  // ─── Schedule on Cadence (called after Flow wallet connects) ──
+
+  const scheduleOnCadence = useCallback(async () => {
+    if (!state.selectedNftId || !address) return;
+    await _doSchedule();
+    setState((prev) => ({ ...prev, step: 'success', isLoading: false }));
+  }, [state.selectedNftId, address]);
+
+  // ─── Skip scheduling (use DB cron fallback) ──────────
+
+  const skipScheduling = useCallback(() => {
+    console.log('[useVaultCreate] User skipped Cadence scheduling — using DB cron fallback');
+    setState((prev) => ({ ...prev, step: 'success', isLoading: false }));
+  }, []);
+
+  // ─── Auto-schedule when Flow wallet connects during connect_flow step ──
+
+  useEffect(() => {
+    if (isFlowConnected && state.step === 'connect_flow') {
+      scheduleOnCadence();
+    }
+  }, [isFlowConnected, state.step, scheduleOnCadence]);
 
   // ─── Reset ────────────────────────────────────────────
 
@@ -334,8 +368,12 @@ export function useVaultCreate() {
     state,
     fetchAllocation,
     approveAndDeposit,
+    scheduleOnCadence,
+    skipScheduling,
     reset,
     hasEnoughBalance,
     isConnected,
+    isFlowConnected,
+    connectFlowWallet,
   };
 }
