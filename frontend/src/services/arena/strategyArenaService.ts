@@ -16,6 +16,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { ErrorResponses } from '@/lib/api';
 import { vaultService } from '@/services/vaultService';
 import { enforceTraitConstraints, type DeFiTraits, type VaultAllocation } from '@/lib/defiConstraints';
 import {
@@ -126,7 +127,7 @@ class StrategyArenaService {
 
     // Validate different warriors
     if (warrior1Id === warrior2Id) {
-      throw new Error('Cannot battle the same warrior');
+      throw ErrorResponses.badRequest('Cannot battle the same warrior');
     }
 
     // Validate both have active vaults
@@ -134,8 +135,8 @@ class StrategyArenaService {
       vaultService.isVaultActive(warrior1Id),
       vaultService.isVaultActive(warrior2Id),
     ]);
-    if (!v1Active) throw new Error(`Warrior #${warrior1Id} does not have an active vault`);
-    if (!v2Active) throw new Error(`Warrior #${warrior2Id} does not have an active vault`);
+    if (!v1Active) throw ErrorResponses.badRequest(`Warrior #${warrior1Id} does not have an active vault`);
+    if (!v2Active) throw ErrorResponses.badRequest(`Warrior #${warrior2Id} does not have an active vault`);
 
     // Validate vault balances are comparable (min balance + max 2x ratio)
     await this.validateVaultBalances(warrior1Id, warrior2Id);
@@ -148,8 +149,8 @@ class StrategyArenaService {
       prisma.vault.findUnique({ where: { nftId: warrior1Id } }),
       prisma.vault.findUnique({ where: { nftId: warrior2Id } }),
     ]);
-    if (!vault1) throw new Error(`No vault record for warrior #${warrior1Id}`);
-    if (!vault2) throw new Error(`No vault record for warrior #${warrior2Id}`);
+    if (!vault1) throw ErrorResponses.badRequest(`No vault record for warrior #${warrior1Id}`);
+    if (!vault2) throw ErrorResponses.badRequest(`No vault record for warrior #${warrior2Id}`);
 
     // Create battle + betting pool in an interactive transaction
     const { battle, bettingPool } = await prisma.$transaction(async (tx) => {
@@ -208,10 +209,10 @@ class StrategyArenaService {
       where: { id: battleId },
       include: { rounds: { orderBy: { roundNumber: 'asc' } } },
     });
-    if (!battle) throw new Error(`Battle ${battleId} not found`);
-    if (!battle.isStrategyBattle) throw new Error('Not a strategy battle');
-    if (battle.status !== 'active') throw new Error(`Battle is ${battle.status}, not active`);
-    if (battle.currentRound >= MAX_CYCLES) throw new Error('All 5 cycles already completed');
+    if (!battle) throw ErrorResponses.notFound(`Battle ${battleId}`);
+    if (!battle.isStrategyBattle) throw ErrorResponses.badRequest('Not a strategy battle');
+    if (battle.status !== 'active') throw ErrorResponses.badRequest(`Battle is ${battle.status}, not active`);
+    if (battle.currentRound >= MAX_CYCLES) throw ErrorResponses.badRequest('All 5 cycles already completed');
 
     const roundNumber = battle.currentRound + 1;
     console.log(`[StrategyArena] Battle ${battleId} — executing cycle ${roundNumber}/${MAX_CYCLES}`);
@@ -363,8 +364,8 @@ class StrategyArenaService {
     const battle = await prisma.predictionBattle.findUnique({
       where: { id: battleId },
     });
-    if (!battle) throw new Error(`Battle ${battleId} not found`);
-    if (battle.status === 'completed') throw new Error('Battle already settled');
+    if (!battle) throw ErrorResponses.notFound(`Battle ${battleId}`);
+    if (battle.status === 'completed') throw ErrorResponses.badRequest('Battle already settled');
 
     const w1Score = battle.warrior1Score;
     const w2Score = battle.warrior2Score;
@@ -652,20 +653,20 @@ class StrategyArenaService {
       vaultService.getVaultState(warrior2Id),
     ]);
 
-    if (!state1) throw new Error(`Cannot read vault state for NFT#${warrior1Id}`);
-    if (!state2) throw new Error(`Cannot read vault state for NFT#${warrior2Id}`);
+    if (!state1) throw ErrorResponses.badRequest(`Cannot read vault state for NFT#${warrior1Id}`);
+    if (!state2) throw ErrorResponses.badRequest(`Cannot read vault state for NFT#${warrior2Id}`);
 
     const balance1 = state1.depositAmount;
     const balance2 = state2.depositAmount;
 
     // Check minimum balance
     if (balance1 < MIN_VAULT_BALANCE_WEI) {
-      throw new Error(
+      throw ErrorResponses.badRequest(
         `Warrior #${warrior1Id} vault balance too low: ${formatEther(balance1)} CRwN (minimum: ${formatEther(MIN_VAULT_BALANCE_WEI)} CRwN)`
       );
     }
     if (balance2 < MIN_VAULT_BALANCE_WEI) {
-      throw new Error(
+      throw ErrorResponses.badRequest(
         `Warrior #${warrior2Id} vault balance too low: ${formatEther(balance2)} CRwN (minimum: ${formatEther(MIN_VAULT_BALANCE_WEI)} CRwN)`
       );
     }
@@ -674,7 +675,7 @@ class StrategyArenaService {
     const larger = balance1 > balance2 ? balance1 : balance2;
     const smaller = balance1 > balance2 ? balance2 : balance1;
     if (smaller > 0n && (larger * 10000n) / smaller > MAX_BALANCE_RATIO) {
-      throw new Error(
+      throw ErrorResponses.badRequest(
         `Vault balance mismatch too large: ${formatEther(balance1)} CRwN vs ${formatEther(balance2)} CRwN (max 2x ratio allowed)`
       );
     }
@@ -705,7 +706,7 @@ class StrategyArenaService {
 
     // Check tier adjacency (same or +/- 1 tier)
     if (!areAdjacentTiers(w1Tier, w2Tier)) {
-      throw new Error(
+      throw ErrorResponses.badRequest(
         `Tier mismatch: NFT#${warrior1Id} (${w1Tier}, rating ${w1Rating}) vs NFT#${warrior2Id} (${w2Tier}, rating ${w2Rating}). Warriors must be within adjacent tiers.`
       );
     }
@@ -713,7 +714,7 @@ class StrategyArenaService {
     // Check absolute rating difference
     const ratingDiff = Math.abs(w1Rating - w2Rating);
     if (ratingDiff > MAX_RATING_DIFFERENCE) {
-      throw new Error(
+      throw ErrorResponses.badRequest(
         `Rating gap too large: ${ratingDiff} (max ${MAX_RATING_DIFFERENCE}). NFT#${warrior1Id} (${w1Rating}) vs NFT#${warrior2Id} (${w2Rating}).`
       );
     }
