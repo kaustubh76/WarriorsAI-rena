@@ -110,10 +110,11 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     console.log('WarriorsMinter - chainId detected:', chainId, 'connectedAddress:', connectedAddress);
   }, [chainId, connectedAddress]);
 
-  const { writeContractAsync, data: hash } = useWriteContract();
-  const { isSuccess: isConfirmed, isError: isTxReverted } = useWaitForTransactionReceipt({
-    hash,
-  });
+  const { writeContractAsync: mintWriteAsync, data: mintHash } = useWriteContract();
+  const { isSuccess: isMintConfirmed, isError: isMintReverted } = useWaitForTransactionReceipt({ hash: mintHash });
+
+  const { writeContractAsync: activateWriteAsync, data: activateHash } = useWriteContract();
+  const { isSuccess: isActivateConfirmed, isError: isActivateReverted } = useWaitForTransactionReceipt({ hash: activateHash });
 
   // Ensure wallet connector is active before contract calls.
   // Reads fresh state from wagmi config (not stale React state) because
@@ -151,46 +152,47 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   // Track when we just minted so we can clear cache AFTER manage tab becomes active
   const justMintedRef = useRef(false);
 
-  // Handle transaction confirmation and display success message
+  // Handle MINT confirmation
   useEffect(() => {
-    if (isConfirmed && hash) {
-      console.log("Transaction confirmed:", hash);
-
-      // If we were activating a Warriors, close the modal and reset state
-      if (isActivating) {
-        setIsActivating(false);
-        setSelectedWarriors(null);
-        clearCache();
-        showSuccess('Activation Complete', 'Your strategy now has DeFi traits and actions assigned.');
-      }
-
-      // If we were minting, switch to manage tab first
-      // clearCache() will be called in the separate effect below once isActive=true
-      if (isMinting) {
-        setIsMinting(false);
-        setMintStep(null);
-        justMintedRef.current = true;
-        setActiveSection('manage');
-        showSuccess('Strategy NFT Minted!', 'Your DeFi strategy has been deployed on-chain.');
-      }
+    if (isMintConfirmed && mintHash && isMinting) {
+      console.log("Mint transaction confirmed:", mintHash);
+      setIsMinting(false);
+      setMintStep(null);
+      justMintedRef.current = true;
+      setActiveSection('manage');
+      showSuccess('Strategy NFT Minted!', 'Your DeFi strategy has been deployed on-chain.');
     }
-  }, [isConfirmed, hash, clearCache, isActivating, isMinting]);
+  }, [isMintConfirmed, mintHash, isMinting]);
 
-  // Handle transaction revert/failure — reset stuck states
+  // Handle ACTIVATION confirmation
   useEffect(() => {
-    if (isTxReverted && hash) {
-      console.error("Transaction reverted:", hash);
-      if (isActivating) {
-        setIsActivating(false);
-        showError('Activation Failed', 'Transaction reverted on-chain. The NFT may already be activated — try refreshing.');
-      }
-      if (isMinting) {
-        setIsMinting(false);
-        setMintStep(null);
-        showError('Minting Failed', 'Transaction reverted on-chain.');
-      }
+    if (isActivateConfirmed && activateHash && isActivating) {
+      console.log("Activation transaction confirmed:", activateHash);
+      setIsActivating(false);
+      setSelectedWarriors(null);
+      clearCache();
+      showSuccess('Activation Complete', 'Your strategy now has DeFi traits and actions assigned.');
     }
-  }, [isTxReverted, hash, isActivating, isMinting]);
+  }, [isActivateConfirmed, activateHash, isActivating, clearCache]);
+
+  // Handle MINT revert
+  useEffect(() => {
+    if (isMintReverted && mintHash && isMinting) {
+      console.error("Mint transaction reverted:", mintHash);
+      setIsMinting(false);
+      setMintStep(null);
+      showError('Minting Failed', 'Transaction reverted on-chain.');
+    }
+  }, [isMintReverted, mintHash, isMinting]);
+
+  // Handle ACTIVATION revert
+  useEffect(() => {
+    if (isActivateReverted && activateHash && isActivating) {
+      console.error("Activation transaction reverted:", activateHash);
+      setIsActivating(false);
+      showError('Activation Failed', 'Transaction reverted on-chain. The NFT may already be activated — try refreshing.');
+    }
+  }, [isActivateReverted, activateHash, isActivating]);
 
   // Clear cache after switching to manage tab post-mint
   // This ensures isActive=true when refetchTokenIds() fires inside clearCache()
@@ -413,7 +415,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
 
       // Step 3: Ensure wallet is still connected after the long upload, then mint
       await ensureConnected();
-      await writeContractAsync({
+      await mintWriteAsync({
         address: getContracts().warriorsNFT as `0x${string}`,
         abi: warriorsNFTAbi,
         functionName: 'mintNft',
@@ -422,7 +424,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
 
       setMintStep('confirming');
       console.log('NFT minting transaction sent! Waiting for confirmation...');
-      // isMinting stays true — the useEffect on isConfirmed will reset it
+      // isMinting stays true — the useEffect on isMintConfirmed will reset it
 
     } catch (error) {
       console.error('Failed to mint Warriors NFT:', error);
@@ -440,9 +442,9 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
     isFormComplete: isFormComplete,
     isMinting: isMinting,
     isActivating: isActivating,
-    mintingSuccess: isConfirmed && isMinting,
+    mintingSuccess: isMintConfirmed && isMinting,
     mintingError: false, // Add error state tracking if needed
-    activationSuccess: isConfirmed && isActivating,
+    activationSuccess: isActivateConfirmed && isActivating,
     imageUploaded: !!formData.image,
     aiGenerating: isGenerating,
     aiSuccess: false, // Fixed this since generatedTraits doesn't exist
@@ -643,7 +645,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
       // Ensure wallet is still connected after the long AI generation, then assign traits
       console.log("Calling assignTraitsAndMoves on WarriorsNFT contract...");
       await ensureConnected();
-      await writeContractAsync({
+      await activateWriteAsync({
         address: getContracts().warriorsNFT as `0x${string}`,
         abi: warriorsNFTAbi,
         functionName: 'assignTraitsAndMoves',
