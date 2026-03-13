@@ -107,7 +107,12 @@ contract StrategyVault is IStrategyVault, ReentrancyGuard, Ownable {
         if (stOld > 0) stablePool.withdraw(stOld);
         if (lpOld > 0) lpPool.withdraw(lpOld);
 
-        // Current balance includes any accrued yield
+        // Claim accrued yield from each pool (try/catch: reverts if yield == 0)
+        try highYieldPool.claimYield() {} catch {}
+        try stablePool.claimYield() {} catch {}
+        try lpPool.claimYield() {} catch {}
+
+        // Current balance now includes principal + claimed yield
         uint256 totalBalance = crownToken.balanceOf(address(this));
 
         // Re-deposit with new allocation based on current balance (captures yield)
@@ -145,7 +150,12 @@ contract StrategyVault is IStrategyVault, ReentrancyGuard, Ownable {
         if (stableAmount > 0) stablePool.withdraw(stableAmount);
         if (lpAmount > 0) lpPool.withdraw(lpAmount);
 
-        // Transfer total back to user
+        // Claim accrued yield from each pool
+        try highYieldPool.claimYield() {} catch {}
+        try stablePool.claimYield() {} catch {}
+        try lpPool.claimYield() {} catch {}
+
+        // Transfer total back to user (principal + yield)
         uint256 totalBalance = crownToken.balanceOf(address(this));
         bool success = crownToken.transfer(msg.sender, totalBalance);
         if (!success) revert StrategyVault__WithdrawFailed();
