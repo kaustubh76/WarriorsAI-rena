@@ -160,7 +160,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           const configuredSigner = new ethers.Wallet(PRIVATE_KEY, provider);
           
           // Upload with configured signer
-          const [tx, uploadErr] = await indexer.upload(zgFile, RPC_URL, configuredSigner);
+          const [tx, uploadErr] = await indexer.upload(zgFile, RPC_URL, configuredSigner as any);
           
           if (uploadErr !== null) {
             throw new Error(`Upload error: ${uploadErr}`);
