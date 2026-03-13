@@ -180,7 +180,7 @@ export const chainsToContracts: ContractsConfig = {
         // Deployed to Flow Testnet (Chain ID: 545) - January 2026
         mockOracle: "0x56d7060B080A6d5bF77aB610600e5ab70365696A",
         crownToken: "0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6",
-        warriorsNFT: "0x3838510eCa30EdeF7b264499F2B590ab4ED4afB1",
+        warriorsNFT: "0x89f44bEefa27eC5199ddeB8fD16158d94296ED39",
         ArenaFactory: "0xf77840febD42325F83cB93F9deaE0F8b14Eececf",
         
         outcomeToken: "0xb9BbdB84EaA159166B2c4eFE713F7Ea87700a81e",
@@ -198,7 +198,7 @@ export const chainsToContracts: ContractsConfig = {
         flowVRFOracle: "0xd81373eEd88FacE56c21CFA4787c80C325e0bC6E",
         externalMarketMirror: "0x7485019de6Eca5665057bAe08229F9E660ADEfDa",
         // Strategy Vault & DeFi Pool Contracts (Phase 2) — Deployed to Flow Testnet 2026-03-11
-        strategyVault: process.env.NEXT_PUBLIC_STRATEGY_VAULT_ADDRESS || "0x1B1f207C391190d86b7fd8af7A291455e2d0cDAB",
+        strategyVault: process.env.NEXT_PUBLIC_STRATEGY_VAULT_ADDRESS || "0xD7CbEC2D198357213b434E6b61CC4f80BB0feaCF",
         highYieldPool: process.env.NEXT_PUBLIC_HIGH_YIELD_POOL_ADDRESS || "0x39d85759032fe730abaCDF7aAc403e8E8BB47cAb",
         stablePool: process.env.NEXT_PUBLIC_STABLE_POOL_ADDRESS || "0x14746b6F08e9512F755FbCC64e63f06397dA155F",
         lpPool: process.env.NEXT_PUBLIC_LP_POOL_ADDRESS || "0x89d5C59a281Da5BE624d3D592Ab9661B6B44451e",

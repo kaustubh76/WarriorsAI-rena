@@ -59,7 +59,7 @@ export const FLOW_CONTRACTS = {
   outcomeToken: '0xb9BbdB84EaA159166B2c4eFE713F7Ea87700a81e',
   creatorRevenueShare: '0x8B096E9b9D800BDbD353386865F55c1E2B3928aA',
   zeroGOracle: '0xe796D8D16475C92c30caa59E9De2147726a80DF0',
-  warriorsNFT: '0x3838510eCa30EdeF7b264499F2B590ab4ED4afB1',
+  warriorsNFT: '0x89f44bEefa27eC5199ddeB8fD16158d94296ED39',
   arenaFactory: '0xf77840febD42325F83cB93F9deaE0F8b14Eececf',
 } as const;
 

@@ -19,7 +19,7 @@ import {StrategyVault} from "../src/StrategyVault.sol";
  * Required env vars:
  *   DEPLOYER_PRIVATE_KEY
  *   CROWN_TOKEN_ADDRESS (0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6)
- *   WARRIORS_NFT_ADDRESS (0x3838510eCa30EdeF7b264499F2B590ab4ED4afB1)
+ *   WARRIORS_NFT_ADDRESS (0x89f44bEefa27eC5199ddeB8fD16158d94296ED39)
  */
 contract DeployVault is Script {
     function run() external {
