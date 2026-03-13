@@ -151,9 +151,9 @@ class StrategyArenaService {
     if (!vault1) throw new Error(`No vault record for warrior #${warrior1Id}`);
     if (!vault2) throw new Error(`No vault record for warrior #${warrior2Id}`);
 
-    // Create battle + betting pool in a transaction
-    const [battle, bettingPool] = await prisma.$transaction([
-      prisma.predictionBattle.create({
+    // Create battle + betting pool in an interactive transaction
+    const { battle, bettingPool } = await prisma.$transaction(async (tx) => {
+      const battle = await tx.predictionBattle.create({
         data: {
           externalMarketId: `strategy_${warrior1Id}_vs_${warrior2Id}_${Date.now()}`,
           source: 'internal',
@@ -178,22 +178,19 @@ class StrategyArenaService {
           w2TierAtStart: matchInfo.w2Tier,
           tierMultiplier: matchInfo.tierMultiplier,
         },
-      }),
-      prisma.battleBettingPool.create({
+      });
+
+      const bettingPool = await tx.battleBettingPool.create({
         data: {
-          battleId: '', // placeholder — will be set below
+          battleId: battle.id,
           totalWarrior1Bets: '0',
           totalWarrior2Bets: '0',
           totalBettors: 0,
           bettingOpen: true,
         },
-      }),
-    ]);
+      });
 
-    // Update betting pool with actual battleId
-    await prisma.battleBettingPool.update({
-      where: { id: bettingPool.id },
-      data: { battleId: battle.id },
+      return { battle, bettingPool };
     });
 
     console.log(`[StrategyArena] Created battle ${battle.id}: NFT#${warrior1Id} vs NFT#${warrior2Id}`);
@@ -753,7 +750,7 @@ class StrategyArenaService {
     };
 
     // 3. Select move using DeFi-aware logic based on traits + pool conditions (P4-6 fix)
-    const defiMove = this.selectDeFiMove(defiTraits, poolAPYs, currentAllocation);
+    const defiMove = this.selectDeFiMove(defiTraits, poolAPYs, currentAllocation, roundNumber);
     // Map defiMove back to a DebateMove enum value for scoring compatibility
     const DEFI_TO_DEBATE: Record<string, string> = {
       CONCENTRATE: 'TAUNT',
@@ -941,32 +938,31 @@ class StrategyArenaService {
     traits: DeFiTraits,
     poolAPYs: { highYield: number; stable: number; lp: number },
     currentAllocation: VaultAllocation,
+    roundNumber: number,
   ): string {
     const { alpha, complexity, momentum, hedge, timing } = traits;
 
     // Detect market conditions
     const highYieldStrong = poolAPYs.highYield >= poolAPYs.lp && poolAPYs.highYield >= poolAPYs.stable;
-    const stableStrong = poolAPYs.stable >= poolAPYs.highYield * 0.7; // volatility hedge
-    const multiPoolOpportunity = Math.abs(poolAPYs.highYield - poolAPYs.lp) > 400; // >4% spread = composition opportunity
-    const recoverySignal = currentAllocation.highYield < 3000 && highYieldStrong; // underweighted in strong pool
+    const stableStrong = poolAPYs.stable >= poolAPYs.highYield * 0.7;
+    const multiPoolOpportunity = Math.abs(poolAPYs.highYield - poolAPYs.lp) > 400;
+    const recoverySignal = currentAllocation.highYield < 3000 && highYieldStrong;
 
-    // Priority: pick move whose primary trait dominates and conditions align
-    if (alpha >= 7000 && highYieldStrong) return 'CONCENTRATE';
-    if (hedge >= 6000 && stableStrong) return 'HEDGE_UP';
-    if (timing >= 7000 && recoverySignal) return 'FLASH';
-    if (complexity >= 7000 && multiPoolOpportunity) return 'COMPOSE';
-    if (momentum >= 7000) return 'REBALANCE';
-
-    // Secondary: pick whichever trait is highest overall
+    // Rank moves by trait affinity + market condition bonus
     const scores: [string, number][] = [
-      ['CONCENTRATE', alpha],
-      ['HEDGE_UP', hedge],
-      ['FLASH', timing],
-      ['COMPOSE', complexity],
-      ['REBALANCE', momentum],
+      ['CONCENTRATE', alpha + (highYieldStrong ? 2000 : 0)],
+      ['HEDGE_UP', hedge + (stableStrong ? 2000 : 0)],
+      ['FLASH', timing + (recoverySignal ? 2000 : 0)],
+      ['COMPOSE', complexity + (multiPoolOpportunity ? 2000 : 0)],
+      ['REBALANCE', momentum + 1000], // baseline bonus — rebalance is always reasonable
     ];
     scores.sort((a, b) => b[1] - a[1]);
-    return scores[0][0];
+
+    // Cycle-based rotation: each round picks the Nth-ranked move (wraps around)
+    // Round 1 → top-ranked, Round 2 → 2nd, Round 3 → 3rd, etc.
+    // This ensures variety while traits still influence order
+    const moveIndex = (roundNumber - 1) % scores.length;
+    return scores[moveIndex][0];
   }
 
   // ═══════════════════════════════════════════════════════
