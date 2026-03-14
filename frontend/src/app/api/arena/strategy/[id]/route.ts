@@ -14,6 +14,12 @@ import { vaultService } from '@/services/vaultService';
 import { classifyStrategyProfile } from '@/constants/defiTraitMapping';
 import { formatEther } from 'viem';
 
+function safeJsonParse(str: string | null): Record<string, unknown> | null {
+  if (!str) return null;
+  try { return JSON.parse(str); }
+  catch { return null; }
+}
+
 export const GET = composeMiddleware([
   withRateLimit({ prefix: 'arena-strategy-detail', ...RateLimitPresets.apiQueries }),
   async (req, ctx) => {
@@ -41,15 +47,25 @@ export const GET = composeMiddleware([
       throw ErrorResponses.badRequest('Not a strategy battle');
     }
 
-    // Fetch current vault states + traits for both warriors
-    const [w1Traits, w2Traits, w1VaultState, w2VaultState, poolAPYs, bettingPool] = await Promise.all([
+    // Fetch current vault states + traits + images for both warriors
+    const [w1Traits, w2Traits, w1VaultState, w2VaultState, poolAPYs, bettingPool, w1Image, w2Image] = await Promise.all([
       vaultService.getNFTTraits(battle.warrior1Id).catch(() => null),
       vaultService.getNFTTraits(battle.warrior2Id).catch(() => null),
       vaultService.getVaultState(battle.warrior1Id).catch(() => null),
       vaultService.getVaultState(battle.warrior2Id).catch(() => null),
       vaultService.getPoolAPYs().catch(() => ({ highYield: 1800, stable: 400, lp: 1200 })),
       prisma.battleBettingPool.findUnique({ where: { battleId } }),
+      vaultService.getNFTImageUrl(battle.warrior1Id).catch(() => '/lazered.png'),
+      vaultService.getNFTImageUrl(battle.warrior2Id).catch(() => '/lazered.png'),
     ]);
+
+    // Write-through cache: persist fetched image URLs if not already cached
+    if (!battle.warrior1ImageUrl && w1Image !== '/lazered.png') {
+      prisma.predictionBattle.update({ where: { id: battleId }, data: { warrior1ImageUrl: w1Image } }).catch(() => {});
+    }
+    if (!battle.warrior2ImageUrl && w2Image !== '/lazered.png') {
+      prisma.predictionBattle.update({ where: { id: battleId }, data: { warrior2ImageUrl: w2Image } }).catch(() => {});
+    }
 
     // Classify strategy profiles
     const w1Profile = w1Traits ? classifyStrategyProfile({
@@ -57,6 +73,7 @@ export const GET = composeMiddleware([
       defence: w1Traits.defence,
       wit: w1Traits.wit,
       charisma: w1Traits.charisma,
+      luck: w1Traits.luck,
     }) : 'UNKNOWN';
 
     const w2Profile = w2Traits ? classifyStrategyProfile({
@@ -64,6 +81,7 @@ export const GET = composeMiddleware([
       defence: w2Traits.defence,
       wit: w2Traits.wit,
       charisma: w2Traits.charisma,
+      luck: w2Traits.luck,
     }) : 'UNKNOWN';
 
     // Format rounds with DeFi cycle data
@@ -75,8 +93,8 @@ export const GET = composeMiddleware([
         score: round.w1Score,
         yieldEarned: round.w1YieldEarned,
         yieldFormatted: round.w1YieldEarned ? formatEther(BigInt(round.w1YieldEarned)) : '0',
-        allocationBefore: round.w1AllocationBefore ? JSON.parse(round.w1AllocationBefore) : null,
-        allocationAfter: round.w1AllocationAfter ? JSON.parse(round.w1AllocationAfter) : null,
+        allocationBefore: safeJsonParse(round.w1AllocationBefore),
+        allocationAfter: safeJsonParse(round.w1AllocationAfter),
         balanceBefore: round.w1BalanceBefore,
         balanceAfter: round.w1BalanceAfter,
         txHash: round.w1TxHash,
@@ -87,15 +105,20 @@ export const GET = composeMiddleware([
         score: round.w2Score,
         yieldEarned: round.w2YieldEarned,
         yieldFormatted: round.w2YieldEarned ? formatEther(BigInt(round.w2YieldEarned)) : '0',
-        allocationBefore: round.w2AllocationBefore ? JSON.parse(round.w2AllocationBefore) : null,
-        allocationAfter: round.w2AllocationAfter ? JSON.parse(round.w2AllocationAfter) : null,
+        allocationBefore: safeJsonParse(round.w2AllocationBefore),
+        allocationAfter: safeJsonParse(round.w2AllocationAfter),
         balanceBefore: round.w2BalanceBefore,
         balanceAfter: round.w2BalanceAfter,
         txHash: round.w2TxHash,
       },
       roundWinner: round.roundWinner,
       judgeReasoning: round.judgeReasoning,
-      poolAPYs: round.poolAPYsSnapshot ? JSON.parse(round.poolAPYsSnapshot) : null,
+      poolAPYs: safeJsonParse(round.poolAPYsSnapshot),
+      // VRF hit/miss data
+      w1VrfSeed: round.w1VrfSeed,
+      w2VrfSeed: round.w2VrfSeed,
+      w1IsHit: round.w1IsHit,
+      w2IsHit: round.w2IsHit,
       startedAt: round.startedAt,
       endedAt: round.endedAt,
     }));
@@ -110,6 +133,15 @@ export const GET = composeMiddleware([
         stakes: battle.stakes,
         createdAt: battle.createdAt,
         completedAt: battle.completedAt,
+        scheduledStartAt: battle.scheduledStartAt,
+        lastCycleAt: battle.lastCycleAt,
+        nextCycleEstimate: battle.status === 'active' && battle.currentRound < 5
+          ? new Date(Math.max(
+              (battle.lastCycleAt?.getTime() ?? 0) + 60 * 1000,
+              battle.scheduledStartAt?.getTime() ?? 0,
+              Date.now(),
+            )).toISOString()
+          : null,
         warrior1: {
           nftId: battle.warrior1Id,
           owner: battle.warrior1Owner,
@@ -124,6 +156,7 @@ export const GET = composeMiddleware([
             lp: Number(w1VaultState.allocation[2]),
           } : null,
           vaultBalance: w1VaultState ? w1VaultState.depositAmount.toString() : null,
+          imageUrl: w1Image,
         },
         warrior2: {
           nftId: battle.warrior2Id,
@@ -139,6 +172,7 @@ export const GET = composeMiddleware([
             lp: Number(w2VaultState.allocation[2]),
           } : null,
           vaultBalance: w2VaultState ? w2VaultState.depositAmount.toString() : null,
+          imageUrl: w2Image,
         },
         cycles,
         poolAPYs: {
