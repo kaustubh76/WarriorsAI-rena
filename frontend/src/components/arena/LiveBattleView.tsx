@@ -207,12 +207,12 @@ export function LiveBattleView({ battle, onExecuteRound, isExecuting }: LiveBatt
       )}
 
       {/* Betting Panel */}
-      {battle.status === 'active' && battle.currentRound <= 2 && (
+      {battle.status === 'active' && battle.currentRound === 0 && (
         <div className="p-6 border-b border-gray-700 bg-gray-800/50">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-lg font-bold text-white">Place Your Bet</h3>
-              <p className="text-sm text-gray-400">Betting closes after round 2</p>
+              <p className="text-sm text-gray-400">Betting closes when battle starts</p>
             </div>
             {pool && (
               <div className="text-right">

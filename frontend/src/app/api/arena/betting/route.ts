@@ -9,7 +9,7 @@ import { prisma } from '@/lib/prisma';
 import { ErrorResponses } from '@/lib/api/errorHandler';
 import { validateAddress, validateBigIntString, validateBoolean } from '@/lib/api/validation';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
-import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
+import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 
 /**
  * GET /api/arena/betting?battleId=xxx
@@ -53,7 +53,7 @@ export const GET = composeMiddleware([
           totalWarrior1Bets: '0',
           totalWarrior2Bets: '0',
           totalBettors: 0,
-          bettingOpen: battle.status === 'active' && battle.currentRound <= 2,
+          bettingOpen: battle.status === 'pending' || (battle.status === 'active' && battle.currentRound === 0),
         },
       });
     }
@@ -142,8 +142,17 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Battle is not active');
     }
 
-    if (battle.currentRound > 2) {
-      throw ErrorResponses.badRequest('Betting closed after round 2');
+    if (battle.currentRound >= 1) {
+      throw ErrorResponses.badRequest('Betting closed — battle has started');
+    }
+
+    // Defense-in-depth: check bettingOpen flag (auto-closed when first cycle begins)
+    const bettingPool = await prisma.battleBettingPool.findUnique({
+      where: { battleId },
+      select: { bettingOpen: true },
+    });
+    if (bettingPool && !bettingPool.bettingOpen) {
+      throw ErrorResponses.badRequest('Betting is closed for this battle');
     }
 
     const normalizedAddress = bettorAddress.toLowerCase();
@@ -299,8 +308,8 @@ export const PATCH = composeMiddleware([
       throw ErrorResponses.internal('Pool not found');
     }
 
-    const totalW1 = BigInt(pool.totalWarrior1Bets);
-    const totalW2 = BigInt(pool.totalWarrior2Bets);
+    const totalW1 = pool.totalWarrior1Bets ? BigInt(pool.totalWarrior1Bets) : 0n;
+    const totalW2 = pool.totalWarrior2Bets ? BigInt(pool.totalWarrior2Bets) : 0n;
     const betAmount = BigInt(bet.amount);
 
     let payout = 0n;
@@ -355,6 +364,7 @@ export const PATCH = composeMiddleware([
  * Close betting for a battle (admin action)
  */
 export const DELETE = composeMiddleware([
+  withCronAuth(),
   withRateLimit({ prefix: 'betting-close', ...RateLimitPresets.storageWrite }),
   async (req, ctx) => {
     const { searchParams } = new URL(req.url);
