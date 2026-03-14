@@ -36,6 +36,11 @@ interface CycleData {
   roundWinner: string | null;
   judgeReasoning: string | null;
   poolAPYs: { highYield: number; stable: number; lp: number } | null;
+  // VRF data at cycle level
+  w1IsHit: boolean | null;
+  w2IsHit: boolean | null;
+  w1VrfSeed: string | null;
+  w2VrfSeed: string | null;
   startedAt: string;
   endedAt: string | null;
 }
@@ -50,6 +55,7 @@ interface WarriorBattleData {
   strategyProfile: string;
   currentAllocation: VaultAllocation | null;
   vaultBalance: string | null;
+  imageUrl: string;
 }
 
 interface BattleData {
@@ -60,6 +66,10 @@ interface BattleData {
   stakes: string;
   createdAt: string;
   completedAt: string | null;
+  // Scheduling fields
+  scheduledStartAt: string | null;
+  lastCycleAt: string | null;
+  nextCycleEstimate: string | null;
   warrior1: WarriorBattleData;
   warrior2: WarriorBattleData;
   cycles: CycleData[];
@@ -77,15 +87,12 @@ interface UseStrategyBattleReturn {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  executeCycle: () => Promise<boolean>;
-  executingCycle: boolean;
 }
 
 export function useStrategyBattle(battleId: string): UseStrategyBattleReturn {
   const [battle, setBattle] = useState<BattleData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [executingCycle, setExecutingCycle] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchBattle = useCallback(async () => {
@@ -109,41 +116,20 @@ export function useStrategyBattle(battleId: string): UseStrategyBattleReturn {
     await fetchBattle();
   }, [fetchBattle]);
 
-  const executeCycle = useCallback(async (): Promise<boolean> => {
-    setExecutingCycle(true);
-    try {
-      const res = await fetch(`/api/arena/strategy/${battleId}/execute-cycle`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Cycle execution failed: ${res.status}`);
-      }
-      // Refresh battle data after cycle
-      await fetchBattle();
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cycle execution failed');
-      return false;
-    } finally {
-      setExecutingCycle(false);
-    }
-  }, [battleId, fetchBattle]);
-
   // Initial fetch
   useEffect(() => {
     fetchBattle();
   }, [fetchBattle]);
 
-  // Poll every 30s while battle is active
+  // Poll every 10s while battle is active (spectator mode)
   useEffect(() => {
     if (battle?.status === 'active') {
-      pollingRef.current = setInterval(fetchBattle, 30_000);
+      pollingRef.current = setInterval(fetchBattle, 10_000);
     }
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [battle?.status, fetchBattle]);
 
-  return { battle, loading, error, refresh, executeCycle, executingCycle };
+  return { battle, loading, error, refresh };
 }
