@@ -11,6 +11,8 @@ export { AcceptChallengeModal } from './AcceptChallengeModal';
 
 // Strategy battle components
 export { default as StrategyBattleCard } from './StrategyBattleCard';
+export type { StrategyBattle } from './StrategyBattleCard';
+export { default as StrategyBattleCreateForm } from './StrategyBattleCreateForm';
 
 // Arbitrage battle components
 export { default as CreateArbitrageBattleModal } from './CreateArbitrageBattleModal';

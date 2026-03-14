@@ -2,34 +2,46 @@
 
 import { formatEther } from 'viem';
 import Link from 'next/link';
-import { TrendingUp, TrendingDown, Swords, Timer, Trophy, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Swords, Timer, Trophy, ChevronRight, Radio, Clock } from 'lucide-react';
+
+export interface StrategyBattle {
+  id: string;
+  status: string;
+  currentRound: number;
+  question: string;
+  stakes: string;
+  warrior1Id: number;
+  warrior1Owner: string;
+  warrior1Score: number;
+  warrior2Id: number;
+  warrior2Owner: string;
+  warrior2Score: number;
+  warrior1ImageUrl?: string | null;
+  warrior2ImageUrl?: string | null;
+  w1TotalYield?: string | null;
+  w2TotalYield?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  scheduledStartAt?: string | null;
+  nextCycleEstimate?: string | null;
+  betting?: {
+    totalWarrior1Bets: string;
+    totalWarrior2Bets: string;
+    totalBettors: number;
+    bettingOpen: boolean;
+  } | null;
+  rounds?: Array<{
+    roundNumber: number;
+    w1DeFiMove?: string | null;
+    w2DeFiMove?: string | null;
+    w1Score: number;
+    w2Score: number;
+    roundWinner?: string | null;
+  }>;
+}
 
 interface StrategyBattleCardProps {
-  battle: {
-    id: string;
-    status: string;
-    currentRound: number;
-    question: string;
-    stakes: string;
-    warrior1Id: number;
-    warrior1Owner: string;
-    warrior1Score: number;
-    warrior2Id: number;
-    warrior2Owner: string;
-    warrior2Score: number;
-    w1TotalYield?: string | null;
-    w2TotalYield?: string | null;
-    createdAt: string;
-    completedAt?: string | null;
-    rounds?: Array<{
-      roundNumber: number;
-      w1DeFiMove?: string | null;
-      w2DeFiMove?: string | null;
-      w1Score: number;
-      w2Score: number;
-      roundWinner?: string | null;
-    }>;
-  };
+  battle: StrategyBattle;
 }
 
 const MOVE_COLORS: Record<string, string> = {
@@ -54,12 +66,23 @@ function shortenAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
+function formatTimeRemaining(isoString: string | null | undefined): string {
+  if (!isoString) return '';
+  const diff = new Date(isoString).getTime() - Date.now();
+  if (diff <= 0) return 'soon';
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '<1 min';
+  return `${mins} min`;
+}
+
 export default function StrategyBattleCard({ battle }: StrategyBattleCardProps) {
   const isActive = battle.status === 'active';
   const isCompleted = battle.status === 'completed';
   const w1Leading = battle.warrior1Score > battle.warrior2Score;
   const w2Leading = battle.warrior2Score > battle.warrior1Score;
-  const isDraw = battle.warrior1Score === battle.warrior2Score && isCompleted;
+  const bettingOpen = battle.betting?.bettingOpen ?? null;
+  const isScheduledWaiting = isActive && battle.scheduledStartAt &&
+    new Date(battle.scheduledStartAt).getTime() > Date.now() && battle.currentRound === 0;
 
   const w1YieldFormatted = battle.w1TotalYield
     ? Number(formatEther(BigInt(battle.w1TotalYield))).toFixed(4)
@@ -84,10 +107,25 @@ export default function StrategyBattleCard({ battle }: StrategyBattleCardProps) 
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {isActive && !isScheduledWaiting && (
+              <span className="flex items-center gap-1 text-xs text-emerald-400">
+                <Radio className="w-3 h-3 animate-pulse" /> LIVE
+              </span>
+            )}
+            {isScheduledWaiting && (
+              <span className="flex items-center gap-1 text-xs text-blue-400">
+                <Clock className="w-3 h-3" /> Starts in {formatTimeRemaining(battle.scheduledStartAt)}
+              </span>
+            )}
             {isActive && (
               <span className="flex items-center gap-1 text-xs text-emerald-400">
                 <Timer className="w-3 h-3" />
                 Cycle {battle.currentRound}/5
+              </span>
+            )}
+            {isActive && !isScheduledWaiting && battle.nextCycleEstimate && battle.currentRound < 5 && (
+              <span className="flex items-center gap-1 text-xs text-blue-400">
+                <Clock className="w-3 h-3" /> ~{formatTimeRemaining(battle.nextCycleEstimate)}
               </span>
             )}
             {isCompleted && (
@@ -104,7 +142,18 @@ export default function StrategyBattleCard({ battle }: StrategyBattleCardProps) 
           {/* Warrior 1 */}
           <div className={`p-3 rounded-lg border ${w1Leading && isCompleted ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-white/5 bg-white/5'}`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-white">#{battle.warrior1Id}</span>
+              <div className="flex items-center gap-2">
+                {battle.warrior1ImageUrl && (
+                  <img
+                    src={battle.warrior1ImageUrl}
+                    alt={`NFT #${battle.warrior1Id}`}
+                    className="w-8 h-8 rounded-full object-cover border border-white/20"
+                    loading="lazy"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <span className="text-sm font-bold text-white">#{battle.warrior1Id}</span>
+              </div>
               {w1Leading && isCompleted && <Trophy className="w-3 h-3 text-yellow-400" />}
             </div>
             <div className="text-xs text-gray-400 mb-2 truncate">
@@ -139,7 +188,18 @@ export default function StrategyBattleCard({ battle }: StrategyBattleCardProps) 
           {/* Warrior 2 */}
           <div className={`p-3 rounded-lg border ${w2Leading && isCompleted ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-white/5 bg-white/5'}`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-white">#{battle.warrior2Id}</span>
+              <div className="flex items-center gap-2">
+                {battle.warrior2ImageUrl && (
+                  <img
+                    src={battle.warrior2ImageUrl}
+                    alt={`NFT #${battle.warrior2Id}`}
+                    className="w-8 h-8 rounded-full object-cover border border-white/20"
+                    loading="lazy"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <span className="text-sm font-bold text-white">#{battle.warrior2Id}</span>
+              </div>
               {w2Leading && isCompleted && <Trophy className="w-3 h-3 text-yellow-400" />}
             </div>
             <div className="text-xs text-gray-400 mb-2 truncate">
@@ -174,9 +234,20 @@ export default function StrategyBattleCard({ battle }: StrategyBattleCardProps) 
 
         {/* Footer */}
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
-          <span className="text-xs text-gray-500">
-            Stake: {battle.stakes} CRwN each
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">
+              Stake: {battle.stakes} CRwN each
+            </span>
+            {bettingOpen !== null && (
+              <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                bettingOpen
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+              }`}>
+                {bettingOpen ? 'BETS OPEN' : 'BETS CLOSED'}
+              </span>
+            )}
+          </div>
           <span className="flex items-center gap-1 text-xs text-gray-400 group-hover:text-white transition-colors">
             View Details <ChevronRight className="w-3 h-3" />
           </span>

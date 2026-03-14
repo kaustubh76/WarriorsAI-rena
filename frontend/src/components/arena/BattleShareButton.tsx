@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Share2, Copy, Check, ExternalLink } from 'lucide-react';
 
 interface BattleShareButtonProps {
@@ -9,6 +9,7 @@ interface BattleShareButtonProps {
   warrior1Score: number;
   warrior2Score: number;
   status: string;
+  battlePath?: string;
 }
 
 export default function BattleShareButton({
@@ -17,10 +18,16 @@ export default function BattleShareButton({
   warrior1Score,
   warrior2Score,
   status,
+  battlePath,
 }: BattleShareButtonProps) {
   const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState('');
 
-  const battleUrl = `${window.location.origin}/prediction-arena/battle/${battleId}`;
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const battleUrl = `${origin}${battlePath || '/prediction-arena/battle/'}${battleId}`;
   const truncatedQ = question.length > 80 ? question.slice(0, 77) + '...' : question;
   const scoreText = status === 'completed'
     ? `Final: ${warrior1Score}-${warrior2Score}`

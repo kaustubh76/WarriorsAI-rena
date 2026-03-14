@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAccount, useWriteContract, useWatchContractEvent } from 'wagmi';
 import { encodePacked, keccak256, decodeEventLog, parseEther } from 'viem';
@@ -10,7 +10,8 @@ import '../home-glass.css';
 import './page-glass.css';
 import { Button } from '../../components/ui/button';
 import { useArenas, type RankCategory, type ArenaWithDetails } from '../../hooks/useArenas';
-import { StrategyBattleCard } from '../../components/arena';
+import { StrategyBattleCard, StrategyBattleCreateForm } from '../../components/arena';
+import type { StrategyBattle } from '../../components/arena/StrategyBattleCard';
 import { arenaService, isValidBettingAmount, getClosestValidBettingAmount } from '../../services/arenaService';
 import { ArenaAbi, warriorsNFTAbi, getChainId, getContracts, getArenaBackendUrl } from '../../constants';
 import { waitForTransactionReceipt, readContract } from '@wagmi/core';
@@ -515,10 +516,11 @@ export default function ArenaPage() {
   const [selectedArena, setSelectedArena] = useState<Arena | null>(null);
   const [activeRank, setActiveRank] = useState<RankCategory>('UNRANKED');
   const [viewMode, setViewMode] = useState<'debate' | 'strategy'>('debate');
-  const [strategyBattles, setStrategyBattles] = useState<any[]>([]);
+  const [strategyBattles, setStrategyBattles] = useState<StrategyBattle[]>([]);
   const [strategyLoading, setStrategyLoading] = useState(false);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
   const [showCreateBattle, setShowCreateBattle] = useState(false);
-  const [createBattleForm, setCreateBattleForm] = useState({ nft1: '', nft2: '', nft2Owner: '', stakes: '100' });
+  const [createBattleForm, setCreateBattleForm] = useState({ nft1: '', nft2: '', nft2Owner: '', stakes: '100', scheduledStartAt: '' });
   const [createBattleStatus, setCreateBattleStatus] = useState<{ loading: boolean; error: string | null; success: string | null }>({ loading: false, error: null, success: null });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [betAmount, setBetAmount] = useState('');
@@ -1093,14 +1095,17 @@ export default function ArenaPage() {
     let cancelled = false;
     const fetchStrategyBattles = async () => {
       setStrategyLoading(true);
+      setStrategyError(null);
       try {
         const res = await fetch('/api/arena/strategy/list');
         if (res.ok) {
           const data = await res.json();
           if (!cancelled) setStrategyBattles(data.battles || []);
+        } else {
+          if (!cancelled) setStrategyError('Failed to load strategy battles');
         }
       } catch {
-        // silently fail — user can retry
+        if (!cancelled) setStrategyError('Network error — check your connection');
       } finally {
         if (!cancelled) setStrategyLoading(false);
       }
@@ -1109,12 +1114,60 @@ export default function ArenaPage() {
     return () => { cancelled = true; };
   }, [viewMode]);
 
+  // Auto-refresh strategy battles every 30s when active battles exist
+  const hasActiveBattlesRef = useRef(false);
+  hasActiveBattlesRef.current = strategyBattles.some((b: StrategyBattle) => b.status === 'active');
+
+  useEffect(() => {
+    if (viewMode !== 'strategy') return;
+    const interval = setInterval(async () => {
+      if (!hasActiveBattlesRef.current) return;
+      try {
+        const res = await fetch('/api/arena/strategy/list');
+        if (res.ok) {
+          const data = await res.json();
+          setStrategyBattles(data.battles || []);
+        }
+      } catch { /* silent retry on next interval */ }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [viewMode]);
+
+  const retryStrategyFetch = useCallback(async () => {
+    setStrategyLoading(true);
+    setStrategyError(null);
+    try {
+      const res = await fetch('/api/arena/strategy/list');
+      if (res.ok) {
+        const data = await res.json();
+        setStrategyBattles(data.battles || []);
+      } else {
+        setStrategyError('Failed to load strategy battles');
+      }
+    } catch {
+      setStrategyError('Network error — check your connection');
+    } finally {
+      setStrategyLoading(false);
+    }
+  }, []);
+
   // Create strategy battle handler (P4-2)
   const handleCreateStrategyBattle = async () => {
     if (!address) return;
     const { nft1, nft2, nft2Owner, stakes } = createBattleForm;
     if (!nft1 || !nft2 || !nft2Owner) {
       setCreateBattleStatus({ loading: false, error: 'All fields are required', success: null });
+      return;
+    }
+    if (Number(nft1) === Number(nft2)) {
+      setCreateBattleStatus({ loading: false, error: 'Cannot battle the same warrior', success: null });
+      return;
+    }
+    let stakesWei: string;
+    try {
+      stakesWei = parseEther(stakes).toString();
+    } catch {
+      setCreateBattleStatus({ loading: false, error: 'Invalid stakes amount', success: null });
       return;
     }
     setCreateBattleStatus({ loading: true, error: null, success: null });
@@ -1127,13 +1180,16 @@ export default function ArenaPage() {
           warrior1Owner: address,
           warrior2Id: Number(nft2),
           warrior2Owner: nft2Owner,
-          stakes: parseEther(stakes).toString(),
+          stakes: stakesWei,
+          ...(createBattleForm.scheduledStartAt
+            ? { scheduledStartAt: new Date(createBattleForm.scheduledStartAt).toISOString() }
+            : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create battle');
       setCreateBattleStatus({ loading: false, error: null, success: `Battle created! ID: ${data.battle?.id}` });
-      setCreateBattleForm({ nft1: '', nft2: '', nft2Owner: '', stakes: '100' });
+      setCreateBattleForm({ nft1: '', nft2: '', nft2Owner: '', stakes: '100', scheduledStartAt: '' });
       setShowCreateBattle(false);
       // Refresh strategy battles list
       const listRes = await fetch('/api/arena/strategy/list');
@@ -2502,6 +2558,27 @@ export default function ArenaPage() {
                     </div>
                   </div>
                 </div>
+              ) : strategyError ? (
+                <div className="text-center py-8">
+                  <div style={{ fontFamily: 'Press Start 2P, monospace', color: '#ff4444', fontSize: '11px', marginBottom: '12px' }}>
+                    {strategyError}
+                  </div>
+                  <button
+                    onClick={retryStrategyFetch}
+                    style={{
+                      background: 'linear-gradient(135deg, #ff8c00, #ff6b00)',
+                      border: '2px solid #ff8c00',
+                      borderRadius: '10px',
+                      padding: '10px 24px',
+                      color: '#fff',
+                      fontFamily: 'Press Start 2P, monospace',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    RETRY
+                  </button>
+                </div>
               ) : strategyBattles.length > 0 ? (
                 <div className="space-y-6">
                   <div className="flex justify-end">
@@ -2513,34 +2590,15 @@ export default function ArenaPage() {
                     </button>
                   </div>
                   { showCreateBattle && (
-                    <div className="p-6 space-y-4" style={ { background: 'rgba(120, 160, 200, 0.1)', border: '2px solid #ff8c00', borderRadius: '16px', backdropFilter: 'blur(20px)' } }>
-                      <div style={ { fontFamily: 'Press Start 2P, monospace', color: '#ff8c00', fontSize: '11px', marginBottom: '12px' } }>CREATE STRATEGY BATTLE</div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>YOUR NFT ID</label>
-                          <input type="number" value={ createBattleForm.nft1 } onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, nft1: e.target.value })) } placeholder="e.g. 42" style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } } />
-                        </div>
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>OPPONENT NFT ID</label>
-                          <input type="number" value={ createBattleForm.nft2 } onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, nft2: e.target.value })) } placeholder="e.g. 7" style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } } />
-                        </div>
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>OPPONENT WALLET</label>
-                          <input type="text" value={ createBattleForm.nft2Owner } onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, nft2Owner: e.target.value })) } placeholder="0x..." style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } } />
-                        </div>
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>STAKES (CRwN)</label>
-                          <input type="number" value={ createBattleForm.stakes } onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, stakes: e.target.value })) } placeholder="100" style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } } />
-                        </div>
-                      </div>
-                      { createBattleStatus.error && <p style={ { color: '#ff4444', fontFamily: 'monospace', fontSize: '12px' } }>{ createBattleStatus.error }</p> }
-                      { createBattleStatus.success && <p style={ { color: '#44ff88', fontFamily: 'monospace', fontSize: '12px' } }>{ createBattleStatus.success }</p> }
-                      <button onClick={ handleCreateStrategyBattle } disabled={ createBattleStatus.loading || !isConnected } style={ { background: createBattleStatus.loading ? 'rgba(255,140,0,0.4)' : 'linear-gradient(135deg, #ff8c00, #ff6b00)', border: '2px solid #ff8c00', borderRadius: '10px', padding: '10px 24px', color: '#fff', fontFamily: 'Press Start 2P, monospace', fontSize: '10px', cursor: createBattleStatus.loading ? 'not-allowed' : 'pointer' } }>
-                        { createBattleStatus.loading ? 'CREATING...' : 'LAUNCH BATTLE' }
-                      </button>
-                    </div>
+                    <StrategyBattleCreateForm
+                      form={createBattleForm}
+                      onFormChange={setCreateBattleForm}
+                      onSubmit={handleCreateStrategyBattle}
+                      status={createBattleStatus}
+                      disabled={!isConnected}
+                    />
                   ) }
-                  { strategyBattles.map((battle: any) => (
+                  { strategyBattles.map((battle) => (
                     <StrategyBattleCard key={ battle.id } battle={ battle } />
                   )) }
                 </div>
@@ -2566,83 +2624,13 @@ export default function ArenaPage() {
                   </div>
 
                   { showCreateBattle && (
-                    <div
-                      className="p-6 space-y-4"
-                      style={ {
-                        background: 'rgba(120, 160, 200, 0.1)',
-                        border: '2px solid #ff8c00',
-                        borderRadius: '16px',
-                        backdropFilter: 'blur(20px)',
-                      } }
-                    >
-                      <div style={ { fontFamily: 'Press Start 2P, monospace', color: '#ff8c00', fontSize: '11px', marginBottom: '12px' } }>
-                        CREATE STRATEGY BATTLE
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>YOUR NFT ID</label>
-                          <input
-                            type="number"
-                            value={ createBattleForm.nft1 }
-                            onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, nft1: e.target.value })) }
-                            placeholder="e.g. 42"
-                            style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } }
-                          />
-                        </div>
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>OPPONENT NFT ID</label>
-                          <input
-                            type="number"
-                            value={ createBattleForm.nft2 }
-                            onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, nft2: e.target.value })) }
-                            placeholder="e.g. 7"
-                            style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } }
-                          />
-                        </div>
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>OPPONENT WALLET</label>
-                          <input
-                            type="text"
-                            value={ createBattleForm.nft2Owner }
-                            onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, nft2Owner: e.target.value })) }
-                            placeholder="0x..."
-                            style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } }
-                          />
-                        </div>
-                        <div>
-                          <label style={ { fontFamily: 'Press Start 2P, monospace', fontSize: '9px', color: '#ffb347', display: 'block', marginBottom: '4px' } }>STAKES (CRwN)</label>
-                          <input
-                            type="number"
-                            value={ createBattleForm.stakes }
-                            onChange={ (e) => setCreateBattleForm((f: typeof createBattleForm) => ({ ...f, stakes: e.target.value })) }
-                            placeholder="100"
-                            style={ { width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' } }
-                          />
-                        </div>
-                      </div>
-                      { createBattleStatus.error && (
-                        <p style={ { color: '#ff4444', fontFamily: 'monospace', fontSize: '12px' } }>{ createBattleStatus.error }</p>
-                      ) }
-                      { createBattleStatus.success && (
-                        <p style={ { color: '#44ff88', fontFamily: 'monospace', fontSize: '12px' } }>{ createBattleStatus.success }</p>
-                      ) }
-                      <button
-                        onClick={ handleCreateStrategyBattle }
-                        disabled={ createBattleStatus.loading || !isConnected }
-                        style={ {
-                          background: createBattleStatus.loading ? 'rgba(255,140,0,0.4)' : 'linear-gradient(135deg, #ff8c00, #ff6b00)',
-                          border: '2px solid #ff8c00',
-                          borderRadius: '10px',
-                          padding: '10px 24px',
-                          color: '#fff',
-                          fontFamily: 'Press Start 2P, monospace',
-                          fontSize: '10px',
-                          cursor: createBattleStatus.loading ? 'not-allowed' : 'pointer',
-                        } }
-                      >
-                        { createBattleStatus.loading ? 'CREATING...' : 'LAUNCH BATTLE' }
-                      </button>
-                    </div>
+                    <StrategyBattleCreateForm
+                      form={createBattleForm}
+                      onFormChange={setCreateBattleForm}
+                      onSubmit={handleCreateStrategyBattle}
+                      status={createBattleStatus}
+                      disabled={!isConnected}
+                    />
                   ) }
 
                   <div className="text-center py-8">
