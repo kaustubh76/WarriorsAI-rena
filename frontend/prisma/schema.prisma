@@ -864,6 +864,14 @@ model PredictionBattle {
   w2TierAtStart     String?
   tierMultiplier    Float?    // Higher-tier battles earn more ELO (1.0-1.5x)
 
+  // Phase 5: Automated spectator battle fields
+  scheduledStartAt  DateTime?  // Betting window — cycles start after this
+  lastCycleAt       DateTime?  // Pacing guard — prevents double-execution
+
+  // Cached NFT image URLs (avoid expensive on-chain + 0G fetch on list page)
+  warrior1ImageUrl  String?
+  warrior2ImageUrl  String?
+
   createdAt         DateTime @default(now())
   completedAt       DateTime?
 
@@ -921,6 +929,12 @@ model PredictionRound {
   w1TxHash           String?  // Rebalance tx hash
   w2TxHash           String?
   poolAPYsSnapshot   String?  // JSON: {highYield, stable, lp}
+
+  // Phase 5: VRF hit/miss fields
+  w1VrfSeed         String?    // keccak256(battleId, round, nftId, blockHash)
+  w2VrfSeed         String?
+  w1IsHit           Boolean?   // VRF-determined hit (full score) or miss (0.4x)
+  w2IsHit           Boolean?
 
   startedAt       DateTime @default(now())
   endedAt         DateTime?

@@ -36,6 +36,7 @@ import {
   type ArenaTier,
 } from '@/lib/arenaTiers';
 import { MOVE_MAP, classifyStrategyProfile } from '@/constants/defiTraitMapping';
+import { generateVrfSeed, determineHitMiss, applyHitMissModifier } from '@/lib/vrfScoring';
 import type { WarriorTraits, DebateMove, ScoreBreakdown } from '@/types/predictionArena';
 import { chainsToContracts, crownTokenAbi, warriorsNFTAbi } from '@/constants';
 import { STRATEGY_VAULT_ABI } from '@/constants/abis/strategyVaultAbi';
@@ -45,6 +46,8 @@ import {
   http,
   formatEther,
   parseEther,
+  keccak256,
+  encodePacked,
   type Address,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -59,6 +62,7 @@ const MAX_CYCLES = 5;
 // ─── Balance Matching Constants ──────────────────────
 const MIN_VAULT_BALANCE_WEI = parseEther('5');  // 5 CRwN minimum to battle
 const MAX_BALANCE_RATIO = 20000n;                // 2.0x as basis points (20000 = 2x)
+const DEFAULT_TRAITS: WarriorTraits = { strength: 5000, wit: 5000, charisma: 5000, defence: 5000, luck: 5000 };
 
 /** Map DebateMove enum values to DeFi move names for display */
 const DEFI_MOVE_MAP: Record<string, string> = {
@@ -122,6 +126,7 @@ class StrategyArenaService {
     warrior2Id: number;
     warrior2Owner: string;
     stakes: string;
+    scheduledStartAt?: Date;
   }) {
     const { warrior1Id, warrior1Owner, warrior2Id, warrior2Owner, stakes } = params;
 
@@ -173,6 +178,8 @@ class StrategyArenaService {
           vault2Id: vault2.id,
           w1TotalYield: '0',
           w2TotalYield: '0',
+          scheduledStartAt: params.scheduledStartAt || null,
+          lastCycleAt: null,
           w1RatingAtStart: matchInfo.w1Rating,
           w2RatingAtStart: matchInfo.w2Rating,
           w1TierAtStart: matchInfo.w1Tier,
@@ -196,6 +203,17 @@ class StrategyArenaService {
 
     console.log(`[StrategyArena] Created battle ${battle.id}: NFT#${warrior1Id} vs NFT#${warrior2Id}`);
 
+    // Fire-and-forget: cache NFT image URLs so list page can show avatars
+    Promise.all([
+      vaultService.getNFTImageUrl(warrior1Id),
+      vaultService.getNFTImageUrl(warrior2Id),
+    ]).then(([w1Img, w2Img]) => {
+      prisma.predictionBattle.update({
+        where: { id: battle.id },
+        data: { warrior1ImageUrl: w1Img, warrior2ImageUrl: w2Img },
+      }).catch((err) => console.warn(`[StrategyArena] Failed to cache image URLs for battle ${battle.id}:`, err));
+    }).catch((err) => console.warn(`[StrategyArena] Failed to fetch NFT images for battle ${battle.id}:`, err));
+
     return { battle, bettingPoolId: bettingPool.id };
   }
 
@@ -217,11 +235,21 @@ class StrategyArenaService {
     const roundNumber = battle.currentRound + 1;
     console.log(`[StrategyArena] Battle ${battleId} — executing cycle ${roundNumber}/${MAX_CYCLES}`);
 
+    // Auto-close betting when first cycle begins (betting only allowed before battle starts)
+    if (roundNumber === 1) {
+      await prisma.battleBettingPool.updateMany({
+        where: { battleId, bettingOpen: true },
+        data: { bettingOpen: false },
+      });
+      console.log(`[StrategyArena] Betting closed for battle ${battleId} (battle started)`);
+    }
+
     // 2. Get pool APYs (shared for both warriors)
     let poolAPYs: { highYield: number; stable: number; lp: number };
     try {
       poolAPYs = await vaultService.getPoolAPYs();
-    } catch {
+    } catch (apyErr) {
+      console.warn('[StrategyArena] getPoolAPYs failed, using fallback APYs:', apyErr instanceof Error ? apyErr.message : apyErr);
       poolAPYs = { highYield: 1800, stable: 400, lp: 1200 };
     }
 
@@ -248,6 +276,23 @@ class StrategyArenaService {
       ),
     ]);
 
+    // 5b. Fetch latest Flow block hash for VRF seed
+    let latestBlockHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+    try {
+      const vrfClient = createPublicClient({ chain: flowTestnet, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
+      const latestBlock = await vrfClient.getBlock({ blockTag: 'latest' });
+      latestBlockHash = latestBlock.hash;
+    } catch {
+      // Fallback: local entropy — less verifiable but functional. Log so operators know VRF is degraded.
+      console.warn(`[StrategyArena] VRF degraded: Flow RPC block hash unavailable for battle ${battleId} round ${roundNumber}`);
+      const localEntropy = BigInt(Date.now()) ^ process.hrtime.bigint() ^ BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+      latestBlockHash = keccak256(encodePacked(['uint256'], [localEntropy]));
+    }
+
+    // 5c. Generate VRF seeds and determine hit/miss for each warrior
+    const w1VrfSeed = generateVrfSeed(battleId, roundNumber, battle.warrior1Id, latestBlockHash);
+    const w2VrfSeed = generateVrfSeed(battleId, roundNumber, battle.warrior2Id, latestBlockHash);
+
     // 6. Get traits + arena stats for scoring (parallel)
     const [w1RawTraits, w2RawTraits, w1ArenaStats, w2ArenaStats] = await Promise.all([
       vaultService.getNFTTraits(battle.warrior1Id),
@@ -255,25 +300,33 @@ class StrategyArenaService {
       prisma.warriorArenaStats.findUnique({ where: { warriorId: battle.warrior1Id } }),
       prisma.warriorArenaStats.findUnique({ where: { warriorId: battle.warrior2Id } }),
     ]);
+    const w1Traits = w1RawTraits ?? DEFAULT_TRAITS;
+    const w2Traits = w2RawTraits ?? DEFAULT_TRAITS;
 
-    // 7. Score both warriors with move counters + ranking bonuses
+    // 7. Determine VRF hit/miss for each warrior
+    const w1HitResult = determineHitMiss(w1VrfSeed, w1Traits.luck);
+    const w2HitResult = determineHitMiss(w2VrfSeed, w2Traits.luck);
+
+    // 8. Score both warriors with move counters + ranking bonuses + VRF hit/miss
     w1Result.score = this.scoreCycle(
       BigInt(w1Result.yieldEarned),
       BigInt(w1Result.balanceBefore),
-      w1RawTraits,
+      w1Traits,
       w1Result.move as DebateMove,
       w2Result.move as DebateMove,
-      w2RawTraits,
+      w2Traits,
       w1ArenaStats,
+      w1HitResult.isHit,
     );
     w2Result.score = this.scoreCycle(
       BigInt(w2Result.yieldEarned),
       BigInt(w2Result.balanceBefore),
-      w2RawTraits,
+      w2Traits,
       w2Result.move as DebateMove,
       w1Result.move as DebateMove,
-      w1RawTraits,
+      w1Traits,
       w2ArenaStats,
+      w2HitResult.isHit,
     );
 
     // 8. Determine round winner
@@ -299,7 +352,7 @@ class StrategyArenaService {
           w2Score: w2Result.score.finalScore,
           w2Confidence: Math.round(w2Result.score.baseScore),
           roundWinner,
-          judgeReasoning: `Cycle ${roundNumber}: ${w1Result.defiMove} vs ${w2Result.defiMove}. W1 yield: ${formatEther(BigInt(w1Result.yieldEarned))} CRwN, W2 yield: ${formatEther(BigInt(w2Result.yieldEarned))} CRwN.`,
+          judgeReasoning: `Cycle ${roundNumber}: ${w1Result.defiMove} (${w1HitResult.isHit ? 'HIT' : 'MISS'} @${(w1HitResult.hitProbability / 100).toFixed(1)}%) vs ${w2Result.defiMove} (${w2HitResult.isHit ? 'HIT' : 'MISS'} @${(w2HitResult.hitProbability / 100).toFixed(1)}%). W1 yield: ${formatEther(BigInt(w1Result.yieldEarned))} CRwN, W2 yield: ${formatEther(BigInt(w2Result.yieldEarned))} CRwN.`,
           // DeFi-specific fields
           w1DeFiMove: w1Result.defiMove,
           w2DeFiMove: w2Result.defiMove,
@@ -316,6 +369,11 @@ class StrategyArenaService {
           w1TxHash: w1Result.txHash,
           w2TxHash: w2Result.txHash,
           poolAPYsSnapshot: JSON.stringify(poolAPYs),
+          // VRF hit/miss fields
+          w1VrfSeed: w1VrfSeed,
+          w2VrfSeed: w2VrfSeed,
+          w1IsHit: w1HitResult.isHit,
+          w2IsHit: w2HitResult.isHit,
           endedAt: new Date(),
         },
       }),
@@ -328,6 +386,7 @@ class StrategyArenaService {
           warrior2Score: battle.warrior2Score + w2Result.score.finalScore,
           w1TotalYield: newW1Total,
           w2TotalYield: newW2Total,
+          lastCycleAt: new Date(),
         },
       }),
     ]);
@@ -339,7 +398,13 @@ class StrategyArenaService {
         await this.settleBattle(battleId);
         settled = true;
       } catch (err) {
-        console.error(`[StrategyArena] Settlement failed for ${battleId}:`, err);
+        // Concurrent settlement (another cron/request settled first) is fine
+        if (err instanceof Error && err.message.includes('already settled')) {
+          console.warn(`[StrategyArena] Concurrent settlement for ${battleId} — already settled`);
+          settled = true;
+        } else {
+          console.error(`[StrategyArena] Settlement failed for ${battleId}:`, err);
+        }
       }
     }
 
@@ -410,23 +475,25 @@ class StrategyArenaService {
       w2NewRating = eloResult.winnerNewRating;
     }
 
-    // Update DB
-    await prisma.$transaction([
-      // Mark battle completed
-      prisma.predictionBattle.update({
-        where: { id: battleId },
-        data: {
-          status: 'completed',
-          completedAt: new Date(),
-        },
-      }),
+    // Update DB with atomic CAS to prevent double-settlement
+    await prisma.$transaction(async (tx) => {
+      // Atomic CAS: only settle if not already completed
+      const updated = await tx.predictionBattle.updateMany({
+        where: { id: battleId, status: { not: 'completed' } },
+        data: { status: 'completed', completedAt: new Date() },
+      });
+      if (updated.count === 0) {
+        throw ErrorResponses.badRequest('Battle already settled (concurrent)');
+      }
+
       // Close betting pool
-      prisma.battleBettingPool.updateMany({
+      await tx.battleBettingPool.updateMany({
         where: { battleId },
         data: { bettingOpen: false },
-      }),
+      });
+
       // Upsert warrior 1 stats
-      prisma.warriorArenaStats.upsert({
+      await tx.warriorArenaStats.upsert({
         where: { warriorId: battle.warrior1Id },
         create: {
           warriorId: battle.warrior1Id,
@@ -451,9 +518,10 @@ class StrategyArenaService {
             ? Math.max((w1Stats?.longestStreak ?? 0), (w1Stats?.currentStreak ?? 0) + 1)
             : (w1Stats?.longestStreak ?? 0),
         },
-      }),
+      });
+
       // Upsert warrior 2 stats
-      prisma.warriorArenaStats.upsert({
+      await tx.warriorArenaStats.upsert({
         where: { warriorId: battle.warrior2Id },
         create: {
           warriorId: battle.warrior2Id,
@@ -478,9 +546,10 @@ class StrategyArenaService {
             ? Math.max((w2Stats?.longestStreak ?? 0), (w2Stats?.currentStreak ?? 0) + 1)
             : (w2Stats?.longestStreak ?? 0),
         },
-      }),
+      });
+
       // Audit trail
-      prisma.settlementTransaction.create({
+      await tx.settlementTransaction.create({
         data: {
           recipient: winnerOwner || battle.warrior1Owner,
           amount: BigInt(battle.stakes),
@@ -490,8 +559,8 @@ class StrategyArenaService {
           sourceId: battleId,
           settledAt: new Date(),
         },
-      }),
-    ]);
+      });
+    });
 
     // On-chain settlement: transfer staked CRwN to winner, demote loser NFT (P4-8 + P4-12)
     try {
@@ -735,8 +804,14 @@ class StrategyArenaService {
     previousMoves: DebateMove[],
     poolAPYs: { highYield: number; stable: number; lp: number },
   ): Promise<WarriorCycleResult> {
-    // 1. Get traits
-    const rawTraits = await vaultService.getNFTTraits(nftId);
+    // 1. Get traits (fallback to defaults if RPC fails)
+    let rawTraits;
+    try {
+      rawTraits = await vaultService.getNFTTraits(nftId);
+    } catch (traitErr) {
+      console.warn(`[StrategyArena] getNFTTraits failed for NFT#${nftId}, using defaults:`, traitErr instanceof Error ? traitErr.message : traitErr);
+      rawTraits = DEFAULT_TRAITS;
+    }
     const defiTraits = vaultService.mapToDeFiTraits(rawTraits);
 
     // 2. Get current vault state
@@ -767,6 +842,8 @@ class StrategyArenaService {
     let rationale = '';
     let txHash: string | null = null;
 
+    const evalAbort = new AbortController();
+    const evalTimeout = setTimeout(() => evalAbort.abort(), 10_000);
     try {
       const evalResponse = await fetch(
         `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/vault/evaluate-cycle`,
@@ -774,17 +851,28 @@ class StrategyArenaService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ nftId, cycleNumber: roundNumber }),
+          signal: evalAbort.signal,
         }
       );
 
       if (evalResponse.ok) {
         const evalData = await evalResponse.json();
-        newAllocation = {
-          highYield: evalData.newAllocation.highYield,
-          stable: evalData.newAllocation.stable,
-          lp: evalData.newAllocation.lp,
-        };
-        rationale = evalData.rationale || `AI selected ${defiMove}`;
+        if (
+          evalData?.newAllocation &&
+          typeof evalData.newAllocation.highYield === 'number' &&
+          typeof evalData.newAllocation.stable === 'number' &&
+          typeof evalData.newAllocation.lp === 'number'
+        ) {
+          newAllocation = {
+            highYield: evalData.newAllocation.highYield,
+            stable: evalData.newAllocation.stable,
+            lp: evalData.newAllocation.lp,
+          };
+          rationale = String(evalData.rationale || `AI selected ${defiMove}`);
+        } else {
+          newAllocation = this.computeFallbackAllocation(defiTraits, currentAllocation, poolAPYs, defiMove);
+          rationale = 'Fallback allocation (invalid AI response)';
+        }
       } else {
         newAllocation = this.computeFallbackAllocation(defiTraits, currentAllocation, poolAPYs, defiMove);
         rationale = 'Fallback allocation (AI unavailable)';
@@ -792,6 +880,8 @@ class StrategyArenaService {
     } catch {
       newAllocation = this.computeFallbackAllocation(defiTraits, currentAllocation, poolAPYs, defiMove);
       rationale = 'Fallback allocation (AI error)';
+    } finally {
+      clearTimeout(evalTimeout);
     }
 
     // 5. Enforce trait constraints
@@ -822,7 +912,8 @@ class StrategyArenaService {
       }
     }
 
-    const yieldEarned = (BigInt(balanceAfter) - BigInt(balanceBefore)).toString();
+    const rawYield = BigInt(balanceAfter) - BigInt(balanceBefore);
+    const yieldEarned = (rawYield < 0n ? 0n : rawYield).toString();
 
     return {
       nftId,
@@ -851,6 +942,7 @@ class StrategyArenaService {
     opponentMove: DebateMove,
     opponentTraits: WarriorTraits,
     arenaStats?: { currentStreak: number; totalBattles: number } | null,
+    isHit: boolean = true,
   ): ScoreBreakdown {
     // Yield RATE normalization: yield/balance as basis points, scaled to 0-100
     // Max expected yield rate per cycle = 10% (1000 bps) → score 100
@@ -875,13 +967,19 @@ class StrategyArenaService {
     }
 
     // Full scoring with trait bonuses, move counters, opponent defense
-    return calculateRoundScore(
+    const rawResult = calculateRoundScore(
       adjustedBase,
       traits,
       myMove,
       opponentMove,
       opponentTraits,
     );
+
+    // Apply VRF hit/miss modifier: hit = full score, miss = 0.4x
+    return {
+      ...rawResult,
+      finalScore: applyHitMissModifier(rawResult.finalScore, isHit),
+    };
   }
 
   // ═══════════════════════════════════════════════════════
@@ -989,23 +1087,20 @@ class StrategyArenaService {
         return { highYield: 2000, stable: 6000, lp: 2000 };
       case 'COMPOSE':
         return { highYield: 3500, stable: 2000, lp: 4500 };
-      case 'FLASH':
+      case 'FLASH': {
         // Small precision adjustment — stay close to current
-        return {
-          highYield: Math.round(current.highYield * 0.95 + (poolAPYs.highYield > poolAPYs.lp ? 500 : 0)),
-          stable: current.stable,
-          lp: 0, // recalculated below
-        };
+        const hy = Math.round(current.highYield * 0.95 + (poolAPYs.highYield > poolAPYs.lp ? 500 : 0));
+        const st = current.stable;
+        return { highYield: hy, stable: st, lp: 10000 - hy - st };
+      }
       case 'REBALANCE':
       default: {
         // Shift toward highest-APY pool
         const total = poolAPYs.highYield + poolAPYs.stable + poolAPYs.lp;
         if (total === 0) return current;
-        return {
-          highYield: Math.round((poolAPYs.highYield / total) * 10000),
-          stable: Math.round((poolAPYs.stable / total) * 10000),
-          lp: 10000 - Math.round((poolAPYs.highYield / total) * 10000) - Math.round((poolAPYs.stable / total) * 10000),
-        };
+        const hy = Math.round((poolAPYs.highYield / total) * 10000);
+        const st = Math.round((poolAPYs.stable / total) * 10000);
+        return { highYield: hy, stable: st, lp: 10000 - hy - st };
       }
     }
   }

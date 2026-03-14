@@ -20,6 +20,7 @@ interface CreateRequest {
   warrior2Id: number;
   warrior2Owner: string;
   stakes: string;
+  scheduledStartAt?: string; // ISO 8601 — betting window before cycles begin
 }
 
 export const POST = composeMiddleware([
@@ -43,12 +44,25 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('stakes must be a valid wei amount');
     }
 
+    // Validate optional scheduled start time
+    let scheduledStartAt: Date | undefined;
+    if (body.scheduledStartAt) {
+      scheduledStartAt = new Date(body.scheduledStartAt);
+      if (isNaN(scheduledStartAt.getTime())) {
+        throw ErrorResponses.badRequest('scheduledStartAt must be a valid ISO 8601 datetime');
+      }
+      if (scheduledStartAt.getTime() < Date.now()) {
+        throw ErrorResponses.badRequest('scheduledStartAt must be in the future');
+      }
+    }
+
     const result = await strategyArenaService.createStrategyBattle({
       warrior1Id: Number(warrior1Id),
       warrior1Owner,
       warrior2Id: Number(warrior2Id),
       warrior2Owner,
       stakes,
+      scheduledStartAt,
     });
 
     return NextResponse.json({

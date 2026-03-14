@@ -7,7 +7,7 @@
  *   2. Score and record results
  *   3. Auto-settle at cycle 5
  *
- * Schedule: Every 4 hours (5 cycles over ~20 hours for demo drama)
+ * Schedule: Every 1 minute (5 cycles complete in ~5 min)
  */
 
 import { NextResponse } from 'next/server';
@@ -24,21 +24,29 @@ export const POST = composeMiddleware([
   async () => {
     console.log('[Cron] Starting strategy battle cycle execution...');
     const startTime = Date.now();
+    const BUDGET_MS = 45_000; // stop starting new work after 45s to stay under Vercel 60s
+    const STUCK_BATTLE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
     // --- Stuck-battle catch-up (P4-11) ---
     // Battles that completed all 5 cycles but whose settleBattle() call failed
     // (e.g. cron killed mid-execution) need to be settled before processing new cycles.
+    // Only retry battles created within the last 24h to prevent infinite retry loops.
     const stuckBattles = await prisma.predictionBattle.findMany({
       where: {
         isStrategyBattle: true,
         status: 'active',
         currentRound: { gte: 5 },
+        createdAt: { gte: new Date(Date.now() - STUCK_BATTLE_MAX_AGE_MS) },
       },
       take: 5,
     });
     if (stuckBattles.length > 0) {
       console.log(`[Cron] Found ${stuckBattles.length} stuck battles (round >=5 but still active) — settling now`);
       for (const stuck of stuckBattles) {
+        if (Date.now() - startTime > BUDGET_MS) {
+          console.warn(`[Cron] Budget exhausted (${Date.now() - startTime}ms) — skipping remaining stuck battles`);
+          break;
+        }
         try {
           await strategyArenaService.settleBattle(stuck.id);
           console.log(`[Cron] Settled stuck battle ${stuck.id}`);
@@ -48,12 +56,36 @@ export const POST = composeMiddleware([
       }
     }
 
-    // Find all active strategy battles that need a cycle
+    // Alert for abandoned battles stuck > 24h that need manual intervention
+    const abandonedCount = await prisma.predictionBattle.count({
+      where: {
+        isStrategyBattle: true,
+        status: 'active',
+        currentRound: { gte: 5 },
+        createdAt: { lt: new Date(Date.now() - STUCK_BATTLE_MAX_AGE_MS) },
+      },
+    });
+    if (abandonedCount > 0) {
+      console.error(`[Cron] ${abandonedCount} battles stuck >24h — require manual settlement`);
+      await sendAlert('Abandoned Stuck Battles', `${abandonedCount} battles stuck >24h require manual intervention`, 'critical', { abandonedCount }).catch(() => {});
+    }
+
+    // Find active strategy battles that are ready for their next cycle
+    // Pacing: at least 45s between cycles to prevent double-execution (cron runs every 1 min)
+    const MIN_CYCLE_INTERVAL_MS = 45 * 1000;
+    const pacingCutoff = new Date(Date.now() - MIN_CYCLE_INTERVAL_MS);
+
     const activeBattles = await prisma.predictionBattle.findMany({
       where: {
         isStrategyBattle: true,
         status: 'active',
         currentRound: { lt: 5 },
+        AND: [
+          // Only execute if scheduled start time has passed (or not set)
+          { OR: [{ scheduledStartAt: null }, { scheduledStartAt: { lte: new Date() } }] },
+          // Pacing: only if last cycle was at least 45s ago (or never executed)
+          { OR: [{ lastCycleAt: null }, { lastCycleAt: { lte: pacingCutoff } }] },
+        ],
       },
       take: cronConfig.maxBatchSize,
       orderBy: { createdAt: 'asc' },
@@ -77,12 +109,20 @@ export const POST = composeMiddleware([
     const results: Array<{ battleId: string; round: number; success: boolean; error?: string }> = [];
 
     for (const battle of activeBattles) {
+      if (Date.now() - startTime > BUDGET_MS) {
+        console.warn(`[Cron] Budget exhausted (${Date.now() - startTime}ms) — skipping remaining battles`);
+        break;
+      }
       try {
         const cycleResult = await withCronTimeout(
           strategyArenaService.executeCycle(battle.id),
           cronConfig.battleExecutionTimeout || cronConfig.defaultApiTimeout,
           `Strategy cycle timeout for battle ${battle.id}`
         );
+
+        if (!cycleResult) {
+          throw new Error(`executeCycle returned empty result for battle ${battle.id}`);
+        }
 
         executed++;
         results.push({
@@ -124,13 +164,17 @@ export const POST = composeMiddleware([
 
     console.log(`[Cron] Strategy cycles completed: ${executed} executed, ${failed} failed, ${duration}ms`);
 
+    const skipped = activeBattles.length - executed - failed;
+
     return NextResponse.json({
       success: true,
       executed,
       failed,
+      skipped,
       results,
       errors,
       duration,
+      budgetExhausted: Date.now() - startTime > BUDGET_MS,
       timestamp: new Date().toISOString(),
     });
   },
