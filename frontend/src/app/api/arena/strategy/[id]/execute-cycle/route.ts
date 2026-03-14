@@ -14,6 +14,11 @@ import { strategyArenaService } from '@/services/arena/strategyArenaService';
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'arena-strategy-execute-cycle', ...RateLimitPresets.storageWrite }),
   async (req, ctx) => {
+    // In production, battles execute automatically via cron
+    if (process.env.NODE_ENV === 'production') {
+      throw ErrorResponses.badRequest('Manual cycle execution disabled in production. Battles execute automatically via scheduled cron.');
+    }
+
     const params = ctx?.params as { id?: string } | undefined;
     const battleId = params?.id;
 
