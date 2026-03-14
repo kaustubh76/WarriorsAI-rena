@@ -9,7 +9,7 @@ import { flowTestnet } from 'viem/chains';
 import { chainsToContracts, crownTokenAbi, warriorsNFTAbi } from '../constants';
 import { STRATEGY_VAULT_ABI } from '../constants/abis/strategyVaultAbi';
 import { POOL_ABI } from '../constants/abis/poolAbi';
-import { TRAIT_MAP, classifyStrategyProfile } from '../constants/defiTraitMapping';
+import { classifyStrategyProfile } from '../constants/defiTraitMapping';
 import {
   createFlowPublicClient,
   createFlowFallbackClient,
@@ -134,6 +134,44 @@ class VaultService {
       defence: Number(traits.defence),
       luck: Number(traits.luck),
     };
+  }
+
+  /** Fetch NFT image URL from 0G Storage metadata */
+  async getNFTImageUrl(nftId: number): Promise<string> {
+    const encryptedURI = await executeWithFallback((client) =>
+      client.readContract({
+        address: contracts.warriorsNFT as Address,
+        abi: warriorsNFTAbi,
+        functionName: 'getEncryptedURI',
+        args: [BigInt(nftId)],
+      })
+    ) as string;
+
+    if (!encryptedURI) return '/lazered.png';
+
+    const { downloadFrom0G } = await import('@/lib/0g/downloadHelper');
+    const data = await downloadFrom0G(encryptedURI);
+    if (!data) return '/lazered.png';
+
+    try {
+      const metadata = JSON.parse(data.toString('utf-8'));
+      const imageUri: string = metadata?.image || '/lazered.png';
+
+      if (imageUri.startsWith('0g://')) {
+        const rootHash = imageUri.replace('0g://', '').split(':')[0];
+        return `/api/0g/download?rootHash=${encodeURIComponent(rootHash)}`;
+      }
+      if (imageUri.startsWith('0x')) {
+        return `/api/0g/download?rootHash=${encodeURIComponent(imageUri)}`;
+      }
+      if (imageUri.startsWith('ipfs://')) {
+        const hash = imageUri.replace('ipfs://', '');
+        return `https://ipfs.io/ipfs/${hash}`;
+      }
+      return imageUri;
+    } catch {
+      return '/lazered.png';
+    }
   }
 
   /** Map on-chain traits to DeFi display names */

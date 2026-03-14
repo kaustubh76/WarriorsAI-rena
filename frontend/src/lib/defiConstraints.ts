@@ -104,7 +104,7 @@ export function enforceTraitConstraints(
       Math.abs(lp - prevAllocation.lp);
 
     // totalShift counts each bps of movement; divide by 2 for directional shift
-    if (totalShift / 2 > maxDelta) {
+    if (totalShift > 0 && totalShift / 2 > maxDelta) {
       // Scale the deltas down proportionally
       const scale = (maxDelta * 2) / totalShift;
       highYield = Math.round(prevAllocation.highYield + (highYield - prevAllocation.highYield) * scale);
