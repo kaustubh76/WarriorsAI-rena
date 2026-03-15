@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { readFileSync } from "fs";
 import { join } from "path";
+import webpack from "webpack";
 
 // Read version from package.json at build time
 const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
@@ -40,7 +41,17 @@ const nextConfig: NextConfig = {
         fs: false,
         net: false,
         tls: false,
+        crypto: false,
+        'fs/promises': false,
       };
+      // Handle node: URI scheme used by @0gfoundation/0g-ts-sdk ESM build
+      // (node:crypto, node:fs/promises, etc.) — replace with empty modules
+      config.plugins = config.plugins || [];
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/^node:/, (resource: { request: string }) => {
+          resource.request = resource.request.replace(/^node:/, '');
+        })
+      );
     }
 
     return config;
