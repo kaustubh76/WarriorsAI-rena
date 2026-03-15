@@ -55,6 +55,7 @@ interface WarriorBattleData {
   strategyProfile: string;
   currentAllocation: VaultAllocation | null;
   vaultBalance: string | null;
+  ratingAtStart: number | null;
   imageUrl: string;
 }
 
@@ -121,10 +122,10 @@ export function useStrategyBattle(battleId: string): UseStrategyBattleReturn {
     fetchBattle();
   }, [fetchBattle]);
 
-  // Poll every 10s while battle is active (spectator mode)
+  // Poll every 30s while battle is active (spectator mode — cron runs every ~60s)
   useEffect(() => {
     if (battle?.status === 'active') {
-      pollingRef.current = setInterval(fetchBattle, 10_000);
+      pollingRef.current = setInterval(fetchBattle, 30_000);
     }
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);

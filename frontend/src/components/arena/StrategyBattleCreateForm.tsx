@@ -72,7 +72,9 @@ export default function StrategyBattleCreateForm({
           <input
             type="number"
             value={form.stakes}
-            onChange={(e) => onFormChange((f) => ({ ...f, stakes: e.target.value }))}
+            onChange={(e) => onFormChange((f) => ({ ...f, stakes: e.target.value.replace(/\.\d*$/, '') }))}
+            min="5"
+            step="1"
             placeholder="100"
             style={{ width: '100%', padding: '8px', background: 'rgba(0,0,0,0.4)', border: '1px solid #ff8c00', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' }}
           />

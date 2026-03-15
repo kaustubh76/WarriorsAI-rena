@@ -157,6 +157,7 @@ export const GET = composeMiddleware([
           } : null,
           vaultBalance: w1VaultState ? w1VaultState.depositAmount.toString() : null,
           imageUrl: w1Image,
+          ratingAtStart: battle.w1RatingAtStart ?? null,
         },
         warrior2: {
           nftId: battle.warrior2Id,
@@ -173,6 +174,7 @@ export const GET = composeMiddleware([
           } : null,
           vaultBalance: w2VaultState ? w2VaultState.depositAmount.toString() : null,
           imageUrl: w2Image,
+          ratingAtStart: battle.w2RatingAtStart ?? null,
         },
         cycles,
         poolAPYs: {

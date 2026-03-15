@@ -147,7 +147,7 @@ export async function withCronTimeout<T>(
  */
 export const cronConfig = {
   /** Timeout for battle execution transactions (ms) */
-  battleExecutionTimeout: parseInt(process.env.BATTLE_EXECUTION_TIMEOUT_MS || '30000', 10),
+  battleExecutionTimeout: parseInt(process.env.BATTLE_EXECUTION_TIMEOUT_MS || '55000', 10),
 
   /** Queue depth threshold for alerting */
   queueDepthAlertThreshold: parseInt(process.env.QUEUE_DEPTH_ALERT_THRESHOLD || '20', 10),

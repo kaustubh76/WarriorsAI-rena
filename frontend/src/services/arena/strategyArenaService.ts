@@ -804,17 +804,22 @@ class StrategyArenaService {
     previousMoves: DebateMove[],
     poolAPYs: { highYield: number; stable: number; lp: number },
   ): Promise<WarriorCycleResult> {
+    const tag = `[StrategyArena] NFT#${nftId} R${roundNumber}`;
+    console.log(`${tag} — starting warrior cycle`);
+
     // 1. Get traits (fallback to defaults if RPC fails)
     let rawTraits;
     try {
       rawTraits = await vaultService.getNFTTraits(nftId);
+      console.log(`${tag} — traits loaded`);
     } catch (traitErr) {
-      console.warn(`[StrategyArena] getNFTTraits failed for NFT#${nftId}, using defaults:`, traitErr instanceof Error ? traitErr.message : traitErr);
+      console.warn(`${tag} — getNFTTraits failed, using defaults:`, traitErr instanceof Error ? traitErr.message : traitErr);
       rawTraits = DEFAULT_TRAITS;
     }
     const defiTraits = vaultService.mapToDeFiTraits(rawTraits);
 
     // 2. Get current vault state
+    console.log(`${tag} — reading vault state...`);
     const vaultState = await vaultService.getVaultState(nftId);
     if (!vaultState) throw new Error(`Cannot read vault state for NFT#${nftId}`);
 
@@ -824,6 +829,7 @@ class StrategyArenaService {
       stable: Number(vaultState.allocation[1]),
       lp: Number(vaultState.allocation[2]),
     };
+    console.log(`${tag} — vault state: balance=${formatEther(BigInt(balanceBefore))} CRwN, alloc=[HY:${currentAllocation.highYield} ST:${currentAllocation.stable} LP:${currentAllocation.lp}]`);
 
     // 3. Select move using DeFi-aware logic based on traits + pool conditions (P4-6 fix)
     const defiMove = this.selectDeFiMove(defiTraits, poolAPYs, currentAllocation, roundNumber);
@@ -836,12 +842,15 @@ class StrategyArenaService {
       REBALANCE: 'STRIKE',
     };
     const selectedMove = (DEFI_TO_DEBATE[defiMove] || 'STRIKE') as DebateMove;
+    console.log(`${tag} — selected move: ${defiMove}`);
 
     // 4. Get AI-generated allocation from evaluate-cycle
     let newAllocation: VaultAllocation;
     let rationale = '';
     let txHash: string | null = null;
 
+    console.log(`${tag} — calling evaluate-cycle API...`);
+    const evalStart = Date.now();
     const evalAbort = new AbortController();
     const evalTimeout = setTimeout(() => evalAbort.abort(), 10_000);
     try {
@@ -857,6 +866,7 @@ class StrategyArenaService {
 
       if (evalResponse.ok) {
         const evalData = await evalResponse.json();
+        console.log(`${tag} — evaluate-cycle OK in ${Date.now() - evalStart}ms, move=${evalData?.move}`);
         if (
           evalData?.newAllocation &&
           typeof evalData.newAllocation.highYield === 'number' &&
@@ -870,14 +880,17 @@ class StrategyArenaService {
           };
           rationale = String(evalData.rationale || `AI selected ${defiMove}`);
         } else {
+          console.warn(`${tag} — evaluate-cycle returned invalid allocation, using fallback`);
           newAllocation = this.computeFallbackAllocation(defiTraits, currentAllocation, poolAPYs, defiMove);
           rationale = 'Fallback allocation (invalid AI response)';
         }
       } else {
+        console.warn(`${tag} — evaluate-cycle failed with status ${evalResponse.status} in ${Date.now() - evalStart}ms, using fallback`);
         newAllocation = this.computeFallbackAllocation(defiTraits, currentAllocation, poolAPYs, defiMove);
         rationale = 'Fallback allocation (AI unavailable)';
       }
-    } catch {
+    } catch (evalErr) {
+      console.warn(`${tag} — evaluate-cycle error in ${Date.now() - evalStart}ms:`, evalErr instanceof Error ? evalErr.message : evalErr, '— using fallback');
       newAllocation = this.computeFallbackAllocation(defiTraits, currentAllocation, poolAPYs, defiMove);
       rationale = 'Fallback allocation (AI error)';
     } finally {
@@ -897,23 +910,29 @@ class StrategyArenaService {
 
     if (!isHold) {
       // 7. Execute rebalance on-chain
+      console.log(`${tag} — executing on-chain rebalance: [HY:${newAllocation.highYield} ST:${newAllocation.stable} LP:${newAllocation.lp}]...`);
+      const rebalanceStart = Date.now();
       try {
         txHash = await this.executeRebalanceOnChain(
           nftId,
           [BigInt(newAllocation.highYield), BigInt(newAllocation.stable), BigInt(newAllocation.lp)]
         );
+        console.log(`${tag} — rebalance tx confirmed in ${Date.now() - rebalanceStart}ms: ${txHash}`);
 
         // Re-read vault state to capture yield
         const stateAfter = await vaultService.getVaultState(nftId);
         if (stateAfter) balanceAfter = stateAfter.depositAmount.toString();
       } catch (err) {
-        console.error(`[StrategyArena] Rebalance failed for NFT#${nftId}:`, err);
+        console.error(`${tag} — rebalance FAILED in ${Date.now() - rebalanceStart}ms:`, err instanceof Error ? err.message : err);
         // If rebalance fails, keep going with zero yield for this cycle
       }
+    } else {
+      console.log(`${tag} — allocation unchanged (HOLD), skipping on-chain rebalance`);
     }
 
     const rawYield = BigInt(balanceAfter) - BigInt(balanceBefore);
     const yieldEarned = (rawYield < 0n ? 0n : rawYield).toString();
+    console.log(`${tag} — cycle complete: move=${defiMove}, yield=${formatEther(rawYield < 0n ? 0n : rawYield)} CRwN, tx=${txHash || 'none'}`);
 
     return {
       nftId,

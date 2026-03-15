@@ -1,10 +1,13 @@
 /**
- * Hook for spectator betting on prediction battles
+ * Hook for spectator betting on prediction battles.
+ * Places on-chain CRwN transfer to Strategy Vault as escrow, then records in DB.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useWriteContract } from 'wagmi';
+import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 import { parseEther } from 'viem';
+import { CRWN_TOKEN_ABI } from '@/constants/abis/crwnTokenAbi';
+import { FLOW_TESTNET_CONTRACTS } from '@/constants/index';
 
 // ============================================
 // TYPES
@@ -28,6 +31,8 @@ interface UserBet {
   payout?: string;
 }
 
+type BetStage = 'idle' | 'checking' | 'confirming' | 'recording' | 'done';
+
 interface UseBattleBettingReturn {
   // Pool data
   pool: BettingPool | null;
@@ -43,6 +48,7 @@ interface UseBattleBettingReturn {
   // State
   isPlacingBet: boolean;
   isClaiming: boolean;
+  betStage: BetStage;
 }
 
 // Contract ABI for betting functions
@@ -99,6 +105,10 @@ const PREDICTION_ARENA_BETTING_ABI = [
   },
 ] as const;
 
+// On-chain addresses for CRwN token transfers
+const CRWN_TOKEN_ADDRESS = FLOW_TESTNET_CONTRACTS.CRWN_TOKEN as `0x${string}`;
+const BETTING_ESCROW_ADDRESS = FLOW_TESTNET_CONTRACTS.STRATEGY_VAULT as `0x${string}`;
+
 // ============================================
 // HOOK
 // ============================================
@@ -109,6 +119,7 @@ export function useBattleBetting(
 ): UseBattleBettingReturn {
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
 
   const [pool, setPool] = useState<BettingPool | null>(null);
   const [userBet, setUserBet] = useState<UserBet | null>(null);
@@ -116,6 +127,7 @@ export function useBattleBetting(
   const [error, setError] = useState<string | null>(null);
   const [isPlacingBet, setIsPlacingBet] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
+  const [betStage, setBetStage] = useState<BetStage>('idle');
 
   /**
    * Fetch betting pool and user bet info
@@ -132,7 +144,14 @@ export function useBattleBetting(
         params.set('userAddress', address);
       }
 
-      const res = await fetch(`/api/arena/betting?${params.toString()}`);
+      const controller = new AbortController();
+      const fetchTimeout = setTimeout(() => controller.abort(), 10000);
+
+      const res = await fetch(`/api/arena/betting?${params.toString()}`, {
+        signal: controller.signal,
+      });
+
+      clearTimeout(fetchTimeout);
 
       if (!res.ok) {
         throw new Error('Failed to fetch betting info');
@@ -150,7 +169,11 @@ export function useBattleBetting(
   }, [battleId, address]);
 
   /**
-   * Place a bet on the battle
+   * Place a bet on the battle.
+   * 1. Check CRwN balance on-chain
+   * 2. Transfer CRwN to escrow (Strategy Vault) — wallet popup
+   * 3. Wait for tx confirmation
+   * 4. Record bet in API with txHash
    */
   const placeBet = useCallback(async (
     betOnWarrior1: boolean,
@@ -162,20 +185,58 @@ export function useBattleBetting(
     }
 
     setIsPlacingBet(true);
+    setBetStage('checking');
     setError(null);
 
     try {
-      // If contract address provided, do on-chain bet
+      const weiAmount = parseEther(amount);
+
+      // Step 1: Check CRwN balance
+      if (publicClient) {
+        const balance = await publicClient.readContract({
+          address: CRWN_TOKEN_ADDRESS,
+          abi: CRWN_TOKEN_ABI,
+          functionName: 'balanceOf',
+          args: [address],
+        }) as bigint;
+
+        if (balance < weiAmount) {
+          throw new Error(`Insufficient CRwN balance (have ${Number(balance / 10n ** 18n)}, need ${amount})`);
+        }
+      }
+
+      // Step 2: Transfer CRwN to escrow — triggers wallet popup
+      setBetStage('confirming');
+      let txHash: `0x${string}` | undefined;
+
+      // If a PredictionArena contract is provided, use its placeBet function
       if (contractAddress) {
-        await writeContractAsync({
+        txHash = await writeContractAsync({
           address: contractAddress,
           abi: PREDICTION_ARENA_BETTING_ABI,
           functionName: 'placeBet',
-          args: [BigInt(battleId), betOnWarrior1, parseEther(amount)],
+          args: [BigInt(battleId), betOnWarrior1, weiAmount],
+        });
+      } else {
+        // Direct CRwN transfer to Strategy Vault as escrow
+        txHash = await writeContractAsync({
+          address: CRWN_TOKEN_ADDRESS,
+          abi: CRWN_TOKEN_ABI,
+          functionName: 'transfer',
+          args: [BETTING_ESCROW_ADDRESS, weiAmount],
         });
       }
 
-      // Record bet in API
+      // Step 3: Wait for on-chain confirmation
+      if (txHash && publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 30_000 });
+      }
+
+      // Step 4: Record bet in API with tx hash
+      setBetStage('recording');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch('/api/arena/betting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -183,25 +244,41 @@ export function useBattleBetting(
           battleId,
           bettorAddress: address,
           betOnWarrior1,
-          amount: parseEther(amount).toString(),
+          amount: weiAmount.toString(),
+          txHash: txHash || undefined,
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeout);
+
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Failed to place bet');
+        let errMsg = 'Failed to record bet';
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          errMsg = `Failed to record bet (${res.status})`;
+        }
+        throw new Error(errMsg);
       }
 
-      // Refresh data
-      await fetchBettingInfo();
+      setBetStage('done');
+      // Refresh data — don't block on failure
+      fetchBettingInfo().catch(() => {});
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to place bet');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Request timed out — please try again');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to place bet');
+      }
       return false;
     } finally {
       setIsPlacingBet(false);
+      setBetStage('idle');
     }
-  }, [battleId, address, contractAddress, writeContractAsync, fetchBettingInfo]);
+  }, [battleId, address, contractAddress, writeContractAsync, publicClient, fetchBettingInfo]);
 
   /**
    * Claim winnings from completed battle
@@ -226,7 +303,10 @@ export function useBattleBetting(
         });
       }
 
-      // Claim via API
+      // Claim via API (with 15s timeout)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch('/api/arena/betting', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -234,24 +314,37 @@ export function useBattleBetting(
           battleId,
           bettorAddress: address,
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeout);
+
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Failed to claim');
+        let errMsg = 'Failed to claim';
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          errMsg = `Failed to claim (${res.status})`;
+        }
+        throw new Error(errMsg);
       }
 
       const data = await res.json();
 
-      // Refresh data
-      await fetchBettingInfo();
+      // Refresh data — don't block on failure
+      fetchBettingInfo().catch(() => {});
 
       return {
         won: data.won,
         payout: data.payout,
       };
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to claim');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Request timed out — please try again');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to claim');
+      }
       return null;
     } finally {
       setIsClaiming(false);
@@ -273,6 +366,7 @@ export function useBattleBetting(
     refetch: fetchBettingInfo,
     isPlacingBet,
     isClaiming,
+    betStage,
   };
 }
 
