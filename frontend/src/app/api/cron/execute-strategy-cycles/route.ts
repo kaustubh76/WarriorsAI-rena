@@ -16,7 +16,7 @@ import { strategyArenaService } from '@/services/arena/strategyArenaService';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert } from '@/lib/monitoring/alerts';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'cron-execute-strategy-cycles', ...RateLimitPresets.cronJobs }),
@@ -67,7 +67,36 @@ export const POST = composeMiddleware([
     });
     if (abandonedCount > 0) {
       console.error(`[Cron] ${abandonedCount} battles stuck >24h — require manual settlement`);
-      await sendAlert('Abandoned Stuck Battles', `${abandonedCount} battles stuck >24h require manual intervention`, 'critical', { abandonedCount }).catch(() => {});
+      await sendAlertWithRateLimit('cron:strategy-cycles:abandoned', 'Abandoned Stuck Battles', `${abandonedCount} battles stuck >24h require manual intervention`, 'critical', { abandonedCount }).catch(() => {});
+    }
+
+    // --- Retry on-chain settlement for DB-settled battles where contract call failed ---
+    // These are battles that completed in DB (status='completed') but BattleManager.settleBattle()
+    // failed, leaving bettors unable to claim. Retry up to 3 per cron run.
+    if (Date.now() - startTime < BUDGET_MS) {
+      try {
+        const unsettledOnChain = await prisma.predictionBattle.findMany({
+          where: {
+            isStrategyBattle: true,
+            status: 'completed',
+            onChainBattleId: { not: null },
+            createdAt: { gte: new Date(Date.now() - STUCK_BATTLE_MAX_AGE_MS) },
+          },
+          take: 3,
+          orderBy: { completedAt: 'asc' },
+        });
+
+        for (const b of unsettledOnChain) {
+          const pool = await prisma.battleBettingPool.findFirst({ where: { battleId: b.id } });
+          if (pool && !pool.onChainSettled) {
+            if (Date.now() - startTime > BUDGET_MS) break;
+            const result = await strategyArenaService.retryOnChainSettlement(b.id);
+            console.log(`[Cron] On-chain settlement retry for ${b.id}: ${result.success ? 'OK' : result.error}`);
+          }
+        }
+      } catch (retryErr) {
+        console.error('[Cron] On-chain settlement retry scan failed:', retryErr);
+      }
     }
 
     // Find active strategy battles that are ready for their next cycle
@@ -151,7 +180,8 @@ export const POST = composeMiddleware([
     // Alert on failures
     if (failed > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:strategy-cycles:failure',
           'Strategy Battle Cycle Failures',
           `${failed} strategy battle cycles failed during cron execution`,
           failed >= 3 ? 'critical' : 'warning',

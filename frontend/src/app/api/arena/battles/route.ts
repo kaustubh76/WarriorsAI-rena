@@ -185,7 +185,7 @@ export const POST = composeMiddleware([
       }
 
       validateInteger(warrior2Id, 'warrior2Id', { min: 0 });
-      validateBigIntString(totalStake, 'totalStake');
+      validateBigIntString(totalStake, 'totalStake', { min: 1n });
 
       // Verify both warriors are owned by the caller
       try {
@@ -271,28 +271,44 @@ export const POST = composeMiddleware([
       });
 
       if (!tradeResult.success || !tradeResult.tradeId) {
-        throw ErrorResponses.internalServerError(
+        // Clean up orphaned opportunity record
+        await prisma.arbitrageOpportunity.delete({
+          where: { id: opportunity.id },
+        }).catch((cleanupErr: Error) => {
+          console.error('[Battles] Failed to clean up orphaned opportunity:', cleanupErr.message);
+        });
+        throw ErrorResponses.internal(
           `Failed to execute arbitrage trade: ${tradeResult.error}`
         );
       }
 
-      // Create arbitrage battle (status: active, skip pending)
-      const battle = await prisma.predictionBattle.create({
-        data: {
-          externalMarketId: polymarketId,
-          source: 'polymarket',
-          question: matchedPair.polymarketQuestion,
-          warrior1Id,
-          warrior1Owner,
-          warrior2Id,
-          warrior2Owner: warrior1Owner, // Same owner for both warriors
-          stakes: totalStake,
-          status: 'active', // Skip pending, start immediately
-          currentRound: 1, // Start with round 1
-          isArbitrageBattle: true,
-          kalshiMarketId: kalshiId,
-          arbitrageTradeId: tradeResult.tradeId,
-        },
+      // Create arbitrage battle and set reverse link atomically
+      const battle = await prisma.$transaction(async (tx) => {
+        const b = await tx.predictionBattle.create({
+          data: {
+            externalMarketId: polymarketId,
+            source: 'polymarket',
+            question: matchedPair.polymarketQuestion,
+            warrior1Id,
+            warrior1Owner,
+            warrior2Id,
+            warrior2Owner: warrior1Owner, // Same owner for both warriors
+            stakes: totalStake,
+            status: 'active', // Skip pending, start immediately
+            currentRound: 1, // Start with round 1
+            isArbitrageBattle: true,
+            kalshiMarketId: kalshiId,
+            arbitrageTradeId: tradeResult.tradeId,
+          },
+        });
+
+        // Set reverse link so settlement can find trade by battle ID (escrow release depends on this)
+        await tx.arbitrageTrade.update({
+          where: { id: tradeResult.tradeId },
+          data: { predictionBattleId: b.id },
+        });
+
+        return b;
       });
 
       // Execute first round immediately
@@ -386,7 +402,7 @@ export const POST = composeMiddleware([
     }
 
     // Standard challenge creation (non-arbitrage)
-    validateBigIntString(stakes, 'stakes');
+    validateBigIntString(stakes, 'stakes', { min: 1n });
 
     // Generate market key (same as contract)
     const marketKey = keccak256(toBytes(`${source}:${externalMarketId}`));

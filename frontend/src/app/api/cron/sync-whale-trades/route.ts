@@ -12,6 +12,7 @@ import { whaleTrackerService } from '@/services/externalMarkets/whaleTrackerServ
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 
 export const GET = composeMiddleware([
   withRateLimit({ prefix: 'cron-sync-whale-trades', ...RateLimitPresets.cronJobs }),
@@ -35,6 +36,17 @@ export const GET = composeMiddleware([
     };
 
     console.log('[Cron] Whale trade sync complete:', summary);
+
+    // Alert on sync errors
+    if (results.errors.length > 0) {
+      await sendAlertWithRateLimit(
+        'cron:sync-whale-trades:error',
+        'Whale Trade Sync Errors',
+        `${results.errors.length} error(s) during whale trade sync`,
+        results.errors.length >= 2 ? 'error' : 'warning',
+        { errors: results.errors.slice(0, 5).join('; '), totalTrades: results.polymarket + results.kalshi }
+      ).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

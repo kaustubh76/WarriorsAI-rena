@@ -1,7 +1,16 @@
 /**
  * API Route: Arena Betting
- * Handles spectator betting on prediction battles
- * Uses persistent database storage for bets and pools
+ * DB cache/index layer for spectator betting on prediction battles.
+ *
+ * On-chain source of truth: StrategyBattleManager contract handles escrow,
+ * odds, settlement, and claims. This route caches state for fast API queries.
+ *
+ * When BattleManager is deployed:
+ * - POST: User places bet via wallet (hook calls contract directly).
+ *         API caches the bet record with escrowTxHash.
+ * - PATCH: User claims via wallet (hook calls contract directly).
+ *         API syncs claim status from tx hash.
+ * - GET: Returns cached pool/bet data for UI rendering.
  */
 
 import { NextResponse } from 'next/server';
@@ -126,7 +135,7 @@ export const POST = composeMiddleware([
     }
     validateAddress(bettorAddress, 'bettorAddress');
     validateBoolean(betOnWarrior1, 'betOnWarrior1');
-    validateBigIntString(amount, 'amount');
+    validateBigIntString(amount, 'amount', { min: 1n });
 
     // Get battle
     const battle = await prisma.predictionBattle.findUnique({
@@ -253,7 +262,7 @@ export const PATCH = composeMiddleware([
   withRateLimit({ prefix: 'betting-claim', ...RateLimitPresets.storageWrite }),
   async (req, ctx) => {
     const body = await req.json();
-    const { battleId, bettorAddress } = body;
+    const { battleId, bettorAddress, claimTxHash } = body;
 
     // Validate inputs
     if (!battleId || typeof battleId !== 'string') {
@@ -294,7 +303,33 @@ export const PATCH = composeMiddleware([
       throw ErrorResponses.badRequest('Already claimed');
     }
 
-    // Determine winner
+    // When claimTxHash is provided, the on-chain contract already handled
+    // the payout. Just record the claim in DB — contract is source of truth.
+    if (claimTxHash && typeof claimTxHash === 'string') {
+      const warrior1Won = battle.warrior1Score > battle.warrior2Score;
+      const warrior2Won = battle.warrior2Score > battle.warrior1Score;
+      const won = (warrior1Won && bet.betOnWarrior1) || (warrior2Won && !bet.betOnWarrior1);
+
+      await prisma.battleBet.update({
+        where: { id: bet.id },
+        data: {
+          claimed: true,
+          claimTxHash,
+          claimedAt: new Date(),
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        won,
+        payout: '0', // Actual payout handled on-chain
+        onChainClaim: true,
+        claimTxHash,
+        message: won ? 'Claim submitted on-chain' : 'Claim recorded',
+      });
+    }
+
+    // Legacy path: DB payout calculation for pre-BattleManager bets
     const warrior1Won = battle.warrior1Score > battle.warrior2Score;
     const warrior2Won = battle.warrior2Score > battle.warrior1Score;
     const isDraw = battle.warrior1Score === battle.warrior2Score;

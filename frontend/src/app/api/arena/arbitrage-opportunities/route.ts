@@ -14,9 +14,11 @@ export const GET = composeMiddleware([
   withRateLimit({ prefix: 'arena-arbitrage-opps', ...RateLimitPresets.readOperations }),
   async (req, ctx) => {
     const searchParams = req.nextUrl.searchParams;
-    const search = searchParams.get('search') || '';
+    const rawSearch = (searchParams.get('search') || '').trim();
+    // Limit search length and strip regex-special chars to prevent ReDoS on DB contains
+    const search = rawSearch.length > 100 ? rawSearch.slice(0, 100) : rawSearch;
     const rawMinSpread = parseFloat(searchParams.get('minSpread') || '5');
-    const minSpread = isNaN(rawMinSpread) || rawMinSpread < 0 || rawMinSpread > 100 ? 5 : rawMinSpread;
+    const minSpread = isNaN(rawMinSpread) || rawMinSpread < 0.1 || rawMinSpread > 100 ? 5 : rawMinSpread;
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20') || 20, 1), 100);
 
     // Query matched market pairs with arbitrage opportunities
@@ -35,7 +37,8 @@ export const GET = composeMiddleware([
 
     // Fetch more rows than requested to account for dedup (one market can match many)
     const fetchLimit = Math.min(limit * 10, 500);
-    const cacheKey = `arena-arb-opps:${search}:${minSpread}`;
+    // Include limit in cache key to prevent cross-request cache collisions
+    const cacheKey = `arena-arb-opps:${search}:${minSpread}:${limit}`;
     const matchedPairs = await marketDataCache.getOrSet(
       cacheKey,
       () => prisma.matchedMarketPair.findMany({

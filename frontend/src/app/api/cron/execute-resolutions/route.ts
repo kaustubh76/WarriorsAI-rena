@@ -11,7 +11,7 @@ import { polymarketService } from '@/services/externalMarkets/polymarketService'
 import { kalshiService } from '@/services/externalMarkets/kalshiService';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert, alertBridgeFailure } from '@/lib/monitoring/alerts';
+import { sendAlertWithRateLimit, alertBridgeFailure } from '@/lib/monitoring/alerts';
 import { isTimeoutError } from '@/lib/flowClient';
 
 const MAX_RESOLUTION_ATTEMPTS = 10;
@@ -264,7 +264,8 @@ export const POST = composeMiddleware([
     // Alert on failures
     if (failedCount > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:execute-resolutions:failure',
           'Resolution Execution Failures',
           `${failedCount} out of ${results.length} resolutions failed during cron job`,
           failedCount >= 3 ? 'critical' : 'warning',

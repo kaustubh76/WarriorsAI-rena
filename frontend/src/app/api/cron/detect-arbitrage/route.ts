@@ -18,7 +18,7 @@ import { arbitrageMarketMatcher } from '@/services/arbitrage/marketMatcher';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert } from '@/lib/monitoring/alerts';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 import { detectTrendingTopics } from '@/services/topics/trendingDetectionService';
 
 export const GET = composeMiddleware([
@@ -65,7 +65,8 @@ export const GET = composeMiddleware([
     // Alert on detection errors
     if (results.errors.length > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:detect-arbitrage:error',
           'Arbitrage Detection Errors',
           `${results.errors.length} error(s) during arbitrage detection`,
           results.errors.length >= 3 ? 'critical' : 'warning',

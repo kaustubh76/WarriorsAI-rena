@@ -15,7 +15,7 @@ import { vaultYieldService } from '@/services/vaultYieldService';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert } from '@/lib/monitoring/alerts';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'cron-execute-yield-cycles', ...RateLimitPresets.cronJobs }),
@@ -46,7 +46,8 @@ export const POST = composeMiddleware([
     // Alert on failures
     if (results.failed > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:yield-cycles:failure',
           'Vault Yield Cycle Failures',
           `${results.failed} vault cycles failed during cron execution`,
           results.failed >= 3 ? 'critical' : 'warning',

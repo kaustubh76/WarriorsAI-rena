@@ -13,7 +13,7 @@ import { curateTopics } from '@/services/externalMarkets/topicCurationService';
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert } from '@/lib/monitoring/alerts';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 
 export const GET = composeMiddleware([
   withRateLimit({ prefix: 'cron-sync-markets', ...RateLimitPresets.cronJobs }),
@@ -63,7 +63,8 @@ export const GET = composeMiddleware([
     // Alert on sync failures
     if (summary.failureCount > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:sync-markets:failure',
           'Market Sync Failures',
           `${summary.failureCount} market source(s) failed to sync`,
           summary.failureCount >= 2 ? 'critical' : 'warning',

@@ -4,7 +4,7 @@ import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
 import { cronConfig } from '@/lib/api/cronAuth';
 import { getBattleMonitor } from '@/lib/monitoring/battleMonitor';
-import { alertHighQueueDepth, sendAlert, alertBridgeFailure } from '@/lib/monitoring/alerts';
+import { alertHighQueueDepth, sendAlertWithRateLimit, alertBridgeFailure } from '@/lib/monitoring/alerts';
 import * as fcl from '@onflow/fcl';
 import * as types from '@onflow/types';
 import {
@@ -238,7 +238,8 @@ export const POST = composeMiddleware([
     // Send alert if any failures
     if (failureCount > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:execute-battles:failure',
           'Battle Execution Failures',
           `${failureCount} out of ${readyBattles.length} battles failed to execute during cron job`,
           failureCount >= 3 ? 'critical' : 'warning',

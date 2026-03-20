@@ -1,7 +1,7 @@
 /**
  * POST /api/cron/settle-arbitrage-battles
  * Cron job to settle completed arbitrage battles when markets resolve
- * Schedule: Every 5 minutes
+ * Schedule: Daily at noon UTC (0 12 * * *)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,7 +9,7 @@ import { arbitrageBattleSettlementService } from '@/services/arena/arbitrageBatt
 import { withCronTimeout, cronConfig } from '@/lib/api/cronAuth';
 import { RateLimitPresets } from '@/lib/api/rateLimit';
 import { composeMiddleware, withRateLimit, withCronAuth } from '@/lib/api/middleware';
-import { sendAlert } from '@/lib/monitoring/alerts';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 
 export const POST = composeMiddleware([
   withRateLimit({ prefix: 'cron-settle-arbitrage', ...RateLimitPresets.cronJobs }),
@@ -18,18 +18,38 @@ export const POST = composeMiddleware([
     console.log('[Cron] Starting arbitrage battle settlement...');
     const startTime = Date.now();
 
-    // Settle all ready battles with timeout protection
-    const results = await withCronTimeout(
-      arbitrageBattleSettlementService.settleAllReadyBattles(),
-      cronConfig.defaultApiTimeout,
-      'Arbitrage battle settlement timed out'
-    );
+    let results: Awaited<ReturnType<typeof arbitrageBattleSettlementService.settleAllReadyBattles>>;
+
+    // Settle all ready battles with timeout protection + alerting
+    try {
+      results = await withCronTimeout(
+        arbitrageBattleSettlementService.settleAllReadyBattles(),
+        cronConfig.defaultApiTimeout,
+        'Arbitrage battle settlement timed out'
+      );
+    } catch (timeoutError) {
+      // Alert on timeout — this is critical since settlements may be partially applied
+      const duration = Date.now() - startTime;
+      try {
+        await sendAlertWithRateLimit(
+          'cron:settle-arbitrage:timeout',
+          'Arbitrage Settlement Timeout',
+          'Settlement process exceeded max allowed time — partial settlements may exist',
+          'critical',
+          { timeout: cronConfig.defaultApiTimeout, duration, error: (timeoutError as Error).message }
+        );
+      } catch (alertErr) {
+        console.error('[Cron] Failed to send timeout alert:', alertErr);
+      }
+      throw timeoutError; // Let composeMiddleware handle the 500
+    }
 
     const duration = Date.now() - startTime;
 
     console.log('[Cron] Settlement completed:', {
       settled: results.settled,
       failed: results.failed,
+      totalReady: results.totalReady,
       duration: `${duration}ms`,
     });
 
@@ -40,13 +60,15 @@ export const POST = composeMiddleware([
     // Alert on settlement failures
     if (results.failed > 0) {
       try {
-        await sendAlert(
+        await sendAlertWithRateLimit(
+          'cron:settle-arbitrage:failure',
           'Arbitrage Settlement Failures',
           `${results.failed} battles failed to settle during cron job`,
           results.failed >= 3 ? 'critical' : 'warning',
           {
             settled: results.settled,
             failed: results.failed,
+            totalReady: results.totalReady,
             errors: results.errors,
             duration,
           }
@@ -60,6 +82,7 @@ export const POST = composeMiddleware([
       success: true,
       settledCount: results.settled,
       failedCount: results.failed,
+      totalReady: results.totalReady,
       errors: results.errors,
       duration,
       timestamp: new Date().toISOString(),
