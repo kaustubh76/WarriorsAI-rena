@@ -14,6 +14,8 @@ import { TRAIT_MAP } from '@/constants/defiTraitMapping';
 import { getFlowExplorerUrl } from '@/constants';
 import { PredictionRound } from '@/types/predictionArena';
 import BattleShareButton from '@/components/arena/BattleShareButton';
+import MicroMarketGrid from '@/components/micro-markets/MicroMarketGrid';
+import { useBattleMicroMarkets } from '@/hooks/useMicroMarkets';
 import ScoreProgressionChart from '@/components/arena/ScoreProgressionChart';
 import CycleCountdown from '@/components/arena/CycleCountdown';
 import {
@@ -315,9 +317,12 @@ export default function StrategyBattlePage() {
   const battleId = params?.id as string;
   const { battle, loading, error } = useStrategyBattle(battleId);
   const { address } = useAccount();
-  const { pool, userBet, placeBet, claimWinnings, isPlacingBet, isClaiming, betStage, error: betError } = useBattleBetting(battleId);
+  const onChainId = battle?.onChainBattleId ? parseInt(battle.onChainBattleId) : undefined;
+  const { pool, userBet, placeBet, claimWinnings, isPlacingBet, isClaiming, betStage, error: betError } = useBattleBetting(battleId, undefined, onChainId);
   const { showMessage } = useWarriorMessage();
   const explorerUrl = getFlowExplorerUrl();
+  const microMarketBattleId = battle?.onChainBattleId ? BigInt(battle.onChainBattleId) : null;
+  const { markets: microMarkets, groupedMarkets } = useBattleMicroMarkets(microMarketBattleId);
 
   const [betAmount, setBetAmount] = useState('1');
   const [betSide, setBetSide] = useState<'warrior1' | 'warrior2'>('warrior1');
@@ -1211,6 +1216,73 @@ export default function StrategyBattlePage() {
           </div>
         )}
       </div>
+
+      {/* ═══ Micro-Markets (Per-Cycle Betting) ═══ */}
+      {microMarkets && microMarkets.length > 0 && (
+        <div className="glass-panel p-5 rounded-xl">
+          <h3 className="text-lg font-bold text-white mb-4">Cycle Micro-Markets</h3>
+          <p className="text-sm text-gray-400 mb-3">
+            Bet on individual cycle outcomes — who earns more yield, which move will be used, and more.
+          </p>
+          <MicroMarketGrid
+            markets={microMarkets}
+            groupedMarkets={groupedMarkets}
+          />
+        </div>
+      )}
+
+      {/* ═══ Score Breakdown (Phase 5) ═══ */}
+      {(battle?.cycles ?? []).length > 0 && (
+        <div className="glass-panel p-5 rounded-xl">
+          <h3 className="text-lg font-bold text-white mb-4">Score Breakdown</h3>
+          <div className="space-y-3">
+            {(battle?.cycles ?? []).map((cycle) => {
+              const safeParse = (s: string | null | undefined) => {
+                if (!s) return null;
+                try { return JSON.parse(s); } catch { return null; }
+              };
+              const w1Breakdown = safeParse(cycle.w1ScoreBreakdown);
+              const w2Breakdown = safeParse(cycle.w2ScoreBreakdown);
+              if (!w1Breakdown && !w2Breakdown) return null;
+              return (
+                <div key={`breakdown-${cycle.roundNumber}`} className="bg-gray-800/50 p-3 rounded-lg">
+                  <div className="text-xs text-gray-400 mb-2 font-mono">Cycle {cycle.roundNumber}</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { label: 'W1', bd: w1Breakdown, color: 'blue' },
+                      { label: 'W2', bd: w2Breakdown, color: 'red' },
+                    ].map(({ label, bd, color }) => bd && (
+                      <div key={label} className="space-y-1">
+                        <div className="text-xs font-bold text-gray-300">{label}</div>
+                        {[
+                          { name: 'Yield', value: bd.yieldComponent, max: 600, col: 'bg-green-500' },
+                          { name: 'AI Quality', value: bd.aiQualityComponent, max: 200, col: 'bg-purple-500' },
+                          { name: 'Trait Bonus', value: bd.traitBonusComponent, max: 100, col: 'bg-yellow-500' },
+                          { name: 'Move Counter', value: bd.moveCounterComponent, max: 100, col: 'bg-cyan-500' },
+                        ].map(({ name, value, max, col }) => (
+                          <div key={name} className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-500 w-16 truncate">{name}</span>
+                            <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full ${col} rounded-full`}
+                                style={{ width: `${Math.min((value / max) * 100, 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-gray-400 w-8 text-right">{value}</span>
+                          </div>
+                        ))}
+                        {bd.vrfModifier < 1 && (
+                          <div className="text-[10px] text-red-400">VRF Miss ({bd.vrfModifier}x)</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ═══ Battle Complete + Claim Winnings ═══ */}
       {isCompleted && (

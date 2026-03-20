@@ -55,6 +55,7 @@ const NAV_LINKS: NavLink[] = [
     ]
   },
   { href: "/portfolio", label: "Portfolio", hoverColor: "hover:text-green-400" },
+  { href: "/staking", label: "Staking", hoverColor: "hover:text-amber-400" },
 ];
 
 // Hamburger icon component
