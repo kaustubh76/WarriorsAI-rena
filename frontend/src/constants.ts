@@ -168,6 +168,10 @@ interface ContractsConfig {
     highYieldPool?: string;
     stablePool?: string;
     lpPool?: string;
+    // DeFi Hardening Phase 1-3
+    battleManager?: string;
+    stakingContract?: string;
+    stCrwnToken?: string;
   };
 }
 
@@ -202,6 +206,10 @@ export const chainsToContracts: ContractsConfig = {
         highYieldPool: process.env.NEXT_PUBLIC_HIGH_YIELD_POOL_ADDRESS || "0x39d85759032fe730abaCDF7aAc403e8E8BB47cAb",
         stablePool: process.env.NEXT_PUBLIC_STABLE_POOL_ADDRESS || "0x14746b6F08e9512F755FbCC64e63f06397dA155F",
         lpPool: process.env.NEXT_PUBLIC_LP_POOL_ADDRESS || "0x89d5C59a281Da5BE624d3D592Ab9661B6B44451e",
+        // DeFi Hardening Phase 1-3 — deployed 2026-03
+        battleManager: process.env.NEXT_PUBLIC_BATTLE_MANAGER_ADDRESS || "0x0000000000000000000000000000000000000000",
+        stakingContract: process.env.NEXT_PUBLIC_STAKING_ADDRESS || "0x0000000000000000000000000000000000000000",
+        stCrwnToken: process.env.NEXT_PUBLIC_STCRWN_ADDRESS || "0x0000000000000000000000000000000000000000",
     },
     // 0G Galileo Testnet (Chain ID: 16602) - AI Agent iNFT Contracts
     16602: {

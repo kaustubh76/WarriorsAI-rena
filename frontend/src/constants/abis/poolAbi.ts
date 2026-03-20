@@ -73,6 +73,27 @@ export const POOL_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'string' }],
   },
+  {
+    name: 'getEffectiveAPY',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'getUtilization',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'maxCapacity',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
   // ─── Events ───────────────────────────────────────────
   {
     name: 'Deposited',

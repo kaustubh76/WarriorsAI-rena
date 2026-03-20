@@ -18,5 +18,9 @@ export { STRATEGY_VAULT_ABI } from './strategyVaultAbi';
 
 export { POOL_ABI } from './poolAbi';
 
+export { BATTLE_MANAGER_ABI } from './battleManagerAbi';
+
+export { STAKING_ABI, STCRWN_ABI } from './stakingAbi';
+
 // Contract addresses - re-export from constants for convenience
 export { FLOW_TESTNET_CONTRACTS, FLOW_MAINNET_CONTRACTS } from '../index';
