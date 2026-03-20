@@ -153,10 +153,15 @@ class ArbitrageBattleSettlementService {
 
       // 3. Calculate arbitrage profit (total payout - investment)
       const totalPayout = warrior1Payout + warrior2Payout;
-      const arbitrageProfit = totalPayout - trade.investmentAmount;
+      const rawArbitrageProfit = totalPayout - trade.investmentAmount;
+      // Guard against negative profit — warriors don't share losses
+      const arbitrageProfit = rawArbitrageProfit > 0n ? rawArbitrageProfit : 0n;
 
-      // 4. Determine debate winner from scores
-      const debateWinner = battle.warrior1Score > battle.warrior2Score ? 1 : 2;
+      // 4. Determine debate winner from scores (handle ties fairly)
+      const debateWinner: 0 | 1 | 2 =
+        battle.warrior1Score > battle.warrior2Score ? 1 :
+        battle.warrior2Score > battle.warrior1Score ? 2 :
+        0; // tie — no debate bonus awarded
 
       // 5. Calculate debate bonus from spectator betting pool
       const debateBonus = await this.calculateDebateBonus(battle.id, debateWinner);
@@ -197,15 +202,29 @@ class ArbitrageBattleSettlementService {
         },
       });
 
-      // 8. Distribute payouts
-      await this.distributePayouts(
-        battle,
-        warrior1Payout,
-        warrior2Payout,
-        arbitrageProfit,
-        debateBonus,
-        debateWinner
-      );
+      // 8. Distribute payouts (with rollback on failure)
+      try {
+        await this.distributePayouts(
+          battle,
+          warrior1Payout,
+          warrior2Payout,
+          arbitrageProfit,
+          debateBonus,
+          debateWinner
+        );
+      } catch (payoutError) {
+        // Rollback: revert CAS so settlement can be retried
+        console.error('[ArbitrageBattleSettlement] Payout failed, rolling back settlement:', payoutError);
+        await prisma.arbitrageTrade.updateMany({
+          where: { id: trade.id },
+          data: { settled: false, status: 'completed', settledAt: null },
+        });
+        await prisma.predictionBattle.update({
+          where: { id: battle.id },
+          data: { status: 'completed', completedAt: null },
+        });
+        throw payoutError;
+      }
 
       return {
         success: true,
@@ -249,8 +268,11 @@ class ArbitrageBattleSettlementService {
   /**
    * Calculate debate bonus from spectator betting pool
    */
-  private async calculateDebateBonus(battleId: string, winner: 1 | 2): Promise<bigint> {
+  private async calculateDebateBonus(battleId: string, winner: 0 | 1 | 2): Promise<bigint> {
     try {
+      // Tie = no debate bonus
+      if (winner === 0) return 0n;
+
       // Get spectator betting pool
       const pool = await prisma.battleBettingPool.findUnique({
         where: { battleId },
@@ -284,23 +306,30 @@ class ArbitrageBattleSettlementService {
     warrior2Payout: bigint,
     arbitrageProfit: bigint,
     debateBonus: bigint,
-    debateWinner: 1 | 2
+    debateWinner: 0 | 1 | 2
   ): Promise<void> {
     try {
+      // Validate warrior owners exist before attempting transfers
+      if (!battle.warrior1Owner || !battle.warrior2Owner) {
+        throw new Error(`Missing warrior owner addresses: w1=${battle.warrior1Owner}, w2=${battle.warrior2Owner}`);
+      }
+
       // Split arbitrage profit equally between both warriors
+      // Handle odd amounts: warrior1 gets the remainder wei
       const arbitrageSplit = arbitrageProfit / 2n;
+      const arbitrageRemainder = arbitrageProfit % 2n;
 
       // Warrior 1 receives:
       // - External market payout (if won)
-      // - Half of arbitrage profit
-      // - Debate bonus (if won debate)
+      // - Half of arbitrage profit + remainder
+      // - Debate bonus (if won debate; ties = no bonus)
       const warrior1Total =
-        warrior1Payout + arbitrageSplit + (debateWinner === 1 ? debateBonus : 0n);
+        warrior1Payout + arbitrageSplit + arbitrageRemainder + (debateWinner === 1 ? debateBonus : 0n);
 
       // Warrior 2 receives:
       // - External market payout (if won)
       // - Half of arbitrage profit
-      // - Debate bonus (if won debate)
+      // - Debate bonus (if won debate; ties = no bonus)
       const warrior2Total =
         warrior2Payout + arbitrageSplit + (debateWinner === 2 ? debateBonus : 0n);
 
@@ -315,16 +344,25 @@ class ArbitrageBattleSettlementService {
       }
 
       // Release escrow lock if it exists
-      const trade = await prisma.arbitrageTrade.findFirst({
-        where: { predictionBattleId: battle.id },
-      });
+      // Use forward link (arbitrageTradeId) as primary lookup, reverse link as fallback
+      const tradeId = battle.arbitrageTradeId;
+      const escrowTrade = tradeId
+        ? await prisma.arbitrageTrade.findUnique({ where: { id: tradeId } })
+        : await prisma.arbitrageTrade.findFirst({ where: { predictionBattleId: battle.id } });
 
-      if (trade) {
-        const escrowLock = await escrowService.getEscrowLockByReference(trade.id);
-        if (escrowLock) {
-          await escrowService.releaseFunds(escrowLock.id, 'Battle settled successfully');
-          console.log(`[ArbitrageBattleSettlement] Released escrow lock: ${escrowLock.id}`);
+      if (escrowTrade) {
+        try {
+          const escrowLock = await escrowService.getEscrowLockByReference(escrowTrade.id);
+          if (escrowLock) {
+            await escrowService.releaseFunds(escrowLock.id, 'Battle settled successfully');
+            console.log(`[ArbitrageBattleSettlement] Released escrow lock: ${escrowLock.id}`);
+          }
+        } catch (escrowError) {
+          // Non-fatal: payouts already succeeded, but log for manual intervention
+          console.error(`[ArbitrageBattleSettlement] CRITICAL: Escrow release failed for trade ${escrowTrade.id}:`, escrowError);
         }
+      } else {
+        console.warn(`[ArbitrageBattleSettlement] No trade found for battle ${battle.id} — escrow may be orphaned`);
       }
 
       console.log('[ArbitrageBattleSettlement] Payouts distributed:');
@@ -346,7 +384,7 @@ class ArbitrageBattleSettlementService {
     error?: string;
   }> {
     try {
-      // Use database transaction to credit user balance
+      // Use database transaction to credit user balance + audit log atomically
       const result = await prisma.$transaction(async (tx) => {
         // 1. Credit recipient's balance
         await tx.userBalance.upsert({
@@ -374,22 +412,22 @@ class ArbitrageBattleSettlementService {
           },
         });
 
-        return settlement;
-      });
+        // 3. Log the transfer (inside transaction for atomicity)
+        await tx.tradeAuditLog.create({
+          data: {
+            userId: recipient,
+            tradeType: 'arbitrage',
+            action: 'settle',
+            amount: amount.toString(),
+            success: true,
+            metadata: JSON.stringify({
+              settlementId: settlement.id,
+              type: 'ARBITRAGE_PAYOUT',
+            }),
+          },
+        });
 
-      // 3. Log the transfer
-      await prisma.tradeAuditLog.create({
-        data: {
-          userId: recipient,
-          tradeType: 'arbitrage',
-          action: 'settle',
-          amount: amount.toString(),
-          success: true,
-          metadata: JSON.stringify({
-            settlementId: result.id,
-            type: 'ARBITRAGE_PAYOUT',
-          }),
-        },
+        return settlement;
       });
 
       console.log(`[ArbitrageBattleSettlement] Transferred ${amount} CRwN to ${recipient} (settlement: ${result.id})`);
@@ -457,15 +495,27 @@ class ArbitrageBattleSettlementService {
   /**
    * Batch settle all ready battles
    */
+  /**
+   * Max battles to settle per cron invocation to avoid Vercel timeout (300s).
+   * Each settlement involves multiple DB queries + external checks.
+   */
+  private static readonly MAX_BATCH_SIZE = 20;
+
   async settleAllReadyBattles(): Promise<{
     settled: number;
     failed: number;
     errors: string[];
+    totalReady: number;
   }> {
     const readyBattles = await this.getBattlesReadyForSettlement();
-    const results = { settled: 0, failed: 0, errors: [] as string[] };
+    const batch = readyBattles.slice(0, ArbitrageBattleSettlementService.MAX_BATCH_SIZE);
+    const results = { settled: 0, failed: 0, errors: [] as string[], totalReady: readyBattles.length };
 
-    for (const battle of readyBattles) {
+    if (readyBattles.length > ArbitrageBattleSettlementService.MAX_BATCH_SIZE) {
+      console.warn(`[ArbitrageBattleSettlement] ${readyBattles.length} battles ready, processing batch of ${batch.length}`);
+    }
+
+    for (const battle of batch) {
       try {
         const result = await this.settleBattle(battle);
         if (result.success) {

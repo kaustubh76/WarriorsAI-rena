@@ -102,7 +102,11 @@ class ArbitrageTradingService {
       }
 
       // Convert to USD for limit checks (assuming 1 CRwN = $1 for simplicity)
-      const investmentUSD = Number(params.investmentAmount) / 1e18;
+      // Safe conversion: cap at Number.MAX_SAFE_INTEGER to prevent precision loss
+      const rawInvestmentUSD = params.investmentAmount / BigInt(1e18);
+      const investmentUSD = rawInvestmentUSD > BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number.MAX_SAFE_INTEGER
+        : Number(rawInvestmentUSD);
 
       // Validate trading prerequisites
       const prerequisiteCheck = tradingConfig.validateTradingPrerequisites({
@@ -170,8 +174,12 @@ class ArbitrageTradingService {
         return { success: false, error: 'Invalid opportunity prices - total cost is zero' };
       }
 
-      const market1Allocation = (market1Price / totalCost) * Number(params.investmentAmount);
-      const market2Allocation = (market2Price / totalCost) * Number(params.investmentAmount);
+      // Use BigInt math for allocation to avoid Number precision loss on large amounts
+      // Scale float ratio to integer via 1e8 multiplier, then divide
+      const m1PriceBps = BigInt(Math.round(market1Price * 1e8));
+      const totalCostBps = BigInt(Math.round(totalCost * 1e8));
+      const market1Allocation = (params.investmentAmount * m1PriceBps) / totalCostBps;
+      const market2Allocation = params.investmentAmount - market1Allocation; // Ensure no wei lost
 
       // 3. Create trade record
       const trade = await prisma.arbitrageTrade.create({
@@ -187,8 +195,8 @@ class ArbitrageTradingService {
           market2Question: opportunity.market2Question,
           market2Side: false, // NO
           investmentAmount: params.investmentAmount,
-          market1Amount: BigInt(Math.floor(market1Allocation)),
-          market2Amount: BigInt(Math.floor(market2Allocation)),
+          market1Amount: market1Allocation,
+          market2Amount: market2Allocation,
           expectedProfit: opportunity.potentialProfit,
           expectedSpread: opportunity.spread / 100,
           status: 'pending',
@@ -221,10 +229,20 @@ class ArbitrageTradingService {
 
       // 5. Place orders on both markets simultaneously with atomic execution
       // Use circuit breaker to protect against cascade failures
+      // 30s timeout prevents hanging if an exchange API is unresponsive
+      const ORDER_TIMEOUT_MS = 30_000;
+      const withTimeout = <T>(promise: Promise<T>, label: string): Promise<T> =>
+        Promise.race([
+          promise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`${label} timed out after ${ORDER_TIMEOUT_MS}ms`)), ORDER_TIMEOUT_MS)
+          ),
+        ]);
+
       const [market1Result, market2Result] = await arbitrageCircuitBreaker.execute(async () => {
         return await Promise.allSettled([
-          this.placeMarket1Order(trade),
-          this.placeMarket2Order(trade),
+          withTimeout(this.placeMarket1Order(trade), 'Market 1 order'),
+          withTimeout(this.placeMarket2Order(trade), 'Market 2 order'),
         ]);
       }, 'Arbitrage dual order placement');
 
