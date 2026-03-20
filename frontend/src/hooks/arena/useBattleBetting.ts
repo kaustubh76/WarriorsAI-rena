@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 import { parseEther } from 'viem';
 import { CRWN_TOKEN_ABI } from '@/constants/abis/crwnTokenAbi';
+import { BATTLE_MANAGER_ABI } from '@/constants/abis/battleManagerAbi';
 import { FLOW_TESTNET_CONTRACTS } from '@/constants/index';
 
 // ============================================
@@ -51,63 +52,14 @@ interface UseBattleBettingReturn {
   betStage: BetStage;
 }
 
-// Contract ABI for betting functions
-const PREDICTION_ARENA_BETTING_ABI = [
-  {
-    name: 'placeBet',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: '_battleId', type: 'uint256' },
-      { name: '_betOnWarrior1', type: 'bool' },
-      { name: '_amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'claimBet',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: '_battleId', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'getBettingOdds',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: '_battleId', type: 'uint256' }],
-    outputs: [
-      { name: 'warrior1Odds', type: 'uint256' },
-      { name: 'warrior2Odds', type: 'uint256' },
-      { name: 'totalPool', type: 'uint256' },
-    ],
-  },
-  {
-    name: 'getUserBet',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: '_battleId', type: 'uint256' },
-      { name: '_bettor', type: 'address' },
-    ],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'bettor', type: 'address' },
-          { name: 'amount', type: 'uint256' },
-          { name: 'betOnWarrior1', type: 'bool' },
-          { name: 'claimed', type: 'bool' },
-        ],
-      },
-    ],
-  },
-] as const;
-
-// On-chain addresses for CRwN token transfers
+// On-chain addresses
 const CRWN_TOKEN_ADDRESS = FLOW_TESTNET_CONTRACTS.CRWN_TOKEN as `0x${string}`;
-const BETTING_ESCROW_ADDRESS = FLOW_TESTNET_CONTRACTS.STRATEGY_VAULT as `0x${string}`;
+const BATTLE_MANAGER_ADDRESS = FLOW_TESTNET_CONTRACTS.BATTLE_MANAGER as `0x${string}`;
+
+// Use BattleManager as the default betting contract when deployed
+const DEFAULT_BETTING_CONTRACT = BATTLE_MANAGER_ADDRESS !== '0x0000000000000000000000000000000000000000'
+  ? BATTLE_MANAGER_ADDRESS
+  : undefined;
 
 // ============================================
 // HOOK
@@ -115,8 +67,11 @@ const BETTING_ESCROW_ADDRESS = FLOW_TESTNET_CONTRACTS.STRATEGY_VAULT as `0x${str
 
 export function useBattleBetting(
   battleId: string | null,
-  contractAddress?: `0x${string}`
+  contractAddress?: `0x${string}`,
+  onChainBattleId?: number
 ): UseBattleBettingReturn {
+  // Use BattleManager as default when deployed
+  const effectiveContract = contractAddress || DEFAULT_BETTING_CONTRACT;
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
@@ -209,22 +164,28 @@ export function useBattleBetting(
       setBetStage('confirming');
       let txHash: `0x${string}` | undefined;
 
-      // If a PredictionArena contract is provided, use its placeBet function
-      if (contractAddress) {
-        txHash = await writeContractAsync({
-          address: contractAddress,
-          abi: PREDICTION_ARENA_BETTING_ABI,
-          functionName: 'placeBet',
-          args: [BigInt(battleId), betOnWarrior1, weiAmount],
-        });
-      } else {
-        // Direct CRwN transfer to Strategy Vault as escrow
-        txHash = await writeContractAsync({
+      if (effectiveContract) {
+        // On-chain: approve CRwN then call BattleManager.placeBet()
+        const approveHash = await writeContractAsync({
           address: CRWN_TOKEN_ADDRESS,
           abi: CRWN_TOKEN_ABI,
-          functionName: 'transfer',
-          args: [BETTING_ESCROW_ADDRESS, weiAmount],
+          functionName: 'approve',
+          args: [effectiveContract, weiAmount],
         });
+        if (approveHash && publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 30_000 });
+        }
+
+        const onChainId = onChainBattleId ? BigInt(onChainBattleId) : BigInt(battleId);
+        txHash = await writeContractAsync({
+          address: effectiveContract,
+          abi: BATTLE_MANAGER_ABI,
+          functionName: 'placeBet',
+          args: [onChainId, betOnWarrior1, weiAmount],
+        });
+      } else {
+        // BattleManager not deployed — do NOT fall back to direct transfer (would burn tokens)
+        throw new Error('BattleManager contract not deployed — cannot place on-chain bet');
       }
 
       // Step 3: Wait for on-chain confirmation
@@ -293,17 +254,19 @@ export function useBattleBetting(
     setError(null);
 
     try {
-      // If contract address provided, do on-chain claim
-      if (contractAddress) {
-        await writeContractAsync({
-          address: contractAddress,
-          abi: PREDICTION_ARENA_BETTING_ABI,
+      // On-chain claim via BattleManager
+      let claimTxHash: string | undefined;
+      if (effectiveContract) {
+        const onChainId = onChainBattleId ? BigInt(onChainBattleId) : BigInt(battleId);
+        claimTxHash = await writeContractAsync({
+          address: effectiveContract,
+          abi: BATTLE_MANAGER_ABI,
           functionName: 'claimBet',
-          args: [BigInt(battleId)],
+          args: [onChainId],
         });
       }
 
-      // Claim via API (with 15s timeout)
+      // Sync claim to API (with 15s timeout)
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
 
@@ -313,6 +276,7 @@ export function useBattleBetting(
         body: JSON.stringify({
           battleId,
           bettorAddress: address,
+          ...(claimTxHash ? { claimTxHash } : {}),
         }),
         signal: controller.signal,
       });

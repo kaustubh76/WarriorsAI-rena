@@ -41,6 +41,9 @@ interface CycleData {
   w2IsHit: boolean | null;
   w1VrfSeed: string | null;
   w2VrfSeed: string | null;
+  // Score breakdown (Phase 5)
+  w1ScoreBreakdown: string | null;
+  w2ScoreBreakdown: string | null;
   startedAt: string;
   endedAt: string | null;
 }
@@ -67,6 +70,8 @@ interface BattleData {
   stakes: string;
   createdAt: string;
   completedAt: string | null;
+  // On-chain reference (DeFi hardening)
+  onChainBattleId: string | null;
   // Scheduling fields
   scheduledStartAt: string | null;
   lastCycleAt: string | null;
