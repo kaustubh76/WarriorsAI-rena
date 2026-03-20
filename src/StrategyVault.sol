@@ -31,6 +31,9 @@ contract StrategyVault is IStrategyVault, ReentrancyGuard, Ownable {
 
     mapping(uint256 => VaultState) private vaults;
 
+    /// @notice When true, rebalance validates allocation against NFT trait constraints
+    bool public traitConstraintsEnabled;
+
     constructor(
         address _crownToken,
         address _warriorsNFT,
@@ -94,6 +97,11 @@ contract StrategyVault is IStrategyVault, ReentrancyGuard, Ownable {
         if (!vault.active) revert StrategyVault__VaultNotActive();
         if (vault.owner != msg.sender && msg.sender != owner()) revert StrategyVault__NotNFTOwner();
         if (newAllocation[0] + newAllocation[1] + newAllocation[2] != BASIS_POINTS) revert StrategyVault__InvalidAllocation();
+
+        // On-chain trait constraint enforcement
+        if (traitConstraintsEnabled) {
+            _enforceTraitConstraints(nftId, newAllocation, vault.allocation);
+        }
 
         uint256 amount = vault.depositAmount;
         uint256[3] memory oldAlloc = vault.allocation;
@@ -179,11 +187,56 @@ contract StrategyVault is IStrategyVault, ReentrancyGuard, Ownable {
         return (address(highYieldPool), address(stablePool), address(lpPool));
     }
 
+    // ─── Admin ────────────────────────────────────────────
+
+    /// @notice Enable or disable on-chain trait constraint enforcement
+    function setTraitConstraintsEnabled(bool _enabled) external onlyOwner {
+        traitConstraintsEnabled = _enabled;
+    }
+
     // ─── Internal ───────────────────────────────────────
 
     function _depositToPool(IPool pool, uint256 amount) internal {
         if (amount == 0) return;
         crownToken.approve(address(pool), amount);
         pool.deposit(amount);
+    }
+
+    /**
+     * @notice On-chain trait constraint enforcement (mirrors defiConstraints.ts logic).
+     * @dev Reads NFT traits from WarriorsNFT and validates:
+     *      - ALPHA (strength) → max concentration per risky pool
+     *      - HEDGE (defence) → min stable pool allocation
+     *      - MOMENTUM (charisma) → max allocation shift per rebalance
+     */
+    function _enforceTraitConstraints(
+        uint256 nftId,
+        uint256[3] calldata proposed,
+        uint256[3] memory prevAllocation
+    ) internal view {
+        IWarriorsNFT.Traits memory traits = warriorsNFT.getTraits(nftId);
+
+        // ALPHA (strength) → max concentration: 2000 + 6000 * strength / 10000
+        uint256 maxConc = 2000 + (uint256(traits.strength) * 6000) / 10000;
+        require(proposed[0] <= maxConc, "HighYield exceeds concentration limit");
+        require(proposed[2] <= maxConc, "LP exceeds concentration limit");
+
+        // HEDGE (defence) → min stable: 500 + 6500 * defence / 10000
+        uint256 minStable = 500 + (uint256(traits.defence) * 6500) / 10000;
+        require(proposed[1] >= minStable, "Stable below hedge minimum");
+
+        // MOMENTUM (charisma) → max delta: 500 + 4500 * charisma / 10000
+        // Only enforce if previous allocation is non-zero (skip on first deposit)
+        if (prevAllocation[0] + prevAllocation[1] + prevAllocation[2] > 0) {
+            uint256 maxDelta = 500 + (uint256(traits.charisma) * 4500) / 10000;
+            uint256 totalShift = _absDiff(proposed[0], prevAllocation[0])
+                               + _absDiff(proposed[1], prevAllocation[1])
+                               + _absDiff(proposed[2], prevAllocation[2]);
+            require(totalShift / 2 <= maxDelta, "Rebalance delta exceeds momentum limit");
+        }
+    }
+
+    function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : b - a;
     }
 }

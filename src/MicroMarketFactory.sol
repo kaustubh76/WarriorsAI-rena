@@ -50,7 +50,9 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
         COMEBACK,           // Will trailing warrior win?
         PERFECT_ROUND,      // Zero damage taken in round?
         CRITICAL_HIT,       // Will there be a critical hit?
-        DOMINANT_WIN        // Winner with >50% health remaining?
+        DOMINANT_WIN,       // Winner with >50% health remaining?
+        YIELD_COMPARISON,   // Strategy: Will Warrior1 earn more yield this cycle?
+        ALLOCATION_SHIFT    // Reserved: Will warrior shift >50% to one pool? (not yet implemented)
     }
 
     /// @notice Warrior moves (matching Arena.sol)
@@ -141,6 +143,10 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
     uint256 public totalFeeCollected;
     uint256 public totalCreatorFeeCollected;
 
+    // Staking fee forwarding (Phase 3 DeFi hardening)
+    address public stakingContract;
+    uint256 public stakingFeePercent = 5000; // 50% of platform fees to stakers
+
     // Market mappings
     mapping(uint256 => MicroMarket) public markets;
     mapping(uint256 => mapping(address => Position)) public positions;
@@ -157,6 +163,14 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
 
     // Active markets
     uint256[] public activeMarketIds;
+
+    // ============ Modifiers ============
+
+    /// @dev Only owner or arena contract can record battle events and create/resolve markets.
+    modifier onlyAuthorized() {
+        if (msg.sender != owner() && msg.sender != arenaContract) revert MicroMarket__Unauthorized();
+        _;
+    }
 
     // ============ Events ============
     event MicroMarketCreated(
@@ -262,6 +276,115 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
         }
 
         battleStarted[battleId] = true;
+    }
+
+    /**
+     * @notice Create micro-markets for a strategy battle cycle.
+     *         Creates ROUND_WINNER + YIELD_COMPARISON for the given cycle.
+     * @param battleId The battle ID
+     * @param warrior1Id Warrior 1 NFT ID
+     * @param warrior2Id Warrior 2 NFT ID
+     * @param cycleNumber Current cycle (1-5)
+     * @param cycleEndTime When this cycle ends
+     * @return marketIds Array of created market IDs [roundWinner, yieldComparison]
+     */
+    function createStrategyMicroMarkets(
+        uint256 battleId,
+        uint256 warrior1Id,
+        uint256 warrior2Id,
+        uint8 cycleNumber,
+        uint256 cycleEndTime
+    ) external onlyAuthorized nonReentrant returns (uint256[] memory marketIds) {
+        if (battleId == 0) revert MicroMarket__InvalidBattle();
+        if (cycleNumber == 0 || cycleNumber > MAX_ROUNDS) revert MicroMarket__InvalidRound();
+
+        marketIds = new uint256[](2);
+
+        // 1. Round winner market (who earns more total score this cycle?)
+        marketIds[0] = _createRoundWinnerMarket(battleId, warrior1Id, warrior2Id, cycleNumber, cycleEndTime);
+
+        // 2. Yield comparison market (who earns more yield this cycle?)
+        uint256 yieldMarketId = nextMarketId++;
+        string memory question = string(
+            abi.encodePacked(
+                "Cycle ", _toString(uint256(cycleNumber)), ": Will Warrior #",
+                _toString(warrior1Id), " earn more yield than Warrior #",
+                _toString(warrior2Id), "?"
+            )
+        );
+
+        markets[yieldMarketId] = MicroMarket({
+            id: yieldMarketId,
+            battleId: battleId,
+            parentMarketId: 0,
+            marketType: MicroMarketType.YIELD_COMPARISON,
+            roundNumber: cycleNumber,
+            warrior1Id: warrior1Id,
+            warrior2Id: warrior2Id,
+            targetMove: PlayerMoves.STRIKE, // unused for yield comparison
+            threshold: 0,
+            question: question,
+            endTime: cycleEndTime,
+            resolutionTime: 0,
+            status: MarketStatus.ACTIVE,
+            outcome: Outcome.UNDECIDED,
+            yesPool: MIN_LIQUIDITY,
+            noPool: MIN_LIQUIDITY,
+            totalVolume: 0,
+            creator: msg.sender,
+            createdAt: block.timestamp
+        });
+
+        battleRoundMarkets[battleId][cycleNumber][MicroMarketType.YIELD_COMPARISON] = yieldMarketId;
+        battleMicroMarkets[battleId].push(yieldMarketId);
+        marketIds[1] = yieldMarketId;
+
+        if (!battleStarted[battleId]) {
+            battleStarted[battleId] = true;
+        }
+    }
+
+    /**
+     * @notice Resolve a strategy cycle's micro-markets based on yield data.
+     * @param battleId The battle ID
+     * @param cycleNumber The cycle that completed
+     * @param warrior1Yield Warrior 1's yield in this cycle (wei)
+     * @param warrior2Yield Warrior 2's yield in this cycle (wei)
+     */
+    function resolveStrategyCycle(
+        uint256 battleId,
+        uint8 cycleNumber,
+        uint256 warrior1Yield,
+        uint256 warrior2Yield
+    ) external onlyAuthorized {
+        // Resolve round winner market using yield as score equivalent
+        // In strategy battles: higher yield = winner
+        uint256 roundMarketId = battleRoundMarkets[battleId][cycleNumber][MicroMarketType.ROUND_WINNER];
+        if (roundMarketId != 0 && markets[roundMarketId].status == MarketStatus.ACTIVE) {
+            if (warrior1Yield > warrior2Yield) {
+                markets[roundMarketId].outcome = Outcome.YES;
+            } else if (warrior2Yield > warrior1Yield) {
+                markets[roundMarketId].outcome = Outcome.NO;
+            } else {
+                markets[roundMarketId].outcome = Outcome.DRAW;
+            }
+            markets[roundMarketId].status = MarketStatus.RESOLVED;
+            markets[roundMarketId].resolutionTime = block.timestamp;
+        }
+
+        // Resolve yield comparison market
+        uint256 yieldMarketId = battleRoundMarkets[battleId][cycleNumber][MicroMarketType.YIELD_COMPARISON];
+        if (yieldMarketId != 0 && markets[yieldMarketId].status == MarketStatus.ACTIVE) {
+            if (warrior1Yield > warrior2Yield) {
+                markets[yieldMarketId].outcome = Outcome.YES;
+            } else if (warrior2Yield > warrior1Yield) {
+                markets[yieldMarketId].outcome = Outcome.NO;
+            } else {
+                markets[yieldMarketId].outcome = Outcome.DRAW;
+            }
+            markets[yieldMarketId].status = MarketStatus.RESOLVED;
+            markets[yieldMarketId].resolutionTime = block.timestamp;
+        }
     }
 
     /**
@@ -456,7 +579,7 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
         uint256 creatorFee = (collateralAmount * CREATOR_FEE) / FEE_DENOMINATOR;
         uint256 amountAfterFee = collateralAmount - platformFee - creatorFee;
 
-        totalFeeCollected += platformFee;
+        _collectFeeWithStakingForward(platformFee);
         totalCreatorFeeCollected += creatorFee;
 
         // Calculate tokens using constant product
@@ -512,7 +635,7 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
 
         uint256 platformFee = (grossCollateral * PLATFORM_FEE) / FEE_DENOMINATOR;
         collateralReceived = grossCollateral - platformFee;
-        totalFeeCollected += platformFee;
+        _collectFeeWithStakingForward(platformFee);
 
         if (collateralReceived < minCollateralOut) revert MicroMarket__SlippageExceeded();
 
@@ -539,8 +662,7 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
      * @notice Record when a round starts
      * @dev Called by Arena contract or authorized source
      */
-    function onRoundStart(uint256 battleId, uint8 round) external {
-        // In production, add access control
+    function onRoundStart(uint256 battleId, uint8 round) external onlyAuthorized {
         if (!battleStarted[battleId]) revert MicroMarket__BattleNotStarted();
 
         battleRoundData[battleId][round].roundNumber = round;
@@ -557,8 +679,7 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
         uint256 warriorId,
         PlayerMoves move,
         uint8 round
-    ) external {
-        // In production, add access control
+    ) external onlyAuthorized {
         RoundData storage rd = battleRoundData[battleId][round];
 
         // Determine which warrior
@@ -585,8 +706,7 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
         PlayerMoves warrior2Move,
         bool warrior1Dodged,
         bool warrior2Dodged
-    ) external {
-        // In production, add access control
+    ) external onlyAuthorized {
         RoundData storage rd = battleRoundData[battleId][round];
         if (rd.isResolved) revert MicroMarket__RoundAlreadyResolved();
 
@@ -609,8 +729,7 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
     /**
      * @notice Resolve a micro-market
      */
-    function resolveMarket(uint256 marketId, Outcome outcome) external {
-        // In production, add oracle/access control
+    function resolveMarket(uint256 marketId, Outcome outcome) external onlyAuthorized {
         MicroMarket storage market = markets[marketId];
         if (market.status == MarketStatus.RESOLVED) revert MicroMarket__MarketAlreadyResolved();
 
@@ -698,7 +817,37 @@ contract MicroMarketFactory is Ownable, ReentrancyGuard {
         crownToken.transfer(to, amount);
     }
 
+    function setStakingContract(address _staking) external onlyOwner {
+        stakingContract = _staking;
+    }
+
+    function setStakingFeePercent(uint256 _percent) external onlyOwner {
+        require(_percent <= FEE_DENOMINATOR, "Exceeds 100%");
+        stakingFeePercent = _percent;
+    }
+
     // ============ Internal Functions ============
+
+    /**
+     * @dev Collect fee with optional forwarding to staking contract.
+     *      If staking contract is set, forwards stakingFeePercent of the fee.
+     */
+    function _collectFeeWithStakingForward(uint256 fee) internal {
+        if (stakingContract != address(0) && stakingFeePercent > 0) {
+            uint256 stakerShare = (fee * stakingFeePercent) / FEE_DENOMINATOR;
+            uint256 protocolShare = fee - stakerShare;
+            totalFeeCollected += protocolShare;
+            crownToken.approve(stakingContract, stakerShare);
+            (bool success,) = stakingContract.call(
+                abi.encodeWithSignature("distributeFees(uint256)", stakerShare)
+            );
+            if (!success) {
+                totalFeeCollected += stakerShare;
+            }
+        } else {
+            totalFeeCollected += fee;
+        }
+    }
 
     function _createRoundWinnerMarket(
         uint256 battleId,

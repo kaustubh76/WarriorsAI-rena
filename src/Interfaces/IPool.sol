@@ -20,6 +20,8 @@ interface IPool {
     function withdraw(uint256 amount) external;
     function claimYield() external returns (uint256);
     function getAPY() external view returns (uint256);
+    function getEffectiveAPY() external view returns (uint256);
+    function getUtilization() external view returns (uint256);
     function getBalance(address user) external view returns (uint256);
     function getPendingYield(address user) external view returns (uint256);
 }

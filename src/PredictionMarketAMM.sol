@@ -55,6 +55,10 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
     uint256 public nextMarketId = 1;
     uint256 public totalFeeCollected;
 
+    // Staking fee forwarding (Phase 3 DeFi hardening)
+    address public stakingContract;       // CRwNStaking address (0 = disabled)
+    uint256 public stakingFeePercent = 5000; // 50% of fees forwarded to stakers
+
     // AI Agent tracking
     mapping(uint256 => mapping(uint256 => bool)) public isAIAgentTrade; // marketId => tradeId => isAgent
     uint256 public nextTradeId = 1;
@@ -235,7 +239,7 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
         // Calculate fee
         uint256 fee = (collateralAmount * PLATFORM_FEE) / FEE_DENOMINATOR;
         uint256 amountAfterFee = collateralAmount - fee;
-        totalFeeCollected += fee;
+        _collectFeeWithStakingForward(fee);
 
         // Calculate tokens out using constant product
         tokensReceived = _calculateBuyTokens(market, isYes, amountAfterFee);
@@ -296,7 +300,7 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
         // Apply fee
         uint256 fee = (grossCollateral * PLATFORM_FEE) / FEE_DENOMINATOR;
         collateralReceived = grossCollateral - fee;
-        totalFeeCollected += fee;
+        _collectFeeWithStakingForward(fee);
 
         if (collateralReceived < minCollateralOut) revert PredictionMarket__SlippageExceeded();
 
@@ -579,6 +583,17 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
         emit FeesCollected(amount, to);
     }
 
+    /// @notice Set staking contract for fee forwarding. 0 = disabled.
+    function setStakingContract(address _staking) external onlyOwner {
+        stakingContract = _staking;
+    }
+
+    /// @notice Set percentage of fees forwarded to staking (basis points, max 10000).
+    function setStakingFeePercent(uint256 _percent) external onlyOwner {
+        require(_percent <= FEE_DENOMINATOR, "Max 100%");
+        stakingFeePercent = _percent;
+    }
+
     function setAIAgentRegistry(address _registry) external onlyOwner {
         address oldRegistry = address(aiAgentRegistry);
         aiAgentRegistry = IAIAgentRegistry(_registry);
@@ -623,7 +638,7 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
         // Calculate fee
         uint256 fee = (collateralAmount * PLATFORM_FEE) / FEE_DENOMINATOR;
         uint256 amountAfterFee = collateralAmount - fee;
-        totalFeeCollected += fee;
+        _collectFeeWithStakingForward(fee);
 
         // Calculate tokens out
         tokensReceived = _calculateBuyTokens(market, isYes, amountAfterFee);
@@ -699,7 +714,7 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
         uint256 totalFee = platformFee + copyTradeFee;
         uint256 amountAfterFee = collateralAmount - totalFee;
 
-        totalFeeCollected += platformFee;
+        _collectFeeWithStakingForward(platformFee);
 
         // Record copy trade fee for agent operator
         if (address(aiAgentRegistry) != address(0)) {
@@ -740,6 +755,30 @@ contract PredictionMarketAMM is IPredictionMarket, Ownable, ReentrancyGuard, IER
     }
 
     // ============ Internal ============
+
+    /**
+     * @dev Collect fee with optional forwarding to staking contract.
+     *      If staking contract is set, forwards stakingFeePercent of the fee.
+     */
+    function _collectFeeWithStakingForward(uint256 fee) internal {
+        if (stakingContract != address(0) && stakingFeePercent > 0) {
+            uint256 stakerShare = (fee * stakingFeePercent) / FEE_DENOMINATOR;
+            uint256 protocolShare = fee - stakerShare;
+            totalFeeCollected += protocolShare;
+            // Forward staker share — requires this contract to have approved staking
+            crownToken.approve(stakingContract, stakerShare);
+            // Call distributeFees on staking contract (fire-and-forget on failure)
+            (bool success,) = stakingContract.call(
+                abi.encodeWithSignature("distributeFees(uint256)", stakerShare)
+            );
+            if (!success) {
+                // If staking forward fails, keep all fees in protocol
+                totalFeeCollected += stakerShare;
+            }
+        } else {
+            totalFeeCollected += fee;
+        }
+    }
 
     function _calculateBuyTokens(
         Market storage market,

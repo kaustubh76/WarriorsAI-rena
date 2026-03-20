@@ -15,8 +15,12 @@ import {IPool} from "../Interfaces/IPool.sol";
 contract BasePool is IPool, ReentrancyGuard, Ownable {
     ICrownToken public immutable crownToken;
 
-    uint256 public apyBasisPoints; // e.g. 1800 = 18%
+    uint256 public apyBasisPoints; // e.g. 1800 = 18% (base APY)
     string public poolName;
+
+    // Dynamic APY: utilization-based (set maxCapacity > 0 to enable)
+    uint256 public maxCapacity;              // 0 = unlimited / static APY
+    uint256 public targetUtilization = 5000; // 50% in basis points
 
     struct UserInfo {
         uint256 balance;
@@ -39,6 +43,9 @@ contract BasePool is IPool, ReentrancyGuard, Ownable {
 
     // ─── Deposits ───────────────────────────────────────
 
+    /// @notice Deposit CRwN into the pool. No hard cap on deposits.
+    /// @dev When maxCapacity > 0, deposits beyond capacity reduce effective APY
+    ///      (dynamic APY floors at 50% of base). This is a soft cap by design.
     function deposit(uint256 amount) external override nonReentrant {
         if (amount == 0) revert Pool__InvalidAmount();
 
@@ -90,8 +97,9 @@ contract BasePool is IPool, ReentrancyGuard, Ownable {
         UserInfo storage info = users[user];
         if (info.balance > 0 && info.lastAccrualTime > 0) {
             uint256 elapsed = block.timestamp - info.lastAccrualTime;
-            // yield = balance * apy * elapsed / (365 days * 10000)
-            uint256 yield_ = (info.balance * apyBasisPoints * elapsed) / (365 days * 10000);
+            uint256 effectiveAPY = getEffectiveAPY();
+            // yield = balance * effectiveAPY * elapsed / (365 days * 10000)
+            uint256 yield_ = (info.balance * effectiveAPY * elapsed) / (365 days * 10000);
             info.accruedYield += yield_;
         }
         info.lastAccrualTime = block.timestamp;
@@ -99,8 +107,37 @@ contract BasePool is IPool, ReentrancyGuard, Ownable {
 
     // ─── Views ──────────────────────────────────────────
 
+    /// @notice Returns the base APY (static, owner-set)
     function getAPY() external view override returns (uint256) {
         return apyBasisPoints;
+    }
+
+    /**
+     * @notice Returns the effective APY based on pool utilization.
+     * @dev When maxCapacity == 0, returns static apyBasisPoints (backward compatible).
+     *      When maxCapacity > 0, APY scales inversely with utilization:
+     *        - Under-utilized → APY increases (attracts deposits)
+     *        - Over-utilized → APY decreases (pushes capital to other pools)
+     *        - Capped between 50% and 200% of base APY
+     */
+    function getEffectiveAPY() public view returns (uint256) {
+        if (maxCapacity == 0) return apyBasisPoints;
+
+        uint256 utilization = (totalDeposits * 10000) / maxCapacity;
+        if (utilization == 0) utilization = 1; // prevent division by zero
+
+        // Inverse relationship: multiplier = targetUtilization / actualUtilization
+        uint256 multiplier = (targetUtilization * 10000) / utilization;
+        if (multiplier > 20000) multiplier = 20000; // cap at 2x
+        if (multiplier < 5000) multiplier = 5000;   // floor at 0.5x
+
+        return (apyBasisPoints * multiplier) / 10000;
+    }
+
+    /// @notice Returns current pool utilization in basis points (0-10000+)
+    function getUtilization() external view returns (uint256) {
+        if (maxCapacity == 0) return 0;
+        return (totalDeposits * 10000) / maxCapacity;
     }
 
     function getBalance(address user) external view override returns (uint256) {
@@ -111,7 +148,8 @@ contract BasePool is IPool, ReentrancyGuard, Ownable {
         UserInfo storage info = users[user];
         if (info.balance == 0 || info.lastAccrualTime == 0) return info.accruedYield;
         uint256 elapsed = block.timestamp - info.lastAccrualTime;
-        uint256 pending = (info.balance * apyBasisPoints * elapsed) / (365 days * 10000);
+        uint256 effectiveAPY = getEffectiveAPY();
+        uint256 pending = (info.balance * effectiveAPY * elapsed) / (365 days * 10000);
         return info.accruedYield + pending;
     }
 
@@ -121,6 +159,17 @@ contract BasePool is IPool, ReentrancyGuard, Ownable {
         uint256 old = apyBasisPoints;
         apyBasisPoints = _newAPY;
         emit APYUpdated(old, _newAPY);
+    }
+
+    /// @notice Set max capacity for dynamic APY. 0 = static APY (backward compatible).
+    function setMaxCapacity(uint256 _maxCapacity) external onlyOwner {
+        maxCapacity = _maxCapacity;
+    }
+
+    /// @notice Set target utilization (basis points, 1-10000). Default 5000 (50%).
+    function setTargetUtilization(uint256 _target) external onlyOwner {
+        require(_target > 0 && _target <= 10000, "Invalid target");
+        targetUtilization = _target;
     }
 
     /// @notice Owner funds the pool reserve so yield can be paid out
