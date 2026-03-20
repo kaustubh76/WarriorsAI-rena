@@ -35,15 +35,12 @@ import {
   MAX_RATING_DIFFERENCE,
   type ArenaTier,
 } from '@/lib/arenaTiers';
-import { MOVE_MAP, classifyStrategyProfile } from '@/constants/defiTraitMapping';
 import { generateVrfSeed, determineHitMiss, applyHitMissModifier } from '@/lib/vrfScoring';
 import type { WarriorTraits, DebateMove, ScoreBreakdown } from '@/types/predictionArena';
 import { chainsToContracts, crownTokenAbi, warriorsNFTAbi } from '@/constants';
 import { STRATEGY_VAULT_ABI } from '@/constants/abis/strategyVaultAbi';
+import { BATTLE_MANAGER_ABI } from '@/constants/abis/battleManagerAbi';
 import {
-  createWalletClient,
-  createPublicClient,
-  http,
   formatEther,
   parseEther,
   keccak256,
@@ -51,7 +48,8 @@ import {
   type Address,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { flowTestnet } from 'viem/chains';
+import { createFlowPublicClient, createFlowWalletClient } from '@/lib/flowClient';
+import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
 
 // ─── Constants ────────────────────────────────────────
 
@@ -63,6 +61,43 @@ const MAX_CYCLES = 5;
 const MIN_VAULT_BALANCE_WEI = parseEther('5');  // 5 CRwN minimum to battle
 const MAX_BALANCE_RATIO = 20000n;                // 2.0x as basis points (20000 = 2x)
 const DEFAULT_TRAITS: WarriorTraits = { strength: 5000, wit: 5000, charisma: 5000, defence: 5000, luck: 5000 };
+
+// BattleManager on-chain integration
+const BATTLE_MANAGER_ADDRESS = contracts.battleManager as Address | undefined;
+const isBattleManagerDeployed = BATTLE_MANAGER_ADDRESS && BATTLE_MANAGER_ADDRESS !== '0x0000000000000000000000000000000000000000';
+
+// MicroMarketFactory on-chain integration
+const MICRO_MARKET_ADDRESS = contracts.microMarketFactory as Address | undefined;
+const isMicroMarketDeployed = MICRO_MARKET_ADDRESS && MICRO_MARKET_ADDRESS !== '0x0000000000000000000000000000000000000000';
+
+// Minimal ABI fragments for micro-market strategy calls
+const MICRO_MARKET_STRATEGY_ABI = [
+  {
+    name: 'createStrategyMicroMarkets',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'battleId', type: 'uint256' },
+      { name: 'warrior1Id', type: 'uint256' },
+      { name: 'warrior2Id', type: 'uint256' },
+      { name: 'cycleNumber', type: 'uint8' },
+      { name: 'cycleEndTime', type: 'uint256' },
+    ],
+    outputs: [{ name: 'marketIds', type: 'uint256[]' }],
+  },
+  {
+    name: 'resolveStrategyCycle',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'battleId', type: 'uint256' },
+      { name: 'cycleNumber', type: 'uint8' },
+      { name: 'warrior1Yield', type: 'uint256' },
+      { name: 'warrior2Yield', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+] as const;
 
 /** Map DebateMove enum values to DeFi move names for display */
 const DEFI_MOVE_MAP: Record<string, string> = {
@@ -85,7 +120,7 @@ interface WarriorCycleResult {
   balanceAfter: string;
   yieldEarned: string;
   txHash: string | null;
-  score: ScoreBreakdown;
+  score: ScoreBreakdown & { strategyBreakdown?: string };
   rationale: string;
 }
 
@@ -115,6 +150,14 @@ interface SettlementResult {
 // ─── Service ──────────────────────────────────────────
 
 class StrategyArenaService {
+
+  // ─── Shared server wallet clients (timeout + retry via flowClient.ts) ───
+  private getServerClients() {
+    const pk = process.env.SERVER_WALLET_PRIVATE_KEY;
+    if (!pk) return null;
+    const account = privateKeyToAccount(pk as `0x${string}`);
+    return { wc: createFlowWalletClient(account), pc: createFlowPublicClient() };
+  }
 
   // ═══════════════════════════════════════════════════════
   // CREATE STRATEGY BATTLE
@@ -203,6 +246,43 @@ class StrategyArenaService {
 
     console.log(`[StrategyArena] Created battle ${battle.id}: NFT#${warrior1Id} vs NFT#${warrior2Id}`);
 
+    // On-chain: register battle in BattleManager (escrows stakes)
+    if (isBattleManagerDeployed && BATTLE_MANAGER_ADDRESS) {
+      try {
+        const clients = this.getServerClients();
+        if (clients) {
+          const { wc, pc } = clients;
+
+          const createHash = await wc.writeContract({
+            address: BATTLE_MANAGER_ADDRESS,
+            abi: BATTLE_MANAGER_ABI,
+            functionName: 'createBattle',
+            args: [BigInt(warrior1Id), BigInt(warrior2Id), BigInt(stakes)],
+          });
+          const receipt = await pc.waitForTransactionReceipt({ hash: createHash, timeout: 30_000 });
+
+          // Store on-chain battle ID from the BattleCreated event
+          await prisma.predictionBattle.update({
+            where: { id: battle.id },
+            data: {
+              onChainBattleId: receipt.logs?.[0]?.topics?.[1] ?? null,
+              txHash: createHash,
+            },
+          });
+          console.log(`[StrategyArena] On-chain battle created: tx ${createHash}`);
+        }
+      } catch (chainErr) {
+        console.error(`[StrategyArena] On-chain battle creation failed (non-fatal):`, chainErr);
+        await sendAlertWithRateLimit(
+          `arena:create-onchain:${battle.id}`,
+          'On-Chain Battle Creation Failed',
+          `Battle ${battle.id} created in DB but not on-chain. No escrow held.`,
+          'error',
+          { battleId: battle.id, error: chainErr instanceof Error ? chainErr.message : String(chainErr) }
+        ).catch(() => {});
+      }
+    }
+
     // Fire-and-forget: cache NFT image URLs so list page can show avatars
     Promise.all([
       vaultService.getNFTImageUrl(warrior1Id),
@@ -244,6 +324,34 @@ class StrategyArenaService {
       console.log(`[StrategyArena] Betting closed for battle ${battleId} (battle started)`);
     }
 
+    // 1b. Create micro-markets for this cycle (non-fatal)
+    if (isMicroMarketDeployed && MICRO_MARKET_ADDRESS && battle.onChainBattleId) {
+      try {
+        const clients = this.getServerClients();
+        if (clients) {
+          const { wc, pc } = clients;
+
+          const cycleEndTime = BigInt(Math.floor(Date.now() / 1000) + 120); // 2 min from now
+          const createMmHash = await wc.writeContract({
+            address: MICRO_MARKET_ADDRESS,
+            abi: MICRO_MARKET_STRATEGY_ABI,
+            functionName: 'createStrategyMicroMarkets',
+            args: [
+              BigInt(battle.onChainBattleId),
+              BigInt(battle.warrior1Id),
+              BigInt(battle.warrior2Id),
+              roundNumber,
+              cycleEndTime,
+            ],
+          });
+          await pc.waitForTransactionReceipt({ hash: createMmHash, timeout: 30_000 });
+          console.log(`[StrategyArena] Micro-markets created for cycle ${roundNumber}: tx ${createMmHash}`);
+        }
+      } catch (mmErr) {
+        console.error(`[StrategyArena] Micro-market creation failed (non-fatal):`, mmErr);
+      }
+    }
+
     // 2. Get pool APYs (shared for both warriors)
     let poolAPYs: { highYield: number; stable: number; lp: number };
     try {
@@ -279,7 +387,7 @@ class StrategyArenaService {
     // 5b. Fetch latest Flow block hash for VRF seed
     let latestBlockHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
     try {
-      const vrfClient = createPublicClient({ chain: flowTestnet, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
+      const vrfClient = createFlowPublicClient();
       const latestBlock = await vrfClient.getBlock({ blockTag: 'latest' });
       latestBlockHash = latestBlock.hash;
     } catch {
@@ -335,13 +443,10 @@ class StrategyArenaService {
       w2Result.score.finalScore > w1Result.score.finalScore ? 'warrior2' :
       'draw';
 
-    // 9. Update DB in transaction
-    const newW1Total = (BigInt(battle.w1TotalYield || '0') + BigInt(w1Result.yieldEarned)).toString();
-    const newW2Total = (BigInt(battle.w2TotalYield || '0') + BigInt(w2Result.yieldEarned)).toString();
-
-    await prisma.$transaction([
+    // 9. Update DB in interactive transaction (fresh read prevents stale yield overwrites)
+    await prisma.$transaction(async (tx) => {
       // Create round record
-      prisma.predictionRound.create({
+      await tx.predictionRound.create({
         data: {
           battleId,
           roundNumber,
@@ -374,22 +479,86 @@ class StrategyArenaService {
           w2VrfSeed: w2VrfSeed,
           w1IsHit: w1HitResult.isHit,
           w2IsHit: w2HitResult.isHit,
+          // Phase 5: Score breakdown for UI visualization
+          w1ScoreBreakdown: w1Result.score.strategyBreakdown,
+          w2ScoreBreakdown: w2Result.score.strategyBreakdown,
           endedAt: new Date(),
         },
-      }),
-      // Update battle
-      prisma.predictionBattle.update({
+      });
+
+      // Fresh read inside transaction — prevents stale yield overwrite under concurrency
+      const current = await tx.predictionBattle.findUniqueOrThrow({ where: { id: battleId } });
+      const freshW1Total = (BigInt(current.w1TotalYield || '0') + BigInt(w1Result.yieldEarned)).toString();
+      const freshW2Total = (BigInt(current.w2TotalYield || '0') + BigInt(w2Result.yieldEarned)).toString();
+
+      // Update battle (atomic increment for scores, fresh-read for yield strings)
+      await tx.predictionBattle.update({
         where: { id: battleId },
         data: {
           currentRound: roundNumber,
-          warrior1Score: battle.warrior1Score + w1Result.score.finalScore,
-          warrior2Score: battle.warrior2Score + w2Result.score.finalScore,
-          w1TotalYield: newW1Total,
-          w2TotalYield: newW2Total,
+          warrior1Score: { increment: w1Result.score.finalScore },
+          warrior2Score: { increment: w2Result.score.finalScore },
+          w1TotalYield: freshW1Total,
+          w2TotalYield: freshW2Total,
           lastCycleAt: new Date(),
         },
-      }),
-    ]);
+      });
+    });
+
+    // 9b. Resolve micro-markets for this cycle (non-fatal)
+    if (isMicroMarketDeployed && MICRO_MARKET_ADDRESS && battle.onChainBattleId) {
+      try {
+        const clients = this.getServerClients();
+        if (clients) {
+          const { wc, pc } = clients;
+
+          const resolveMmHash = await wc.writeContract({
+            address: MICRO_MARKET_ADDRESS,
+            abi: MICRO_MARKET_STRATEGY_ABI,
+            functionName: 'resolveStrategyCycle',
+            args: [
+              BigInt(battle.onChainBattleId),
+              roundNumber,
+              BigInt(w1Result.yieldEarned),
+              BigInt(w2Result.yieldEarned),
+            ],
+          });
+          await pc.waitForTransactionReceipt({ hash: resolveMmHash, timeout: 30_000 });
+          console.log(`[StrategyArena] Micro-markets resolved for cycle ${roundNumber}: tx ${resolveMmHash}`);
+        }
+      } catch (mmErr) {
+        console.error(`[StrategyArena] Micro-market resolution failed (non-fatal):`, mmErr);
+      }
+    }
+
+    // 9c. Record cycle score on-chain via BattleManager
+    if (isBattleManagerDeployed && BATTLE_MANAGER_ADDRESS && battle.onChainBattleId) {
+      try {
+        const clients = this.getServerClients();
+        if (clients) {
+          const { wc, pc } = clients;
+
+          const onChainId = BigInt(battle.onChainBattleId);
+          const scoreHash = await wc.writeContract({
+            address: BATTLE_MANAGER_ADDRESS,
+            abi: BATTLE_MANAGER_ABI,
+            functionName: 'recordCycleScore',
+            args: [onChainId, BigInt(w1Result.score.finalScore), BigInt(w2Result.score.finalScore)],
+          });
+          await pc.waitForTransactionReceipt({ hash: scoreHash, timeout: 30_000 });
+          console.log(`[StrategyArena] On-chain cycle ${roundNumber} scored: tx ${scoreHash}`);
+        }
+      } catch (chainErr) {
+        console.error(`[StrategyArena] On-chain score recording failed (non-fatal):`, chainErr);
+        await sendAlertWithRateLimit(
+          `arena:score-onchain:${battle.id}`,
+          'On-Chain Score Recording Failed',
+          `Battle ${battle.id} cycle ${roundNumber} score not recorded on-chain.`,
+          'warning',
+          { battleId: battle.id, roundNumber, error: chainErr instanceof Error ? chainErr.message : String(chainErr) }
+        ).catch(() => {});
+      }
+    }
 
     // 10. Auto-settle if final cycle
     let settled = false;
@@ -562,33 +731,54 @@ class StrategyArenaService {
       });
     });
 
-    // On-chain settlement: transfer staked CRwN to winner, demote loser NFT (P4-8 + P4-12)
+    // On-chain settlement via BattleManager (escrow payout + ELO) or legacy server wallet
     try {
-      const serverPrivateKey = process.env.SERVER_WALLET_PRIVATE_KEY;
-      const crwnAddress = contracts.crownToken as Address;
+      const clients = this.getServerClients();
 
-      if (serverPrivateKey && crwnAddress && crwnAddress !== '0x0000000000000000000000000000000000000000') {
-        const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
-        const wc = createWalletClient({ account, chain: flowTestnet, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
-        const pc = createPublicClient({ chain: flowTestnet, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
+      if (clients) {
+        const { wc, pc } = clients;
 
-        // 1. Transfer staked pot (battle.stakes wei) to winner (non-fatal if server wallet lacks balance)
-        if (!isDraw && winnerOwner) {
+        if (isBattleManagerDeployed && BATTLE_MANAGER_ADDRESS && battle.onChainBattleId) {
+          // On-chain: BattleManager handles escrow payout + ELO update
           try {
-            const payoutHash = await wc.writeContract({
-              address: crwnAddress,
-              abi: crownTokenAbi,
-              functionName: 'transfer',
-              args: [winnerOwner as Address, BigInt(battle.stakes)],
+            const onChainId = BigInt(battle.onChainBattleId);
+            const settleHash = await wc.writeContract({
+              address: BATTLE_MANAGER_ADDRESS,
+              abi: BATTLE_MANAGER_ABI,
+              functionName: 'settleBattle',
+              args: [onChainId],
             });
-            await pc.waitForTransactionReceipt({ hash: payoutHash, timeout: 30_000 });
-            console.log(`[StrategyArena] CRwN payout sent to ${winnerOwner}: ${formatEther(BigInt(battle.stakes))} CRwN`);
-          } catch (payoutErr) {
-            console.error(`[StrategyArena] CRwN payout failed (non-fatal):`, payoutErr);
+            await pc.waitForTransactionReceipt({ hash: settleHash, timeout: 30_000 });
+            console.log(`[StrategyArena] On-chain settlement: tx ${settleHash}`);
+
+            // Mark betting pool as on-chain settled
+            await prisma.battleBettingPool.updateMany({
+              where: { battleId },
+              data: { onChainSettled: true },
+            });
+          } catch (settleErr) {
+            console.error(`[StrategyArena] On-chain settlement failed (non-fatal):`, settleErr);
+            await sendAlertWithRateLimit(
+              `arena:settle-onchain:${battleId}`,
+              'On-Chain Settlement Failed',
+              `Battle ${battleId} settled in DB but contract settleBattle() failed. Bettors cannot claim.`,
+              'critical',
+              { battleId, onChainBattleId: battle.onChainBattleId, error: settleErr instanceof Error ? settleErr.message : String(settleErr) }
+            ).catch(() => {});
           }
+        } else {
+          // BattleManager not deployed or missing onChainBattleId — do NOT fall back to server-wallet transfer
+          console.error(`[StrategyArena] On-chain settlement SKIPPED for ${battleId} — BattleManager not available`);
+          await sendAlertWithRateLimit(
+            `arena:settle-no-contract:${battleId}`,
+            'Settlement Blocked: No BattleManager',
+            `Battle ${battleId} cannot settle on-chain. Stakes: ${formatEther(BigInt(battle.stakes))} CRwN.`,
+            'critical',
+            { battleId, stakes: battle.stakes }
+          ).catch(() => {});
         }
 
-        // 2. Demote loser NFT ranking via WarriorsNFT.demoteNFT() (P4-12)
+        // Demote loser NFT ranking via WarriorsNFT.demoteNFT()
         const warriorsNFTAddress = contracts.warriorsNFT as Address;
         if (!isDraw && loserId && warriorsNFTAddress && warriorsNFTAddress !== '0x0000000000000000000000000000000000000000') {
           try {
@@ -707,6 +897,67 @@ class StrategyArenaService {
       warrior2TotalYield: battle.w2TotalYield || '0',
       eloChanges: { w1NewRating, w2NewRating },
     };
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // RETRY ON-CHAIN SETTLEMENT
+  // ═══════════════════════════════════════════════════════
+
+  async retryOnChainSettlement(battleId: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
+    const battle = await prisma.predictionBattle.findUnique({ where: { id: battleId } });
+    if (!battle) return { success: false, error: 'Battle not found' };
+    if (battle.status !== 'completed') return { success: false, error: 'Battle not completed in DB' };
+    if (!battle.onChainBattleId) return { success: false, error: 'No onChainBattleId' };
+    if (!isBattleManagerDeployed || !BATTLE_MANAGER_ADDRESS) return { success: false, error: 'BattleManager not deployed' };
+
+    const pool = await prisma.battleBettingPool.findFirst({ where: { battleId } });
+    if (pool?.onChainSettled) return { success: true, txHash: 'already-settled' };
+
+    const clients = this.getServerClients();
+    if (!clients) return { success: false, error: 'SERVER_WALLET_PRIVATE_KEY not set' };
+
+    try {
+      const { wc, pc } = clients;
+      const onChainId = BigInt(battle.onChainBattleId);
+      const settleHash = await wc.writeContract({
+        address: BATTLE_MANAGER_ADDRESS,
+        abi: BATTLE_MANAGER_ABI,
+        functionName: 'settleBattle',
+        args: [onChainId],
+      });
+      await pc.waitForTransactionReceipt({ hash: settleHash, timeout: 30_000 });
+
+      await prisma.battleBettingPool.updateMany({
+        where: { battleId },
+        data: { onChainSettled: true },
+      });
+
+      console.log(`[StrategyArena] Retry on-chain settlement succeeded for ${battleId}: tx ${settleHash}`);
+      return { success: true, txHash: settleHash };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+
+      // Contract reverts with BattleManager__BattleNotActive if already settled by another process
+      if (errorMsg.includes('BattleNotActive') || errorMsg.includes('already settled')) {
+        console.log(`[StrategyArena] Retry: battle ${battleId} already settled on-chain — marking DB`);
+        await prisma.battleBettingPool.updateMany({
+          where: { battleId },
+          data: { onChainSettled: true },
+        });
+        return { success: true, txHash: 'already-settled-on-chain' };
+      }
+
+      // Real error — alert
+      console.error(`[StrategyArena] Retry on-chain settlement failed for ${battleId}:`, err);
+      await sendAlertWithRateLimit(
+        `arena:settle-retry:${battleId}`,
+        'On-Chain Settlement Retry Failed',
+        `Battle ${battleId} retry settlement failed. Manual intervention required.`,
+        'critical',
+        { battleId, error: errorMsg }
+      ).catch(() => {});
+      return { success: false, error: errorMsg };
+    }
   }
 
   // ═══════════════════════════════════════════════════════
@@ -962,7 +1213,7 @@ class StrategyArenaService {
     opponentTraits: WarriorTraits,
     arenaStats?: { currentStreak: number; totalBattles: number } | null,
     isHit: boolean = true,
-  ): ScoreBreakdown {
+  ): ScoreBreakdown & { strategyBreakdown: string } {
     // Yield RATE normalization: yield/balance as basis points, scaled to 0-100
     // Max expected yield rate per cycle = 10% (1000 bps) → score 100
     const MAX_YIELD_RATE_BPS = 1000n;
@@ -995,9 +1246,29 @@ class StrategyArenaService {
     );
 
     // Apply VRF hit/miss modifier: hit = full score, miss = 0.4x
+    const vrfModifier = isHit ? 1.0 : 0.4;
+    const finalScore = applyHitMissModifier(rawResult.finalScore, isHit);
+
+    // Build strategy-specific score breakdown for storage (Phase 5)
+    const yieldComponent = Math.round(yieldNormalized * 6); // 60% weight → max 600
+    const aiQualityComponent = Math.round(aiBaseScore * 4);  // 40% weight → max 400
+    const traitBonusComponent = rawResult.traitBonus;
+    const moveCounterComponent = rawResult.counterBonus;
+
+    const strategyBreakdown = JSON.stringify({
+      yieldComponent,
+      aiQualityComponent,
+      traitBonusComponent,
+      moveCounterComponent,
+      vrfModifier,
+      yieldNormalized,
+      aiBaseScore,
+    });
+
     return {
       ...rawResult,
-      finalScore: applyHitMissModifier(rawResult.finalScore, isHit),
+      finalScore,
+      strategyBreakdown,
     };
   }
 
@@ -1009,23 +1280,11 @@ class StrategyArenaService {
     nftId: number,
     newAllocation: [bigint, bigint, bigint]
   ): Promise<string> {
-    const serverPrivateKey = process.env.SERVER_WALLET_PRIVATE_KEY;
-    if (!serverPrivateKey) {
+    const clients = this.getServerClients();
+    if (!clients) {
       throw new Error('SERVER_WALLET_PRIVATE_KEY not set');
     }
-
-    const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
-
-    const walletClient = createWalletClient({
-      account,
-      chain: flowTestnet,
-      transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
-    });
-
-    const publicClient = createPublicClient({
-      chain: flowTestnet,
-      transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
-    });
+    const { wc: walletClient, pc: publicClient } = clients;
 
     const hash = await walletClient.writeContract({
       address: contracts.strategyVault as Address,

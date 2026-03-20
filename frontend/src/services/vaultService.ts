@@ -203,21 +203,21 @@ class VaultService {
         client.readContract({
           address: highYieldAddr as Address,
           abi: POOL_ABI,
-          functionName: 'getAPY',
+          functionName: 'getEffectiveAPY',
         })
       ),
       executeWithFallback((client) =>
         client.readContract({
           address: stableAddr as Address,
           abi: POOL_ABI,
-          functionName: 'getAPY',
+          functionName: 'getEffectiveAPY',
         })
       ),
       executeWithFallback((client) =>
         client.readContract({
           address: lpAddr as Address,
           abi: POOL_ABI,
-          functionName: 'getAPY',
+          functionName: 'getEffectiveAPY',
         })
       ),
     ]);
