@@ -17,7 +17,9 @@ export enum MicroMarketType {
   COMEBACK = 4,
   PERFECT_ROUND = 5,
   CRITICAL_HIT = 6,
-  DOMINANT_WIN = 7
+  DOMINANT_WIN = 7,
+  YIELD_COMPARISON = 8,
+  ALLOCATION_SHIFT = 9
 }
 
 export enum PlayerMoves {
@@ -247,7 +249,9 @@ export function getMarketTypeLabel(type: MicroMarketType): string {
     [MicroMarketType.COMEBACK]: 'Comeback',
     [MicroMarketType.PERFECT_ROUND]: 'Perfect Round',
     [MicroMarketType.CRITICAL_HIT]: 'Critical Hit',
-    [MicroMarketType.DOMINANT_WIN]: 'Dominant Win'
+    [MicroMarketType.DOMINANT_WIN]: 'Dominant Win',
+    [MicroMarketType.YIELD_COMPARISON]: 'Yield Comparison',
+    [MicroMarketType.ALLOCATION_SHIFT]: 'Allocation Shift'
   };
   return labels[type] ?? 'Unknown';
 }
@@ -304,7 +308,9 @@ export function getMarketTypeColor(type: MicroMarketType): string {
     [MicroMarketType.COMEBACK]: 'green',
     [MicroMarketType.PERFECT_ROUND]: 'gold',
     [MicroMarketType.CRITICAL_HIT]: 'pink',
-    [MicroMarketType.DOMINANT_WIN]: 'cyan'
+    [MicroMarketType.DOMINANT_WIN]: 'cyan',
+    [MicroMarketType.YIELD_COMPARISON]: 'emerald',
+    [MicroMarketType.ALLOCATION_SHIFT]: 'amber'
   };
   return colors[type] ?? 'gray';
 }

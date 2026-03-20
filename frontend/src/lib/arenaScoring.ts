@@ -8,9 +8,13 @@ import {
   DebateMove,
   TraitModifiers,
   ScoreBreakdown,
+  StrategyScoreBreakdown,
   MOVE_COUNTERS,
   MOVE_TRAIT_SCALING,
 } from '../types/predictionArena';
+
+// Re-export types used by consuming services
+export type { ScoreBreakdown, StrategyScoreBreakdown };
 
 // ============================================
 // CONSTANTS
@@ -354,4 +358,77 @@ export function calculateConfidence(
 
   // Clamp to 0-100
   return Math.round(Math.min(Math.max(confidence, 10), 95));
+}
+
+// ============================================
+// STRATEGY BATTLE SCORING (Phase 5 - DeFi Hardening)
+// ============================================
+
+// Strategy scoring weights (must sum to 100)
+const STRATEGY_WEIGHTS = {
+  yield: 60,       // 60% from yield earned
+  aiQuality: 20,   // 20% from AI argument quality
+  traitBonus: 10,  // 10% from trait scaling
+  moveCounter: 10, // 10% from move effectiveness
+} as const;
+
+/**
+ * Calculate a strategy battle round score with full component breakdown.
+ *
+ * @param yieldBps - Yield earned in basis points (normalized 0-1000)
+ * @param aiQuality - AI argument quality score (0-100)
+ * @param traits - Warrior's traits
+ * @param myMove - Warrior's chosen DeFi move
+ * @param opponentMove - Opponent's chosen DeFi move
+ * @param opponentTraits - Opponent's traits
+ * @param vrfHit - Whether VRF determined a hit (true = 1.0x, false = 0.4x)
+ */
+export function calculateStrategyRoundScore(
+  yieldBps: number,
+  aiQuality: number,
+  traits: WarriorTraits,
+  myMove: DebateMove,
+  opponentMove: DebateMove,
+  opponentTraits: WarriorTraits,
+  vrfHit: boolean
+): StrategyScoreBreakdown {
+  // 1. Yield component (60% weight): normalize yield to 0-600 points
+  const yieldComponent = Math.round((yieldBps / 1000) * STRATEGY_WEIGHTS.yield * 10);
+
+  // 2. AI quality component (20% weight): normalize 0-100 to 0-200 points
+  const aiQualityComponent = Math.round((aiQuality / 100) * STRATEGY_WEIGHTS.aiQuality * 10);
+
+  // 3. Trait bonus component (10% weight)
+  const traitBonus = getMoveTraitBonus(myMove, traits);
+  const traitBonusComponent = Math.round(traitBonus * STRATEGY_WEIGHTS.traitBonus * 10 * 10);
+
+  // 4. Move counter component (10% weight)
+  const moveMultiplier = calculateMoveMultiplier(myMove, opponentMove);
+  const moveCounterComponent = Math.round((moveMultiplier - 0.7) / 0.6 * STRATEGY_WEIGHTS.moveCounter * 10);
+
+  // Sum pre-VRF score
+  let totalPreVrf = yieldComponent + aiQualityComponent + traitBonusComponent + moveCounterComponent;
+
+  // 5. VRF modifier (hit = 1.0x, miss = 0.4x)
+  const vrfModifier = vrfHit ? 1.0 : 0.4;
+  const finalScore = Math.round(Math.min(Math.max(totalPreVrf * vrfModifier, 0), 1000));
+
+  // Standard breakdown fields
+  const baseScore = Math.round(yieldComponent + aiQualityComponent);
+  const counterBonus = moveMultiplier > 1 ? Math.round((moveMultiplier - 1) * baseScore) : 0;
+
+  return {
+    // Standard ScoreBreakdown fields
+    baseScore,
+    traitBonus: traitBonusComponent,
+    moveMultiplier,
+    counterBonus,
+    finalScore,
+    // Strategy-specific breakdown
+    yieldComponent,
+    aiQualityComponent,
+    traitBonusComponent,
+    moveCounterComponent,
+    vrfModifier,
+  };
 }

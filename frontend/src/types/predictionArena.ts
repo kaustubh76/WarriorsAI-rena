@@ -248,6 +248,15 @@ export interface ScoreBreakdown {
   finalScore: number;
 }
 
+/** Extended breakdown for strategy battles (DeFi hardening Phase 5) */
+export interface StrategyScoreBreakdown extends ScoreBreakdown {
+  yieldComponent: number;       // Points from yield earned (60% weight)
+  aiQualityComponent: number;   // Points from AI argument quality (40% weight)
+  traitBonusComponent: number;  // Points from trait scaling (10% weight)
+  moveCounterComponent: number; // Points from move effectiveness (10% weight)
+  vrfModifier: number;          // Multiplier applied (1.0 = hit, 0.4 = miss)
+}
+
 // ============================================
 // WARRIOR STATS
 // ============================================
