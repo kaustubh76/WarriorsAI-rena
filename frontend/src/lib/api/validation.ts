@@ -64,6 +64,16 @@ export function validateBigIntString(
     );
   }
 
+  // Reject negative values by default (financial safety net)
+  // Callers can override by explicitly passing min: -Xn
+  if (parsed < 0n && options.min === undefined) {
+    throw new APIError(
+      `${fieldName} must not be negative`,
+      400,
+      'INVALID_AMOUNT'
+    );
+  }
+
   // Check if zero is allowed
   if (!options.allowZero && parsed === 0n) {
     throw new APIError(

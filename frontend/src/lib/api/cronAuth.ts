@@ -4,6 +4,23 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
+
+/**
+ * Constant-time string comparison to prevent timing attacks on secret values.
+ * Handles different-length strings by still performing a comparison to avoid
+ * leaking length information through timing.
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Still do a comparison to avoid leaking length info through timing
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
 
 export interface CronAuthResult {
   authorized: boolean;
@@ -66,7 +83,7 @@ export function verifyCronAuth(
   // Check Authorization header (only method we accept)
   const authHeader = request.headers.get('authorization');
 
-  if (authHeader === `Bearer ${cronSecret}`) {
+  if (authHeader && timingSafeCompare(authHeader, `Bearer ${cronSecret}`)) {
     return { authorized: true };
   }
 

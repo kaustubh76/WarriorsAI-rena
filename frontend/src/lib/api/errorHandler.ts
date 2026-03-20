@@ -59,22 +59,25 @@ export function handleAPIError(error: unknown, context: string): NextResponse {
     const mapping = PRISMA_ERROR_CODES[prismaError.code];
 
     if (mapping) {
+      // Log meta server-side only (may contain table/column names)
+      if (prismaError.meta) {
+        console.error(`[${context}] Prisma meta:`, prismaError.meta);
+      }
       return NextResponse.json(
         {
           error: mapping.message,
           code: mapping.code,
-          details: prismaError.meta,
         },
         { status: mapping.status }
       );
     }
 
-    // Unknown Prisma error
+    // Unknown Prisma error — log code server-side, don't expose to client
+    console.error(`[${context}] Unknown Prisma error: ${prismaError.code}`);
     return NextResponse.json(
       {
         error: 'Database operation failed',
         code: 'DATABASE_ERROR',
-        details: { prismaCode: prismaError.code },
       },
       { status: 500 }
     );
