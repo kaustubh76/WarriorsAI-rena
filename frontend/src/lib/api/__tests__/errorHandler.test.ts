@@ -112,7 +112,8 @@ describe('handleAPIError', () => {
         const body = await extractBody(res);
         expect(body.error).toBe(tc.expectedMessage);
         expect(body.code).toBe(tc.expectedCode);
-        expect(body.details).toEqual({ target: ['email'] });
+        // Meta is intentionally scrubbed from response (security: don't leak table/column names)
+        expect(body.details).toBeUndefined();
       });
     }
 
@@ -123,7 +124,8 @@ describe('handleAPIError', () => {
       const body = await extractBody(res);
       expect(body.error).toBe('Database operation failed');
       expect(body.code).toBe('DATABASE_ERROR');
-      expect(body.details).toEqual({ prismaCode: 'P9999' });
+      // Prisma code intentionally not exposed in response (security hardening)
+      expect(body.details).toBeUndefined();
     });
   });
 
