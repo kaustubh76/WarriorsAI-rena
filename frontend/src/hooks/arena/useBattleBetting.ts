@@ -176,7 +176,10 @@ export function useBattleBetting(
           await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 30_000 });
         }
 
-        const onChainId = onChainBattleId ? BigInt(onChainBattleId) : BigInt(battleId);
+        if (!onChainBattleId) {
+          throw new Error('Cannot place on-chain bet: battle has no on-chain ID yet. Wait for the battle to be registered on-chain.');
+        }
+        const onChainId = BigInt(onChainBattleId);
         txHash = await writeContractAsync({
           address: effectiveContract,
           abi: BATTLE_MANAGER_ABI,
@@ -257,7 +260,10 @@ export function useBattleBetting(
       // On-chain claim via BattleManager
       let claimTxHash: string | undefined;
       if (effectiveContract) {
-        const onChainId = onChainBattleId ? BigInt(onChainBattleId) : BigInt(battleId);
+        if (!onChainBattleId) {
+          throw new Error('Cannot claim on-chain: battle has no on-chain ID');
+        }
+        const onChainId = BigInt(onChainBattleId);
         claimTxHash = await writeContractAsync({
           address: effectiveContract,
           abi: BATTLE_MANAGER_ABI,

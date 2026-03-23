@@ -131,7 +131,35 @@ export class BattleExecutionQueue {
       }
     }
 
+    // Auto-cleanup stale entries to prevent unbounded memory growth
+    this.cleanupStale();
+
     return { executed, failed, pending };
+  }
+
+  /**
+   * Remove completed/failed entries older than 1 hour.
+   * Prevents unbounded memory growth in long-lived serverless instances.
+   */
+  private cleanupStale(): void {
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const cutoff = new Date(Date.now() - ONE_HOUR_MS);
+    let cleaned = 0;
+
+    for (const [battleId, battle] of this.queue.entries()) {
+      if (
+        (battle.status === 'completed' || battle.status === 'failed') &&
+        battle.lastAttempt &&
+        battle.lastAttempt < cutoff
+      ) {
+        this.queue.delete(battleId);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log(`[Battle Queue] Auto-cleaned ${cleaned} stale entries`);
+    }
   }
 
   /**
