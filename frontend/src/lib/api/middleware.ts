@@ -47,12 +47,13 @@ export interface RequestContext {
 export function composeMiddleware(
   middlewares: MiddlewareHandler[],
   options?: { errorContext?: string }
-): (request: NextRequest, routeContext?: { params: Record<string, string> }) => Promise<NextResponse> {
-  return async (request: NextRequest, routeContext?: { params: Record<string, string> }) => {
+): (request: NextRequest, routeContext?: { params: Promise<Record<string, string>> }) => Promise<NextResponse> {
+  return async (request: NextRequest, routeContext?: { params: Promise<Record<string, string>> }) => {
     const context: RequestContext = {};
     // Forward Next.js dynamic route params (e.g. [id]) into the middleware context
+    // Next.js 15: params is a Promise that must be awaited
     if (routeContext?.params) {
-      context.params = routeContext.params;
+      context.params = await routeContext.params;
     }
 
     try {

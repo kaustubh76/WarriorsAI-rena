@@ -38,6 +38,9 @@ export const POST = composeMiddleware([
         currentRound: { gte: 5 },
         createdAt: { gte: new Date(Date.now() - STUCK_BATTLE_MAX_AGE_MS) },
       },
+      include: {
+        rounds: { select: { roundNumber: true } },
+      },
       take: 5,
     });
     if (stuckBattles.length > 0) {
@@ -46,6 +49,12 @@ export const POST = composeMiddleware([
         if (Date.now() - startTime > BUDGET_MS) {
           console.warn(`[Cron] Budget exhausted (${Date.now() - startTime}ms) — skipping remaining stuck battles`);
           break;
+        }
+        // Verify actual round count matches DB claim before settling
+        if (stuck.rounds.length < 5) {
+          console.error(`[Cron] Battle ${stuck.id} claims currentRound=${stuck.currentRound} but only has ${stuck.rounds.length} rounds — skipping (data inconsistency)`);
+          await sendAlertWithRateLimit('cron:strategy-cycles:data-inconsistency', 'Battle Round Count Mismatch', `Battle ${stuck.id} has currentRound=${stuck.currentRound} but only ${stuck.rounds.length} rounds in DB`, 'critical', { battleId: stuck.id }).catch(() => {});
+          continue;
         }
         try {
           await strategyArenaService.settleBattle(stuck.id);

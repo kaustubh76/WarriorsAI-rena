@@ -35,6 +35,7 @@ import {
   Eye,
   EyeOff,
   Clock,
+  AlertTriangle,
 } from 'lucide-react';
 import '../../page-glass.css';
 
@@ -400,8 +401,10 @@ export default function StrategyBattlePage() {
 
   const isActive = battle.status === 'active';
   const isCompleted = battle.status === 'completed';
+  const isCancelled = battle.status === 'cancelled';
   const w1Wins = isCompleted && battle.warrior1.score > battle.warrior2.score;
   const w2Wins = isCompleted && battle.warrior2.score > battle.warrior1.score;
+  const isDraw = isCompleted && battle.warrior1.score === battle.warrior2.score;
   const w1Leading = battle.warrior1.score > battle.warrior2.score;
   const w2Leading = battle.warrior2.score > battle.warrior1.score;
   const canBet = (isActive || battle.status === 'pending') && battle.betting?.bettingOpen === true;
@@ -434,6 +437,25 @@ export default function StrategyBattlePage() {
   const w2Moves = (battle.cycles ?? []).map(c => c.warrior2.defiMove).filter(Boolean) as string[];
   const w1Hits = (battle.cycles ?? []).filter(c => c.w1IsHit === true).length;
   const w2Hits = (battle.cycles ?? []).filter(c => c.w2IsHit === true).length;
+
+  if (isCancelled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="glass-panel p-8 rounded-xl text-center max-w-md">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/10 flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-yellow-400" />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Battle Cancelled</h2>
+          <p className="text-gray-400 mb-4">
+            This battle has been cancelled. All stakes and bets have been refunded on-chain.
+          </p>
+          <Link href="/arena" className="text-purple-400 hover:text-purple-300 text-sm">
+            Back to Arena
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -561,10 +583,9 @@ export default function StrategyBattlePage() {
               <div className="bg-white/5 rounded-lg p-2">
                 <p className="text-xs text-gray-500">Yield</p>
                 <p className={`text-sm font-mono font-medium ${
-                  Number(battle.warrior1.totalYieldFormatted) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  (isNaN(Number(battle.warrior1.totalYieldFormatted)) ? 0 : Number(battle.warrior1.totalYieldFormatted)) >= 0 ? 'text-emerald-400' : 'text-red-400'
                 }`}>
-                  {Number(battle.warrior1.totalYieldFormatted) >= 0 ? '+' : ''}
-                  {Number(battle.warrior1.totalYieldFormatted).toFixed(0)}
+                  {(() => { const v = isNaN(Number(battle.warrior1.totalYieldFormatted)) ? 0 : Number(battle.warrior1.totalYieldFormatted); return `${v >= 0 ? '+' : ''}${v.toFixed(0)}`; })()}
                 </p>
               </div>
               <div className="bg-white/5 rounded-lg p-2">
@@ -658,10 +679,9 @@ export default function StrategyBattlePage() {
               <div className="bg-white/5 rounded-lg p-2">
                 <p className="text-xs text-gray-500">Yield</p>
                 <p className={`text-sm font-mono font-medium ${
-                  Number(battle.warrior2.totalYieldFormatted) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  (isNaN(Number(battle.warrior2.totalYieldFormatted)) ? 0 : Number(battle.warrior2.totalYieldFormatted)) >= 0 ? 'text-emerald-400' : 'text-red-400'
                 }`}>
-                  {Number(battle.warrior2.totalYieldFormatted) >= 0 ? '+' : ''}
-                  {Number(battle.warrior2.totalYieldFormatted).toFixed(0)}
+                  {(() => { const v = isNaN(Number(battle.warrior2.totalYieldFormatted)) ? 0 : Number(battle.warrior2.totalYieldFormatted); return `${v >= 0 ? '+' : ''}${v.toFixed(0)}`; })()}
                 </p>
               </div>
               <div className="bg-white/5 rounded-lg p-2">
@@ -815,7 +835,7 @@ export default function StrategyBattlePage() {
                 />
                 <button
                   onClick={handlePlaceBet}
-                  disabled={isPlacingBet || !betAmount || Number(betAmount) <= 0 || !address}
+                  disabled={isPlacingBet || !betAmount || isNaN(Number(betAmount)) || Number(betAmount) <= 0 || !address}
                   className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-white hover:from-purple-500 hover:to-pink-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30"
                 >
                   {betStage === 'checking' ? 'Checking balance...'
@@ -1305,6 +1325,11 @@ export default function StrategyBattlePage() {
             <p className="text-gray-400 text-lg font-mono">
               {battle.warrior1.score} — {battle.warrior2.score}
             </p>
+            {isDraw && (
+              <span className="inline-block mt-2 px-3 py-1 rounded-full text-sm font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                DRAW
+              </span>
+            )}
             {/* ELO ratings at battle start */}
             {(battle.warrior1.ratingAtStart || battle.warrior2.ratingAtStart) && (
               <div className="flex items-center justify-center gap-4 mt-3">
@@ -1347,10 +1372,14 @@ export default function StrategyBattlePage() {
                 }`}>
                   {betOutcome.won ? 'YOU WON' : safeBigInt(betOutcome.payout) === 0n ? 'YOU LOST' : 'DRAW'}
                 </span>
-                {betOutcome.won ? (
+                {betOutcome.won && betOutcome.payout == null ? (
+                  <p className="text-emerald-400 text-sm">Claimed on-chain</p>
+                ) : betOutcome.won ? (
                   <p className="text-emerald-400 text-sm">
                     Payout: {Math.round(Number(formatEther(safeBigInt(betOutcome.payout))))} CRwN
                   </p>
+                ) : !betOutcome.won && betOutcome.payout == null ? (
+                  <p className="text-red-400 text-sm">Your bet did not win</p>
                 ) : safeBigInt(betOutcome.payout) === 0n ? (
                   <p className="text-red-400 text-sm">Your bet did not win</p>
                 ) : (

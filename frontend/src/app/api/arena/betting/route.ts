@@ -322,7 +322,7 @@ export const PATCH = composeMiddleware([
       return NextResponse.json({
         success: true,
         won,
-        payout: '0', // Actual payout handled on-chain
+        payout: null, // Actual payout handled on-chain — null distinguishes from "0 payout"
         onChainClaim: true,
         claimTxHash,
         message: won ? 'Claim submitted on-chain' : 'Claim recorded',

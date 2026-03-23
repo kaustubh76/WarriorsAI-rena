@@ -32,6 +32,18 @@ export const POST = composeMiddleware([
     if (!warrior1Id || !warrior1Owner || !warrior2Id || !warrior2Owner) {
       throw ErrorResponses.badRequest('warrior1Id, warrior1Owner, warrior2Id, warrior2Owner are required');
     }
+
+    // Validate EVM address format
+    const evmAddressRegex = /^0x[0-9a-fA-F]{40}$/;
+    if (!evmAddressRegex.test(warrior1Owner) || !evmAddressRegex.test(warrior2Owner)) {
+      throw ErrorResponses.badRequest('warrior1Owner and warrior2Owner must be valid EVM addresses (0x + 40 hex chars)');
+    }
+
+    // Prevent self-battles
+    if (warrior1Owner.toLowerCase() === warrior2Owner.toLowerCase()) {
+      throw ErrorResponses.badRequest('Cannot create a battle between warriors owned by the same address');
+    }
+
     if (!stakes || isNaN(Number(stakes)) || Number(stakes) <= 0) {
       throw ErrorResponses.badRequest('stakes must be a positive number');
     }
@@ -53,6 +65,10 @@ export const POST = composeMiddleware([
       }
       if (scheduledStartAt.getTime() < Date.now()) {
         throw ErrorResponses.badRequest('scheduledStartAt must be in the future');
+      }
+      const MAX_SCHEDULE_DAYS = 30;
+      if (scheduledStartAt.getTime() > Date.now() + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000) {
+        throw ErrorResponses.badRequest(`scheduledStartAt cannot be more than ${MAX_SCHEDULE_DAYS} days in the future`);
       }
     }
 

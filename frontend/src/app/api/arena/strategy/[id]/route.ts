@@ -61,10 +61,12 @@ export const GET = composeMiddleware([
 
     // Write-through cache: persist fetched image URLs if not already cached
     if (!battle.warrior1ImageUrl && w1Image !== '/lazered.png') {
-      prisma.predictionBattle.update({ where: { id: battleId }, data: { warrior1ImageUrl: w1Image } }).catch(() => {});
+      prisma.predictionBattle.update({ where: { id: battleId }, data: { warrior1ImageUrl: w1Image } })
+        .catch((err) => console.warn(`[Strategy:Detail] Failed to cache w1 image for battle ${battleId}:`, err instanceof Error ? err.message : err));
     }
     if (!battle.warrior2ImageUrl && w2Image !== '/lazered.png') {
-      prisma.predictionBattle.update({ where: { id: battleId }, data: { warrior2ImageUrl: w2Image } }).catch(() => {});
+      prisma.predictionBattle.update({ where: { id: battleId }, data: { warrior2ImageUrl: w2Image } })
+        .catch((err) => console.warn(`[Strategy:Detail] Failed to cache w2 image for battle ${battleId}:`, err instanceof Error ? err.message : err));
     }
 
     // Classify strategy profiles
@@ -121,6 +123,9 @@ export const GET = composeMiddleware([
       w2IsHit: round.w2IsHit,
       startedAt: round.startedAt,
       endedAt: round.endedAt,
+      // Score breakdown for UI visualization
+      w1ScoreBreakdown: round.w1ScoreBreakdown ?? null,
+      w2ScoreBreakdown: round.w2ScoreBreakdown ?? null,
     }));
 
     return NextResponse.json({
