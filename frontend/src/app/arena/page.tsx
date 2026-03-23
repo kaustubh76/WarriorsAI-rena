@@ -3,9 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAccount, useWriteContract, useWatchContractEvent } from 'wagmi';
-import { encodePacked, keccak256, decodeEventLog, parseEther } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { createFlowWalletClient, createFlowPublicClient } from '@/lib/flowClient';
+import { parseEther } from 'viem';
 import '../home-glass.css';
 import './page-glass.css';
 import { Button } from '../../components/ui/button';
@@ -699,116 +697,36 @@ export default function ArenaPage() {
 
         console.log('Move enums:', { warriorsOneMove, warriorsTwoMove });
         
-      // Use the same AI signer private key for consistency
-      const aiSignerPrivateKey = "0x5d9626839c7c44143e962b012eba09d8212cf7e3ab7a393c6c27cc5eb2be8765";
-
-      // Pack data for signing - ONLY the moves (as per contract: abi.encodePacked(_warriorsOneMove, _warriorsTwoMove))
-      const dataToSign = encodePacked(
-        ['uint8', 'uint8'],
-        [warriorsOneMove, warriorsTwoMove]
-      );
-      
-      const dataHash = keccak256(dataToSign);
-      
-      // Sign with AI signer private key (this will automatically add the Ethereum message prefix)
-      const aiSignerAccount = privateKeyToAccount(aiSignerPrivateKey as `0x${string}`);
-      const signature = await aiSignerAccount.signMessage({
-        message: { raw: dataHash }
+      // Server-side signing + tx execution (private key never leaves the server)
+      const signResponse = await fetch('/api/arena/sign-battle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          arenaAddress: selectedArena.address,
+          warriorsOneMove,
+          warriorsTwoMove,
+        }),
       });
 
-      console.log('Signature:', signature);
-
-      // Create Game Master wallet client for transaction
-      const aiSignerWalletClient = createFlowWalletClient(aiSignerAccount);
-
-      // Call the battle function using AI signer's wallet client
-      const hash = await aiSignerWalletClient.writeContract({
-        address: selectedArena.address as `0x${string}`,
-        abi: ArenaAbi,
-        functionName: 'battle',
-        args: [warriorsOneMove, warriorsTwoMove, signature]
-      });
-
-      console.log('Battle transaction sent:', hash);
-
-      // Wait for confirmation
-      const publicClient = createFlowPublicClient();
-
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: hash as `0x${string}`,
-        timeout: 60000
-      });
-
-      console.log('Battle confirmed in block:', receipt.blockNumber);
-      
-      // Listen for WarriorsMoveExecuted events to determine HIT/MISS status
-      try {
-        const moveExecutedEvents = receipt.logs.filter(log => {
-          try {
-            const decodedLog = decodeEventLog({
-              abi: ArenaAbi,
-              data: log.data,
-              topics: log.topics,
-            });
-            return decodedLog.eventName === 'WarriorsMoveExecuted';
-          } catch {
-            return false;
-          }
-        });
-
-        console.log('🎯 WarriorsMoveExecuted events found:', moveExecutedEvents.length);
-        
-        // Process events to determine HIT/MISS for each Warriors
-        let warriorsOneHitStatus: 'HIT' | 'MISS' = 'MISS';
-        let warriorsTwoHitStatus: 'HIT' | 'MISS' = 'MISS';
-        
-        moveExecutedEvents.forEach((log) => {
-          try {
-            const decodedLog = decodeEventLog({
-              abi: ArenaAbi,
-              data: log.data,
-              topics: log.topics,
-            });
-            
-            if (decodedLog.eventName === 'WarriorsMoveExecuted') {
-              const { args } = decodedLog;
-              const eventArgs = args as any;
-              const damageOnOpponentWarriors = eventArgs.damageOnOpponentWarriors;
-              const recoveryOnSelfWarriors = eventArgs.recoveryOnSelfWarriors;
-              const dodged = eventArgs.dodged;
-              
-              // Determine if it's a HIT or MISS based on WarriorsMoveExecuted event data
-              // MISS: damageOnOpponent=0 AND recoveryOfSelf=0 AND dodged=false (all conditions fail)
-              // HIT: any one of these is true: damage dealt > 0 OR self recovery > 0 OR successfully dodged
-              const isHit = damageOnOpponentWarriors > 0 || recoveryOnSelfWarriors > 0 || dodged === true;
-              
-              // We'll get 2 events (one for each Warriors), so we track both
-              // The order matches the battle function call order: warriorsOne first, then warriorsTwo
-              if (moveExecutedEvents.indexOf(log) === 0) {
-                warriorsOneHitStatus = isHit ? 'HIT' : 'MISS';
-              } else {
-                warriorsTwoHitStatus = isHit ? 'HIT' : 'MISS';
-              }
-              
-              console.log(`📊 Move result - Damage: ${damageOnOpponentWarriors}, Recovery: ${recoveryOnSelfWarriors}, Dodged: ${dodged} = ${isHit ? 'HIT' : 'MISS'}`);
-            }
-          } catch (error) {
-            console.error('Error decoding WarriorsMoveExecuted event:', error);
-          }
-        });
-
-        // Update battle notification with HIT/MISS status
-        setBattleNotification((prev: BattleNotification | null) => prev ? {
-          ...prev,
-          warriorsOneHitStatus,
-          warriorsTwoHitStatus
-        } : null);
-
-        console.log(`🎯 Final hit status - ${selectedArena.warriorsOne?.name}: ${warriorsOneHitStatus}, ${selectedArena.warriorsTwo?.name}: ${warriorsTwoHitStatus}`);
-        
-      } catch (error) {
-        console.error('❌ Error processing WarriorsMoveExecuted events:', error);
+      if (!signResponse.ok) {
+        const errData = await signResponse.json().catch(() => ({ error: 'Battle signing failed' }));
+        throw new Error(errData.error || `Battle signing failed (${signResponse.status})`);
       }
+
+      const battleResult = await signResponse.json();
+      console.log('Battle confirmed in block:', battleResult.blockNumber);
+
+      // Update battle notification with HIT/MISS status from server
+      const warriorsOneHitStatus = battleResult.warriorsOneHitStatus || 'PENDING';
+      const warriorsTwoHitStatus = battleResult.warriorsTwoHitStatus || 'PENDING';
+
+      setBattleNotification((prev: BattleNotification | null) => prev ? {
+        ...prev,
+        warriorsOneHitStatus,
+        warriorsTwoHitStatus
+      } : null);
+
+      console.log(`Final hit status - ${selectedArena.warriorsOne?.name}: ${warriorsOneHitStatus}, ${selectedArena.warriorsTwo?.name}: ${warriorsTwoHitStatus}`);
 
       // Hide notification after 8 seconds (longer to show HIT/MISS results)
       setTimeout(() => {
@@ -863,94 +781,38 @@ export default function ArenaPage() {
         warriorsTwoHitStatus: 'PENDING'
       });
 
-      // Create AI signer wallet client for transaction (using the same key as API)
-      // Use the same AI signer private key as the API
-      const aiSignerPrivateKey = "0x5d9626839c7c44143e962b012eba09d8212cf7e3ab7a393c6c27cc5eb2be8765";
-      const aiSignerAccount = privateKeyToAccount(aiSignerPrivateKey as `0x${string}`);
-
-      const aiSignerWalletClient = createFlowWalletClient(aiSignerAccount);
-
-      // Call the battle function using AI signer wallet client with the pre-generated signature
-      const hash = await aiSignerWalletClient.writeContract({
-        address: selectedArena.address as `0x${string}`,
-        abi: ArenaAbi,
-        functionName: 'battle',
-        args: [params.warriorsOneMove, params.warriorsTwoMove, params.signature]
+      // Server-side signing + tx execution (private key never leaves the server)
+      const signResponse = await fetch('/api/arena/sign-battle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          arenaAddress: selectedArena.address,
+          warriorsOneMove: params.warriorsOneMove,
+          warriorsTwoMove: params.warriorsTwoMove,
+          preSignedSignature: params.signature,
+        }),
       });
 
-      console.log('🔐 Battle transaction sent with API signature:', hash);
+      if (!signResponse.ok) {
+        const errData = await signResponse.json().catch(() => ({ error: 'Battle execution failed' }));
+        throw new Error(errData.error || `Battle execution failed (${signResponse.status})`);
+      }
 
-      // Wait for confirmation
-      const publicClient = createFlowPublicClient();
+      const battleResult = await signResponse.json();
+      console.log('Battle confirmed in block:', battleResult.blockNumber);
 
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: hash as `0x${string}`,
-        timeout: 60000
-      });
+      // Update battle notification with HIT/MISS status from server
+      {
+        const warriorsOneHitStatus = battleResult.warriorsOneHitStatus || 'PENDING';
+        const warriorsTwoHitStatus = battleResult.warriorsTwoHitStatus || 'PENDING';
 
-      console.log('✅ Battle confirmed in block:', receipt.blockNumber);
-      
-      // Process battle events (same as executeBattleMoves)
-      try {
-        const { decodeEventLog } = await import('viem');
-        const moveExecutedEvents = receipt.logs.filter(log => {
-          try {
-            const decodedLog = decodeEventLog({
-              abi: ArenaAbi,
-              data: log.data,
-              topics: log.topics,
-            });
-            return decodedLog.eventName === 'WarriorsMoveExecuted';
-          } catch {
-            return false;
-          }
-        });
-
-        console.log('🎯 WarriorsMoveExecuted events found:', moveExecutedEvents.length);
-        
-        let warriorsOneHitStatus: 'HIT' | 'MISS' = 'MISS';
-        let warriorsTwoHitStatus: 'HIT' | 'MISS' = 'MISS';
-        
-        moveExecutedEvents.forEach((log) => {
-          try {
-            const decodedLog = decodeEventLog({
-              abi: ArenaAbi,
-              data: log.data,
-              topics: log.topics,
-            });
-            
-            if (decodedLog.eventName === 'WarriorsMoveExecuted') {
-              const { args } = decodedLog;
-              const eventArgs = args as any;
-              const damageOnOpponentWarriors = eventArgs.damageOnOpponentWarriors;
-              const recoveryOnSelfWarriors = eventArgs.recoveryOnSelfWarriors;
-              const dodged = eventArgs.dodged;
-              
-              const isHit = damageOnOpponentWarriors > 0 || recoveryOnSelfWarriors > 0 || dodged === true;
-              
-              if (moveExecutedEvents.indexOf(log) === 0) {
-                warriorsOneHitStatus = isHit ? 'HIT' : 'MISS';
-              } else {
-                warriorsTwoHitStatus = isHit ? 'HIT' : 'MISS';
-              }
-              
-              console.log(`📊 Move result - Damage: ${damageOnOpponentWarriors}, Recovery: ${recoveryOnSelfWarriors}, Dodged: ${dodged} = ${isHit ? 'HIT' : 'MISS'}`);
-            }
-          } catch (error) {
-            console.error('Error decoding WarriorsMoveExecuted event:', error);
-          }
-        });
-
-        // Update battle notification with HIT/MISS status
         setBattleNotification((prev: BattleNotification | null) => prev ? {
           ...prev,
           warriorsOneHitStatus,
           warriorsTwoHitStatus
         } : null);
 
-        console.log(`🎯 Final hit status - ${selectedArena.warriorsOne?.name}: ${warriorsOneHitStatus}, ${selectedArena.warriorsTwo?.name}: ${warriorsTwoHitStatus}`);
-      } catch (eventError) {
-        console.error('Error processing battle events:', eventError);
+        console.log(`Final hit status - ${selectedArena.warriorsOne?.name}: ${warriorsOneHitStatus}, ${selectedArena.warriorsTwo?.name}: ${warriorsTwoHitStatus}`);
       }
 
       // Hide notification after 8 seconds
@@ -1330,45 +1192,22 @@ export default function ArenaPage() {
     });
 
     try {
-      console.log('Starting battle for arena using Game Master private key:', selectedArena.address);
+      console.log('Starting game for arena:', selectedArena.address);
 
-      // Get game master private key from environment
-      const gameStandardPrivateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY;
-      if (!gameStandardPrivateKey) {
-        throw new Error('Game master private key not found');
+      // Server-side game start (private key never leaves the server)
+      const startResponse = await fetch('/api/arena/start-game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arenaAddress: selectedArena.address }),
+      });
+
+      if (!startResponse.ok) {
+        const errData = await startResponse.json().catch(() => ({ error: 'Game start failed' }));
+        throw new Error(errData.error || `Game start failed (${startResponse.status})`);
       }
 
-      // Ensure private key has 0x prefix for viem
-      const formattedPrivateKey = gameStandardPrivateKey.startsWith('0x') 
-        ? gameStandardPrivateKey 
-        : `0x${gameStandardPrivateKey}`;
-
-      // Create Game Master account and wallet client
-      const gameStandardAccount = privateKeyToAccount(formattedPrivateKey as `0x${string}`);
-      
-      const gameMasterWalletClient = createFlowWalletClient(gameStandardAccount);
-
-      console.log(`Using Game Master account: ${gameStandardAccount.address}`);
-
-      // Call startGame using Game Master's wallet client
-      const hash = await gameMasterWalletClient.writeContract({
-        address: selectedArena.address as `0x${string}`,
-        abi: ArenaAbi,
-        functionName: 'startGame',
-        args: []
-      });
-
-      console.log('Start game transaction sent:', hash);
-
-      // Wait for confirmation
-      const publicClient = createFlowPublicClient();
-
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: hash as `0x${string}`,
-        timeout: 60000
-      });
-
-      console.log('Game started successfully! Block:', receipt.blockNumber);
+      const startResult = await startResponse.json();
+      console.log('Game started successfully! Block:', startResult.blockNumber);
 
       // Refresh arena data to get the updated state
       console.log('🔄 Refreshing arena data after game start...');

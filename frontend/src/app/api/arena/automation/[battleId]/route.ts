@@ -41,7 +41,7 @@ function initializeClients() {
     publicClient = createFlowPublicClient();
     fallbackClient = createFlowFallbackClient();
 
-    const gameMasterPrivateKey = process.env.NEXT_PUBLIC_GAME_MASTER_PRIVATE_KEY;
+    const gameMasterPrivateKey = process.env.GAME_MASTER_PRIVATE_KEY;
     if (!gameMasterPrivateKey) {
       console.warn('Game master private key not found - automation will be simulation only');
       return { walletClient: null, publicClient, fallbackClient };

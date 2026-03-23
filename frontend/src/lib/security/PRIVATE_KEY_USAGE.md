@@ -41,13 +41,24 @@ This document describes the private keys used in the WarriorsAI-rena project, th
 **Risk Level**: HIGH - Controls market settlements
 
 ### 4. AI_SIGNER_PRIVATE_KEY
-**Purpose**: AI agent trade execution
+**Purpose**: AI agent trade execution and arena battle signing
 **Used In**:
-- `/pages/api/generate-battle-moves.ts` - Battle move generation
+- `/app/api/arena/sign-battle/route.ts` - Server-side battle signing and execution
+- `/app/api/generate-battle-moves/route.ts` - Battle move generation
 - `/app/api/markets/settle/route.ts` - Market settlement
 - `/config/index.ts` - Configuration reference
+- `/lib/apiConfig.ts` - API configuration
 
 **Risk Level**: MEDIUM - Limited to AI agent operations
+
+### 4b. GAME_MASTER_PRIVATE_KEY
+**Purpose**: Arena game master operations (startGame, automation)
+**Used In**:
+- `/app/api/arena/start-game/route.ts` - Server-side game start
+- `/app/api/game-master/route.ts` - Game master cron operations
+- `/app/api/arena/automation/[battleId]/route.ts` - Arena automation
+
+**Risk Level**: HIGH - Controls game lifecycle. Must NEVER use NEXT_PUBLIC_ prefix.
 
 ### 5. ORACLE_PRIVATE_KEY (fallback)
 **Purpose**: Fallback oracle key
