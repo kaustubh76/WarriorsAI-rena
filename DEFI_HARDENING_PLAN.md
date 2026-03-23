@@ -395,7 +395,7 @@ Add `w1ScoreBreakdown Json?`, `w2ScoreBreakdown Json?` to `PredictionRound`.
 
 ### Contracts
 - [x] `forge build` — all contracts compile
-- [x] `forge test --match-contract StrategyBattleManager` — passes (24 tests)
+- [x] `forge test --match-contract StrategyBattleManager` — passes (36 tests)
 - [x] `forge test --match-contract BasePool` — passes (14 tests)
 - [x] `forge test --match-contract CRwNStaking` — passes (21 tests)
 

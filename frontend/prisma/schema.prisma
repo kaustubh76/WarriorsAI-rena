@@ -885,6 +885,7 @@ model PredictionBattle {
   @@index([warrior2Id])
   @@index([isArbitrageBattle])
   @@index([isStrategyBattle])
+  @@index([status, isStrategyBattle])
 }
 
 model PredictionRound {
@@ -1005,6 +1006,8 @@ model BattleBet {
   @@index([battleId])
   @@index([bettorAddress])
   @@index([placedAt])
+  @@index([claimed])
+  @@index([bettorAddress, claimed])
 }
 
 model BattleBettingPool {

@@ -29,6 +29,16 @@ openssl rand -base64 32
   - [x] `ArbitrageTrade.predictionBattleId` — `String? @unique`
   - [x] All relations properly configured (bidirectional 1-to-1)
 
+- [x] DeFi Hardening schema fields:
+  - [x] `PredictionBattle.onChainBattleId` — `String?`
+  - [x] `PredictionBattle.txHash` — `String?`
+  - [x] `PredictionBattle.isStrategyBattle` — `Boolean @default(false)`
+  - [x] `PredictionBattle.vault1Id`, `vault2Id` — `String?`
+  - [x] `PredictionBattle.w1TotalYield`, `w2TotalYield` — `String?`
+  - [x] `BattleBet.placeTxHash`, `claimTxHash` — `String?`
+  - [x] `BattleBettingPool.onChainSettled` — `Boolean @default(false)`
+  - [x] `PredictionRound.w1ScoreBreakdown`, `w2ScoreBreakdown` — `String?`
+
 ### 3. Code Verification ✅
 
 - [x] All TypeScript files compile (with pre-existing Next.js 15 / React 19 type issues only)
@@ -122,6 +132,10 @@ git push origin main
    | **Contracts** | `NEXT_PUBLIC_CRWN_TOKEN_ADDRESS` | Yes | All |
    | | `NEXT_PUBLIC_STRATEGY_VAULT_ADDRESS` | Yes | All |
    | | `EXTERNAL_MARKET_MIRROR_ADDRESS` | Yes | Production |
+   | **DeFi Hardening** | `NEXT_PUBLIC_BATTLE_MANAGER_ADDRESS` | Yes (after deploy) | All |
+   | | `NEXT_PUBLIC_STAKING_ADDRESS` | Yes (after deploy) | All |
+   | | `NEXT_PUBLIC_STCRWN_ADDRESS` | Yes (after deploy) | All |
+   | | `SERVER_WALLET_PRIVATE_KEY` | Yes (resolver/rebalancer) | Production |
    | **Monitoring** | `SLACK_WEBHOOK_URL` | Recommended | Production |
    | | `DISCORD_WEBHOOK_URL` | Optional | Production |
    | **Feature Flags** | `ARBITRAGE_ENABLED` | Optional (default: true) | Production |
@@ -461,6 +475,48 @@ The following critical issues were found during deep code audit and fixed:
 - **Open redirect/SSRF**: 0 instances (all fetch URLs from env config)
 - **CORS consistency**: `withCORS()` middleware default is `['*']` but zero routes use it — dead code, no risk
 
+### Hardening Fixes Applied (Round 5 — DeFi On-Chain Migration Audit)
+
+13 fixes + 69 new tests applied during deep audit of the DeFi hardening implementation. All fixes verified with `tsc --noEmit`, `forge build`, `forge test` (129 pass), and `vitest run` (186 pass, 0 failures).
+
+#### Strategy Arena Service (`strategyArenaService.ts`)
+- **Shared server clients** — Replaced 7 inline `createWalletClient`/`createPublicClient` calls with `getServerClients()` using `createFlowPublicClient()`/`createFlowWalletClient()` from `flowClient.ts` (proper 60s timeout + retry)
+- **On-chain failure alerting** — Added `sendAlertWithRateLimit()` in 3 catch blocks: `createBattle` (error), `recordCycleScore` (warning), `settleBattle` (critical)
+- **Retry mechanism** — `retryOnChainSettlement()` method + cron integration in `execute-strategy-cycles` to recover battles where DB says completed but `onChainSettled: false`
+- **Legacy server-wallet transfer removed** — Replaced `crownToken.transfer()` fallback with error + critical alert (escrow is contract's job)
+- **Type fix: WarriorCycleResult.score** — Added `strategyBreakdown?: string` to match `scoreCycle()` return type (resolved TS2339)
+- **Type fix: ContractsConfig** — Added `battleManager`, `stakingContract`, `stCrwnToken` fields, removed `Record<string, string>` casts (resolved TS2353)
+- **Atomic score increment** — Replaced stale-read `battle.warrior1Score + X` with Prisma `{ increment: X }` to prevent lost writes under concurrency
+- **Atomic yield accumulation** — Converted batch `$transaction([...])` to interactive `$transaction(async (tx) => {...})` with fresh read inside transaction for `w1TotalYield`/`w2TotalYield` (String fields can't use `increment`)
+- **Score breakdown weight fix** — `aiQualityComponent` multiplier changed from `* 2` to `* 4` to match actual 60/40 yield/AI formula weight
+- **onChainBattleId fallback fix** — Changed `|| createHash` to `?? null` so tx hash is never stored as a battle ID
+- **Already-settled revert handling** — `retryOnChainSettlement()` catch block now detects `BattleNotActive` revert and marks `onChainSettled: true` instead of firing false critical alerts
+- **Dead import cleanup** — Removed unused `MOVE_MAP`, `classifyStrategyProfile` imports
+
+#### Betting Hook (`useBattleBetting.ts`)
+- **Legacy CRwN fallback removed** — Replaced `transfer(CRWN_TOKEN_ADDRESS, amount)` fallback (would burn tokens!) with `throw new Error('BattleManager not deployed')`
+
+#### Strategy Detail Page (`strategy/[id]/page.tsx`)
+- **Safe JSON.parse** — Wrapped `JSON.parse(cycle.w1ScoreBreakdown)` with try-catch to prevent page crash on malformed data
+
+#### Constants (`constants.ts`)
+- **ContractsConfig type** — Added `battleManager?`, `stakingContract?`, `stCrwnToken?` optional fields
+
+#### Types (`predictionArena.ts`)
+- **StrategyScoreBreakdown comment** — Updated `aiQualityComponent` weight annotation from "20%" to "40%"
+
+#### Solidity (`MicroMarketFactory.sol`)
+- **ALLOCATION_SHIFT comment** — Documented as "Reserved: not yet implemented"
+
+#### Error Handler Tests (`errorHandler.test.ts`)
+- **Prisma meta scrubbing** — Fixed 6 pre-existing test failures: updated expectations to match security hardening that scrubs `prismaError.meta` from HTTP responses
+
+#### New Test Files
+- `test/StrategyVault.t.sol` — 11 tests for on-chain trait constraints (ALPHA/HEDGE/MOMENTUM enforcement, toggle, owner-only)
+- `test/StrategyBattleManager.t.sol` — 12 new tests for double-settle revert, post-settlement guards, ELO progression, edge cases
+- `src/lib/__tests__/arenaScoring.test.ts` — 27 tests for ELO rating, scoring, trait modifiers, move counters
+- `src/lib/__tests__/vrfScoring.test.ts` — 19 tests for VRF seed determinism, hit/miss probability, modifier application
+
 ### Known Remaining Risks (Accepted)
 
 | Risk | Severity | Mitigation |
@@ -478,7 +534,7 @@ The following critical issues were found during deep code audit and fixed:
 
 ### Files to Review
 
-- [x] [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - This file (audit-verified, 4 rounds of hardening)
+- [x] [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - This file (audit-verified, 5 rounds of hardening)
 - [x] [DEFI_HARDENING_PLAN.md](DEFI_HARDENING_PLAN.md) - DeFi security hardening plan
 - [x] [ARENA_ARBITRAGE_INTEGRATION_PLAN.md](ARENA_ARBITRAGE_INTEGRATION_PLAN.md) - Arbitrage system design doc
 - [x] [POLYMARKET_KALSHI_INTEGRATION.md](POLYMARKET_KALSHI_INTEGRATION.md) - External market integration details
