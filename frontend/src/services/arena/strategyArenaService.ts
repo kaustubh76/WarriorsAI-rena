@@ -50,6 +50,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { createFlowPublicClient, createFlowWalletClient } from '@/lib/flowClient';
 import { sendAlertWithRateLimit } from '@/lib/monitoring/alerts';
+import { randomBytes } from 'crypto';
 
 // ─── Constants ────────────────────────────────────────
 
@@ -386,14 +387,16 @@ class StrategyArenaService {
 
     // 5b. Fetch latest Flow block hash for VRF seed
     let latestBlockHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+    let vrfDegraded = false;
     try {
       const vrfClient = createFlowPublicClient();
       const latestBlock = await vrfClient.getBlock({ blockTag: 'latest' });
       latestBlockHash = latestBlock.hash;
     } catch {
       // Fallback: local entropy — less verifiable but functional. Log so operators know VRF is degraded.
+      vrfDegraded = true;
       console.warn(`[StrategyArena] VRF degraded: Flow RPC block hash unavailable for battle ${battleId} round ${roundNumber}`);
-      const localEntropy = BigInt(Date.now()) ^ process.hrtime.bigint() ^ BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+      const localEntropy = BigInt(Date.now()) ^ process.hrtime.bigint() ^ BigInt('0x' + randomBytes(8).toString('hex'));
       latestBlockHash = keccak256(encodePacked(['uint256'], [localEntropy]));
     }
 
@@ -437,7 +440,17 @@ class StrategyArenaService {
       w2HitResult.isHit,
     );
 
-    // 8. Determine round winner
+    // 8. Guard against NaN/Infinity scores
+    if (!Number.isFinite(w1Result.score.finalScore)) {
+      console.error(`[StrategyArena] Invalid w1 score for battle ${battleId} round ${roundNumber}: ${w1Result.score.finalScore}, clamping to 0`);
+      w1Result.score.finalScore = 0;
+    }
+    if (!Number.isFinite(w2Result.score.finalScore)) {
+      console.error(`[StrategyArena] Invalid w2 score for battle ${battleId} round ${roundNumber}: ${w2Result.score.finalScore}, clamping to 0`);
+      w2Result.score.finalScore = 0;
+    }
+
+    // 8b. Determine round winner
     const roundWinner =
       w1Result.score.finalScore > w2Result.score.finalScore ? 'warrior1' :
       w2Result.score.finalScore > w1Result.score.finalScore ? 'warrior2' :
@@ -457,7 +470,7 @@ class StrategyArenaService {
           w2Score: w2Result.score.finalScore,
           w2Confidence: Math.round(w2Result.score.baseScore),
           roundWinner,
-          judgeReasoning: `Cycle ${roundNumber}: ${w1Result.defiMove} (${w1HitResult.isHit ? 'HIT' : 'MISS'} @${(w1HitResult.hitProbability / 100).toFixed(1)}%) vs ${w2Result.defiMove} (${w2HitResult.isHit ? 'HIT' : 'MISS'} @${(w2HitResult.hitProbability / 100).toFixed(1)}%). W1 yield: ${formatEther(BigInt(w1Result.yieldEarned))} CRwN, W2 yield: ${formatEther(BigInt(w2Result.yieldEarned))} CRwN.`,
+          judgeReasoning: `Cycle ${roundNumber}: ${w1Result.defiMove} (${w1HitResult.isHit ? 'HIT' : 'MISS'} @${(w1HitResult.hitProbability / 100).toFixed(1)}%) vs ${w2Result.defiMove} (${w2HitResult.isHit ? 'HIT' : 'MISS'} @${(w2HitResult.hitProbability / 100).toFixed(1)}%). W1 yield: ${formatEther(BigInt(w1Result.yieldEarned))} CRwN, W2 yield: ${formatEther(BigInt(w2Result.yieldEarned))} CRwN.${vrfDegraded ? ' (VRF degraded: local entropy fallback)' : ''}`,
           // DeFi-specific fields
           w1DeFiMove: w1Result.defiMove,
           w2DeFiMove: w2Result.defiMove,
@@ -488,6 +501,12 @@ class StrategyArenaService {
 
       // Fresh read inside transaction — prevents stale yield overwrite under concurrency
       const current = await tx.predictionBattle.findUniqueOrThrow({ where: { id: battleId } });
+
+      // CAS guard: ensure no other process advanced the round concurrently
+      if (current.currentRound !== roundNumber - 1) {
+        throw ErrorResponses.conflict(`Race condition: battle ${battleId} expected round ${roundNumber - 1}, found ${current.currentRound}`);
+      }
+
       const freshW1Total = (BigInt(current.w1TotalYield || '0') + BigInt(w1Result.yieldEarned)).toString();
       const freshW2Total = (BigInt(current.w2TotalYield || '0') + BigInt(w2Result.yieldEarned)).toString();
 
@@ -1151,6 +1170,20 @@ class StrategyArenaService {
     // 5. Enforce trait constraints
     newAllocation = enforceTraitConstraints(newAllocation, defiTraits, currentAllocation);
 
+    // 5b. Validate allocation sums to 10000 (100%), normalize if rounding drift
+    const allocSum = newAllocation.highYield + newAllocation.stable + newAllocation.lp;
+    if (allocSum !== 10000) {
+      console.warn(`${tag} — post-constraint allocation sum ${allocSum} !== 10000, normalizing`);
+      const diff = 10000 - allocSum;
+      if (newAllocation.stable >= newAllocation.highYield && newAllocation.stable >= newAllocation.lp) {
+        newAllocation.stable += diff;
+      } else if (newAllocation.highYield >= newAllocation.lp) {
+        newAllocation.highYield += diff;
+      } else {
+        newAllocation.lp += diff;
+      }
+    }
+
     // 6. Check if allocation actually changed
     const isHold =
       newAllocation.highYield === currentAllocation.highYield &&
@@ -1367,18 +1400,29 @@ class StrategyArenaService {
         return { highYield: 3500, stable: 2000, lp: 4500 };
       case 'FLASH': {
         // Small precision adjustment — stay close to current
-        const hy = Math.round(current.highYield * 0.95 + (poolAPYs.highYield > poolAPYs.lp ? 500 : 0));
-        const st = current.stable;
-        return { highYield: hy, stable: st, lp: 10000 - hy - st };
+        let hy = Math.round(current.highYield * 0.95 + (poolAPYs.highYield > poolAPYs.lp ? 500 : 0));
+        let st = current.stable;
+        // Guard: ensure lp doesn't go negative from rounding
+        if (hy + st > 10000) {
+          const excess = hy + st - 10000;
+          hy = hy >= st ? hy - excess : hy;
+          st = hy < st ? st - excess : st;
+        }
+        return { highYield: hy, stable: st, lp: Math.max(0, 10000 - hy - st) };
       }
       case 'REBALANCE':
       default: {
         // Shift toward highest-APY pool
         const total = poolAPYs.highYield + poolAPYs.stable + poolAPYs.lp;
         if (total === 0) return current;
-        const hy = Math.round((poolAPYs.highYield / total) * 10000);
-        const st = Math.round((poolAPYs.stable / total) * 10000);
-        return { highYield: hy, stable: st, lp: 10000 - hy - st };
+        let hy = Math.round((poolAPYs.highYield / total) * 10000);
+        let st = Math.round((poolAPYs.stable / total) * 10000);
+        // Guard: ensure lp doesn't go negative from rounding
+        if (hy + st > 10000) {
+          const excess = hy + st - 10000;
+          if (hy >= st) { hy -= excess; } else { st -= excess; }
+        }
+        return { highYield: hy, stable: st, lp: Math.max(0, 10000 - hy - st) };
       }
     }
   }

@@ -127,7 +127,7 @@ export function enforceTraitConstraints(
   lp = 10000 - highYield - stable;
   if (lp < 0) {
     lp = 0;
-    highYield = 10000 - stable;
+    highYield = Math.max(0, 10000 - stable);
   }
 
   return { highYield, stable, lp };
