@@ -540,6 +540,7 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
      * @notice Set the resolver address (cron/oracle authorized to score/settle).
      */
     function setResolver(address _resolver) external onlyOwner {
+        require(_resolver != address(0), "Zero address");
         resolver = _resolver;
     }
 
@@ -547,18 +548,22 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
      * @notice Withdraw accumulated fees (excluding insurance).
      */
     function withdrawFees(address to) external onlyOwner {
+        require(to != address(0), "Zero address");
         uint256 amount = totalFeesCollected;
         totalFeesCollected = 0;
-        crownToken.transfer(to, amount);
+        bool success = crownToken.transfer(to, amount);
+        if (!success) revert BattleManager__TransferFailed();
     }
 
     /**
      * @notice Withdraw insurance reserve (governance/emergency use).
      */
     function withdrawInsurance(address to) external onlyOwner {
+        require(to != address(0), "Zero address");
         uint256 amount = insuranceReserve;
         insuranceReserve = 0;
-        crownToken.transfer(to, amount);
+        bool success = crownToken.transfer(to, amount);
+        if (!success) revert BattleManager__TransferFailed();
     }
 
     function setStakingContract(address _staking) external onlyOwner {
@@ -581,8 +586,10 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
         battle.bettingOpen = false;
 
         // Refund stakes
-        crownToken.transfer(battle.warrior1Owner, battle.stakes);
-        crownToken.transfer(battle.warrior2Owner, battle.stakes);
+        bool s1 = crownToken.transfer(battle.warrior1Owner, battle.stakes);
+        if (!s1) revert BattleManager__TransferFailed();
+        bool s2 = crownToken.transfer(battle.warrior2Owner, battle.stakes);
+        if (!s2) revert BattleManager__TransferFailed();
 
         // Refund all bets
         address[] storage bettorList = battleBettors[battleId];
@@ -590,7 +597,8 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
             BetInfo storage bet = bets[battleId][bettorList[i]];
             if (bet.amount > 0 && !bet.claimed) {
                 bet.claimed = true;
-                crownToken.transfer(bet.bettor, bet.amount);
+                bool bs = crownToken.transfer(bet.bettor, bet.amount);
+                if (!bs) revert BattleManager__TransferFailed();
             }
         }
     }
