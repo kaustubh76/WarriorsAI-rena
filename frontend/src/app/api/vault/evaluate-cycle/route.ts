@@ -64,7 +64,7 @@ export const POST = composeMiddleware([
       const abortController = new AbortController();
       const inferenceTimeout = setTimeout(() => abortController.abort(), 15000);
       const inferenceResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/0g/inference`,
+        `${process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/0g/inference`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

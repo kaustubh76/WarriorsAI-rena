@@ -9,6 +9,7 @@ import './page-glass.css';
 import { Button } from '../../components/ui/button';
 import { useArenas, type RankCategory, type ArenaWithDetails } from '../../hooks/useArenas';
 import { StrategyBattleCard, StrategyBattleCreateForm } from '../../components/arena';
+import { useCreateStrategyBattle } from '../../hooks/arena';
 import type { StrategyBattle } from '../../components/arena/StrategyBattleCard';
 import { arenaService, isValidBettingAmount, getClosestValidBettingAmount } from '../../services/arenaService';
 import { ArenaAbi, warriorsNFTAbi, getChainId, getContracts, getArenaBackendUrl } from '../../constants';
@@ -520,6 +521,7 @@ export default function ArenaPage() {
   const [showCreateBattle, setShowCreateBattle] = useState(false);
   const [createBattleForm, setCreateBattleForm] = useState({ nft1: '', nft2: '', nft2Owner: '', stakes: '100', scheduledStartAt: '' });
   const [createBattleStatus, setCreateBattleStatus] = useState<{ loading: boolean; error: string | null; success: string | null }>({ loading: false, error: null, success: null });
+  const { createBattle: createBattleOnChain, stage: createBattleStage, isCreating: isCreatingOnChain, error: createBattleOnChainError } = useCreateStrategyBattle();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [betAmount, setBetAmount] = useState('');
   const [selectedWarriors, setSelectedWarriors] = useState<'ONE' | 'TWO' | null>(null);
@@ -1013,7 +1015,7 @@ export default function ArenaPage() {
     }
   }, []);
 
-  // Create strategy battle handler (P4-2)
+  // Create strategy battle handler — on-chain approve + createBattle + API record
   const handleCreateStrategyBattle = async () => {
     if (!address) return;
     const { nft1, nft2, nft2Owner, stakes } = createBattleForm;
@@ -1025,32 +1027,27 @@ export default function ArenaPage() {
       setCreateBattleStatus({ loading: false, error: 'Cannot battle the same warrior', success: null });
       return;
     }
-    let stakesWei: string;
-    try {
-      stakesWei = parseEther(stakes).toString();
-    } catch {
+    // Validate stakes can be parsed
+    try { parseEther(stakes); } catch {
       setCreateBattleStatus({ loading: false, error: 'Invalid stakes amount', success: null });
       return;
     }
     setCreateBattleStatus({ loading: true, error: null, success: null });
     try {
-      const res = await fetch('/api/arena/strategy/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          warrior1Id: Number(nft1),
-          warrior1Owner: address,
-          warrior2Id: Number(nft2),
-          warrior2Owner: nft2Owner,
-          stakes: stakesWei,
-          ...(createBattleForm.scheduledStartAt
-            ? { scheduledStartAt: new Date(createBattleForm.scheduledStartAt).toISOString() }
-            : {}),
-        }),
+      const result = await createBattleOnChain({
+        warrior1Id: Number(nft1),
+        warrior1Owner: address,
+        warrior2Id: Number(nft2),
+        warrior2Owner: nft2Owner,
+        stakes,
+        scheduledStartAt: createBattleForm.scheduledStartAt || undefined,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create battle');
-      setCreateBattleStatus({ loading: false, error: null, success: `Battle created! ID: ${data.battle?.id}` });
+      if (!result) {
+        // Error is set inside the hook
+        setCreateBattleStatus({ loading: false, error: createBattleOnChainError || 'Failed to create battle on-chain', success: null });
+        return;
+      }
+      setCreateBattleStatus({ loading: false, error: null, success: `Battle created on-chain! ID: ${result.battleId} (tx: ${result.txHash.slice(0, 10)}...)` });
       setCreateBattleForm({ nft1: '', nft2: '', nft2Owner: '', stakes: '100', scheduledStartAt: '' });
       setShowCreateBattle(false);
       // Refresh strategy battles list
@@ -1059,8 +1056,9 @@ export default function ArenaPage() {
         const listData = await listRes.json();
         setStrategyBattles(listData.battles || []);
       }
-    } catch (err: any) {
-      setCreateBattleStatus({ loading: false, error: err.message || 'Failed to create battle', success: null });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to create battle';
+      setCreateBattleStatus({ loading: false, error: errMsg, success: null });
     }
   };
 

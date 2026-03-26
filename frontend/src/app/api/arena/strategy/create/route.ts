@@ -3,6 +3,7 @@
  *
  * Create a Strategy-vs-Strategy arena battle.
  * Both warriors must have active vaults.
+ * Accepts optional txHash + onChainBattleId when client already created on-chain.
  */
 
 import { NextResponse } from 'next/server';
@@ -21,6 +22,8 @@ interface CreateRequest {
   warrior2Owner: string;
   stakes: string;
   scheduledStartAt?: string; // ISO 8601 — betting window before cycles begin
+  txHash?: string;           // On-chain createBattle tx hash (from client)
+  onChainBattleId?: string;  // On-chain battle ID (from BattleCreated event)
 }
 
 export const POST = composeMiddleware([
@@ -72,6 +75,11 @@ export const POST = composeMiddleware([
       }
     }
 
+    // Validate txHash format if provided
+    if (body.txHash && !/^0x[0-9a-fA-F]{64}$/.test(body.txHash)) {
+      throw ErrorResponses.badRequest('txHash must be a valid transaction hash (0x + 64 hex chars)');
+    }
+
     const result = await strategyArenaService.createStrategyBattle({
       warrior1Id: Number(warrior1Id),
       warrior1Owner,
@@ -79,6 +87,8 @@ export const POST = composeMiddleware([
       warrior2Owner,
       stakes,
       scheduledStartAt,
+      txHash: body.txHash,
+      onChainBattleId: body.onChainBattleId,
     });
 
     return NextResponse.json({
