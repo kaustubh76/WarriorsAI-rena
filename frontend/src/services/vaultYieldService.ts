@@ -219,7 +219,7 @@ class VaultYieldService {
     const evalAbort = new AbortController();
     const evalTimeout = setTimeout(() => evalAbort.abort(), 60000);
     const evalResponse = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/vault/evaluate-cycle`,
+      `${process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/vault/evaluate-cycle`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -342,7 +342,7 @@ class VaultYieldService {
 
     // P3-3: Upload cycle proof to 0G Storage for decentralized audit trail (non-fatal)
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const appUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
       const zeroGPayload = {
         battle: {
           battleId: `vault-cycle-${vault.id}-${nextCycle}`,

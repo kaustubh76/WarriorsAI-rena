@@ -45,6 +45,7 @@ import {
   parseEther,
   keccak256,
   encodePacked,
+  decodeEventLog,
   type Address,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -109,6 +110,11 @@ const DEFI_MOVE_MAP: Record<string, string> = {
   RECOVER: 'FLASH',
 };
 
+/** Reverse map: DeFi move names back to DebateMove enum (derived from DEFI_MOVE_MAP) */
+const DEFI_TO_DEBATE: Record<string, string> = Object.fromEntries(
+  Object.entries(DEFI_MOVE_MAP).map(([k, v]) => [v, k])
+);
+
 // ─── Types ────────────────────────────────────────────
 
 interface WarriorCycleResult {
@@ -171,6 +177,8 @@ class StrategyArenaService {
     warrior2Owner: string;
     stakes: string;
     scheduledStartAt?: Date;
+    txHash?: string;           // Client already created on-chain
+    onChainBattleId?: string;  // From BattleCreated event
   }) {
     const { warrior1Id, warrior1Owner, warrior2Id, warrior2Owner, stakes } = params;
 
@@ -247,8 +255,19 @@ class StrategyArenaService {
 
     console.log(`[StrategyArena] Created battle ${battle.id}: NFT#${warrior1Id} vs NFT#${warrior2Id}`);
 
-    // On-chain: register battle in BattleManager (escrows stakes)
-    if (isBattleManagerDeployed && BATTLE_MANAGER_ADDRESS) {
+    // On-chain: link battle to BattleManager escrow
+    if (params.txHash && params.onChainBattleId) {
+      // Client already created the battle on-chain — store the references
+      await prisma.predictionBattle.update({
+        where: { id: battle.id },
+        data: {
+          onChainBattleId: params.onChainBattleId,
+          txHash: params.txHash,
+        },
+      });
+      console.log(`[StrategyArena] On-chain battle linked: tx ${params.txHash}, onChainId ${params.onChainBattleId}`);
+    } else if (isBattleManagerDeployed && BATTLE_MANAGER_ADDRESS) {
+      // Server-side fallback: resolver creates on behalf (both users must have pre-approved)
       try {
         const clients = this.getServerClients();
         if (clients) {
@@ -262,18 +281,34 @@ class StrategyArenaService {
           });
           const receipt = await pc.waitForTransactionReceipt({ hash: createHash, timeout: 30_000 });
 
-          // Store on-chain battle ID from the BattleCreated event
+          // Extract on-chain battle ID from BattleCreated event (not logs[0] — Transfer events come first)
+          let onChainBattleId: string | null = null;
+          for (const log of receipt.logs) {
+            try {
+              const decoded = decodeEventLog({
+                abi: BATTLE_MANAGER_ABI,
+                data: log.data,
+                topics: log.topics,
+              });
+              if (decoded.eventName === 'BattleCreated') {
+                onChainBattleId = String((decoded.args as { battleId: bigint }).battleId);
+                break;
+              }
+            } catch {
+              // Not a BattleManager event, skip
+            }
+          }
           await prisma.predictionBattle.update({
             where: { id: battle.id },
             data: {
-              onChainBattleId: receipt.logs?.[0]?.topics?.[1] ?? null,
+              onChainBattleId,
               txHash: createHash,
             },
           });
-          console.log(`[StrategyArena] On-chain battle created: tx ${createHash}`);
+          console.log(`[StrategyArena] On-chain battle created (server): tx ${createHash}`);
         }
       } catch (chainErr) {
-        console.error(`[StrategyArena] On-chain battle creation failed (non-fatal):`, chainErr);
+        console.error(`[StrategyArena] On-chain battle creation failed:`, chainErr);
         await sendAlertWithRateLimit(
           `arena:create-onchain:${battle.id}`,
           'On-Chain Battle Creation Failed',
@@ -281,7 +316,11 @@ class StrategyArenaService {
           'error',
           { battleId: battle.id, error: chainErr instanceof Error ? chainErr.message : String(chainErr) }
         ).catch(() => {});
+        // On-chain is now mandatory — throw to signal failure
+        throw new Error(`On-chain battle creation failed: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
       }
+    } else {
+      console.warn(`[StrategyArena] BattleManager not deployed — battle ${battle.id} has no on-chain escrow`);
     }
 
     // Fire-and-forget: cache NFT image URLs so list page can show avatars
@@ -385,19 +424,16 @@ class StrategyArenaService {
       ),
     ]);
 
-    // 5b. Fetch latest Flow block hash for VRF seed
-    let latestBlockHash = '0x0000000000000000000000000000000000000000000000000000000000000000';
-    let vrfDegraded = false;
+    // 5b. Fetch latest Flow block hash for VRF seed (MANDATORY — no local fallback)
+    let latestBlockHash: string;
     try {
       const vrfClient = createFlowPublicClient();
       const latestBlock = await vrfClient.getBlock({ blockTag: 'latest' });
       latestBlockHash = latestBlock.hash;
-    } catch {
-      // Fallback: local entropy — less verifiable but functional. Log so operators know VRF is degraded.
-      vrfDegraded = true;
-      console.warn(`[StrategyArena] VRF degraded: Flow RPC block hash unavailable for battle ${battleId} round ${roundNumber}`);
-      const localEntropy = BigInt(Date.now()) ^ process.hrtime.bigint() ^ BigInt('0x' + randomBytes(8).toString('hex'));
-      latestBlockHash = keccak256(encodePacked(['uint256'], [localEntropy]));
+    } catch (vrfErr) {
+      // On-chain VRF is mandatory — fail and let cron retry
+      console.error(`[StrategyArena] VRF FAILED: Flow block hash unavailable for battle ${battleId} round ${roundNumber}:`, vrfErr);
+      throw new Error(`VRF unavailable: Flow block hash fetch failed for battle ${battleId} cycle ${roundNumber}. Cron will retry.`);
     }
 
     // 5c. Generate VRF seeds and determine hit/miss for each warrior
@@ -470,7 +506,7 @@ class StrategyArenaService {
           w2Score: w2Result.score.finalScore,
           w2Confidence: Math.round(w2Result.score.baseScore),
           roundWinner,
-          judgeReasoning: `Cycle ${roundNumber}: ${w1Result.defiMove} (${w1HitResult.isHit ? 'HIT' : 'MISS'} @${(w1HitResult.hitProbability / 100).toFixed(1)}%) vs ${w2Result.defiMove} (${w2HitResult.isHit ? 'HIT' : 'MISS'} @${(w2HitResult.hitProbability / 100).toFixed(1)}%). W1 yield: ${formatEther(BigInt(w1Result.yieldEarned))} CRwN, W2 yield: ${formatEther(BigInt(w2Result.yieldEarned))} CRwN.${vrfDegraded ? ' (VRF degraded: local entropy fallback)' : ''}`,
+          judgeReasoning: `Cycle ${roundNumber}: ${w1Result.defiMove} (${w1HitResult.isHit ? 'HIT' : 'MISS'} @${(w1HitResult.hitProbability / 100).toFixed(1)}%) vs ${w2Result.defiMove} (${w2HitResult.isHit ? 'HIT' : 'MISS'} @${(w2HitResult.hitProbability / 100).toFixed(1)}%). W1 yield: ${formatEther(BigInt(w1Result.yieldEarned))} CRwN, W2 yield: ${formatEther(BigInt(w2Result.yieldEarned))} CRwN.`,
           // DeFi-specific fields
           w1DeFiMove: w1Result.defiMove,
           w2DeFiMove: w2Result.defiMove,
@@ -568,15 +604,77 @@ class StrategyArenaService {
           console.log(`[StrategyArena] On-chain cycle ${roundNumber} scored: tx ${scoreHash}`);
         }
       } catch (chainErr) {
-        console.error(`[StrategyArena] On-chain score recording failed (non-fatal):`, chainErr);
+        console.error(`[StrategyArena] On-chain score recording failed:`, chainErr);
         await sendAlertWithRateLimit(
           `arena:score-onchain:${battle.id}`,
           'On-Chain Score Recording Failed',
           `Battle ${battle.id} cycle ${roundNumber} score not recorded on-chain.`,
-          'warning',
+          'error',
           { battleId: battle.id, roundNumber, error: chainErr instanceof Error ? chainErr.message : String(chainErr) }
         ).catch(() => {});
+        // On-chain is mandatory — propagate failure so cron retries
+        throw new Error(`On-chain score recording failed for battle ${battle.id} cycle ${roundNumber}: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
       }
+    }
+
+    // 9d. Upload cycle result to 0G Storage for decentralized audit trail (non-fatal)
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+      const cyclePayload = {
+        battle: {
+          battleId,
+          timestamp: Date.now(),
+          warriors: [
+            { id: battle.warrior1Id, totalBattles: 0, wins: 0, losses: 0 },
+            { id: battle.warrior2Id, totalBattles: 0, wins: 0, losses: 0 },
+          ],
+          rounds: [{
+            round: roundNumber,
+            w1Move: w1Result.defiMove,
+            w2Move: w2Result.defiMove,
+            w1Score: w1Result.score.finalScore,
+            w2Score: w2Result.score.finalScore,
+            w1Yield: w1Result.yieldEarned,
+            w2Yield: w2Result.yieldEarned,
+            w1Hit: w1HitResult.isHit,
+            w2Hit: w2HitResult.isHit,
+            w1AllocationAfter: w1Result.allocationAfter,
+            w2AllocationAfter: w2Result.allocationAfter,
+            w1TxHash: w1Result.txHash,
+            w2TxHash: w2Result.txHash,
+          }],
+          outcome: 'in_progress',
+          totalDamage: { warrior1: w1Result.score.finalScore, warrior2: w2Result.score.finalScore },
+          totalRounds: roundNumber,
+          marketData: { totalVolume: battle.stakes.toString() },
+          // On-chain verifiability data
+          _onChainProof: {
+            scoreBreakdown: {
+              w1: w1Result.score.strategyBreakdown,
+              w2: w2Result.score.strategyBreakdown,
+            },
+            vrfSeeds: { w1: w1VrfSeed, w2: w2VrfSeed },
+            vrfBlockHash: latestBlockHash,
+            poolAPYsSnapshot: poolAPYs,
+            onChainBattleId: battle.onChainBattleId,
+          },
+        },
+      };
+      const storeAbort = new AbortController();
+      const storeTimeout = setTimeout(() => storeAbort.abort(), 10_000);
+      try {
+        await fetch(`${appUrl}/api/0g/store`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cyclePayload),
+          signal: storeAbort.signal,
+        });
+        console.log(`[StrategyArena] Cycle ${roundNumber} for battle ${battleId} stored on 0G`);
+      } finally {
+        clearTimeout(storeTimeout);
+      }
+    } catch (storeErr) {
+      console.warn('[StrategyArena] 0G cycle storage upload failed (non-fatal):', storeErr);
     }
 
     // 10. Auto-settle if final cycle
@@ -776,7 +874,7 @@ class StrategyArenaService {
               data: { onChainSettled: true },
             });
           } catch (settleErr) {
-            console.error(`[StrategyArena] On-chain settlement failed (non-fatal):`, settleErr);
+            console.error(`[StrategyArena] On-chain settlement failed:`, settleErr);
             await sendAlertWithRateLimit(
               `arena:settle-onchain:${battleId}`,
               'On-Chain Settlement Failed',
@@ -784,6 +882,8 @@ class StrategyArenaService {
               'critical',
               { battleId, onChainBattleId: battle.onChainBattleId, error: settleErr instanceof Error ? settleErr.message : String(settleErr) }
             ).catch(() => {});
+            // On-chain settlement is mandatory — propagate failure so cron retries
+            throw new Error(`On-chain settlement failed for battle ${battleId}: ${settleErr instanceof Error ? settleErr.message : String(settleErr)}`);
           }
         } else {
           // BattleManager not deployed or missing onChainBattleId — do NOT fall back to server-wallet transfer
@@ -849,7 +949,7 @@ class StrategyArenaService {
 
     // P4-15: Upload battle settlement to 0G Storage for decentralized audit trail (non-fatal)
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const appUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
       // Build BattleDataIndex-compatible payload (warriors + outcome required by /api/0g/store)
       const zeroGPayload = {
         battle: {
@@ -1104,13 +1204,6 @@ class StrategyArenaService {
     // 3. Select move using DeFi-aware logic based on traits + pool conditions (P4-6 fix)
     const defiMove = this.selectDeFiMove(defiTraits, poolAPYs, currentAllocation, roundNumber);
     // Map defiMove back to a DebateMove enum value for scoring compatibility
-    const DEFI_TO_DEBATE: Record<string, string> = {
-      CONCENTRATE: 'TAUNT',
-      HEDGE_UP: 'DODGE',
-      COMPOSE: 'SPECIAL',
-      FLASH: 'RECOVER',
-      REBALANCE: 'STRIKE',
-    };
     const selectedMove = (DEFI_TO_DEBATE[defiMove] || 'STRIKE') as DebateMove;
     console.log(`${tag} — selected move: ${defiMove}`);
 
@@ -1125,7 +1218,7 @@ class StrategyArenaService {
     const evalTimeout = setTimeout(() => evalAbort.abort(), 10_000);
     try {
       const evalResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/vault/evaluate-cycle`,
+        `${process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/vault/evaluate-cycle`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1405,8 +1498,7 @@ class StrategyArenaService {
         // Guard: ensure lp doesn't go negative from rounding
         if (hy + st > 10000) {
           const excess = hy + st - 10000;
-          hy = hy >= st ? hy - excess : hy;
-          st = hy < st ? st - excess : st;
+          if (hy >= st) { hy -= excess; } else { st -= excess; }
         }
         return { highYield: hy, stable: st, lp: Math.max(0, 10000 - hy - st) };
       }
