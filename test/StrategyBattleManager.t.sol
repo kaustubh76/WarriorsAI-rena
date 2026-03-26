@@ -770,6 +770,360 @@ contract StrategyBattleManagerTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════
+    // AUTHORIZATION & EDGE CASES (Phase 4 Hardening)
+    // ═══════════════════════════════════════════════════════
+
+    function test_CreateBattle_RevertsNotOwner() public {
+        vm.prank(user1);
+        crownToken.approve(address(battleManager), STAKE_AMOUNT);
+        vm.prank(user2);
+        crownToken.approve(address(battleManager), STAKE_AMOUNT);
+
+        // Spectator is neither owner of warrior1 nor resolver
+        vm.prank(spectator);
+        vm.expectRevert(IStrategyBattleManager.BattleManager__NotWarriorOwner.selector);
+        battleManager.createBattle(nft1Id, nft2Id, STAKE_AMOUNT);
+    }
+
+    function test_CreateBattle_ResolverCanCreateOnBehalf() public {
+        vm.prank(user1);
+        crownToken.approve(address(battleManager), STAKE_AMOUNT);
+        vm.prank(user2);
+        crownToken.approve(address(battleManager), STAKE_AMOUNT);
+
+        // Resolver can create on behalf of warriors
+        vm.prank(resolver);
+        uint256 battleId = battleManager.createBattle(nft1Id, nft2Id, STAKE_AMOUNT);
+        assertGt(battleId, 0);
+
+        IStrategyBattleManager.Battle memory battle = battleManager.getBattle(battleId);
+        assertEq(battle.warrior1Owner, user1);
+        assertEq(battle.warrior2Owner, user2);
+    }
+
+    function test_CreateBattle_RevertsVaultNotActive() public {
+        // Mint a third NFT without a vault
+        address user3 = makeAddr("user3");
+        vm.deal(user3, INITIAL_BALANCE);
+        vm.prank(user3);
+        crownToken.mint{value: INITIAL_BALANCE}(INITIAL_BALANCE);
+        vm.prank(user3);
+        warriorsNFT.mintNft("encrypted_uri_3", bytes32(uint256(3)));
+        uint256 nft3Id = 3;
+        _assignTraitsWithSignature(uint16(nft3Id), 5000, 5000, 5000, 5000, 5000);
+
+        vm.prank(user1);
+        crownToken.approve(address(battleManager), STAKE_AMOUNT);
+        vm.prank(user3);
+        crownToken.approve(address(battleManager), STAKE_AMOUNT);
+
+        // nft3 has no vault
+        vm.prank(user1);
+        vm.expectRevert(IStrategyBattleManager.BattleManager__VaultNotActive.selector);
+        battleManager.createBattle(nft1Id, nft3Id, STAKE_AMOUNT);
+    }
+
+    function test_RecordCycleScore_RevertsAfter5Rounds() public {
+        uint256 battleId = _createBattle();
+        _scoreRounds(battleId, 100, 80);
+
+        // 6th score should revert (battle has 5 rounds already)
+        vm.prank(resolver);
+        vm.expectRevert(IStrategyBattleManager.BattleManager__BattleAlreadySettled.selector);
+        battleManager.recordCycleScore(battleId, 100, 80);
+    }
+
+    function test_SettleBattle_RevertsUnauthorized() public {
+        uint256 battleId = _createBattle();
+        _scoreRounds(battleId, 100, 80);
+
+        // Spectator is not resolver or owner
+        vm.prank(spectator);
+        vm.expectRevert(IStrategyBattleManager.BattleManager__Unauthorized.selector);
+        battleManager.settleBattle(battleId);
+    }
+
+    function test_CloseBetting_OnlyResolver() public {
+        uint256 battleId = _createBattle();
+
+        // Non-resolver cannot close betting
+        vm.prank(spectator);
+        vm.expectRevert(IStrategyBattleManager.BattleManager__Unauthorized.selector);
+        battleManager.closeBetting(battleId);
+
+        // Resolver can close betting
+        vm.prank(resolver);
+        battleManager.closeBetting(battleId);
+
+        IStrategyBattleManager.Battle memory battle = battleManager.getBattle(battleId);
+        assertFalse(battle.bettingOpen);
+
+        // Closing again should not revert (idempotent)
+        vm.prank(resolver);
+        battleManager.closeBetting(battleId);
+    }
+
+    function test_ClaimBet_OneSidedPool() public {
+        uint256 battleId = _createBattle();
+
+        // Both bettors bet on the winner (warrior1)
+        vm.startPrank(spectator);
+        crownToken.approve(address(battleManager), BET_AMOUNT);
+        battleManager.placeBet(battleId, true, BET_AMOUNT);
+        vm.stopPrank();
+
+        _scoreRounds(battleId, 100, 80);
+        vm.prank(resolver);
+        battleManager.settleBattle(battleId);
+
+        // Winner-side bettor claims — losing pool is 0, so winnings = 0
+        uint256 before_ = crownToken.balanceOf(spectator);
+        vm.prank(spectator);
+        battleManager.claimBet(battleId);
+        uint256 payout = crownToken.balanceOf(spectator) - before_;
+
+        // With 0 losing pool, winner gets original back minus fee on 0 winnings = original
+        // Actually: winnings = (0 * bet / totalWin) = 0, fee = 0, payout = bet + 0 - 0 = bet
+        assertEq(payout, BET_AMOUNT);
+    }
+
+    function test_GetBettingOdds_ZeroPool() public {
+        uint256 battleId = _createBattle();
+
+        (uint256 w1Odds, uint256 w2Odds, uint256 total) = battleManager.getBettingOdds(battleId);
+        assertEq(total, 0);
+        assertEq(w1Odds, 5000); // 50%
+        assertEq(w2Odds, 5000); // 50%
+    }
+
+    function test_ELO_AsymmetricRatings() public {
+        // Battle 1: W1 wins → rating diverges from 1000
+        uint256 b1 = _createBattle();
+        _scoreRounds(b1, 100, 80);
+        vm.prank(resolver);
+        battleManager.settleBattle(b1);
+
+        IStrategyBattleManager.WarriorRating memory r1After1 = battleManager.getWarriorRating(nft1Id);
+        IStrategyBattleManager.WarriorRating memory r2After1 = battleManager.getWarriorRating(nft2Id);
+        uint256 w1R1 = r1After1.rating;
+        uint256 w2R1 = r2After1.rating;
+
+        // Battle 2: W2 (underdog) beats W1 (favored) — larger delta
+        uint256 b2 = _createBattle();
+        _scoreRounds(b2, 60, 100);
+        vm.prank(resolver);
+        battleManager.settleBattle(b2);
+
+        IStrategyBattleManager.WarriorRating memory r1After2 = battleManager.getWarriorRating(nft1Id);
+        IStrategyBattleManager.WarriorRating memory r2After2 = battleManager.getWarriorRating(nft2Id);
+
+        // Underdog win: W2 gained more than first battle delta (upset bonus)
+        uint256 w2Gain = r2After2.rating - w2R1;
+        uint256 w1GainFirst = w1R1 - 1000;
+        assertGt(w2Gain, w1GainFirst, "Underdog should gain more ELO from upset");
+
+        // Favored loser: W1 lost more than first battle delta
+        uint256 w1Loss = w1R1 - r1After2.rating;
+        assertGt(w1Loss, w1GainFirst, "Favored warrior should lose more ELO from upset");
+    }
+
+    function test_ELO_FloorAt100() public {
+        // Make warrior2 lose many times to drive rating toward floor
+        for (uint256 i = 0; i < 15; i++) {
+            uint256 bid = _createBattle();
+            _scoreRounds(bid, 200, 10);
+            vm.prank(resolver);
+            battleManager.settleBattle(bid);
+        }
+
+        IStrategyBattleManager.WarriorRating memory r = battleManager.getWarriorRating(nft2Id);
+        assertGe(r.rating, 100, "Rating should never drop below 100");
+    }
+
+    function test_SetResolver_ZeroAddress_Reverts() public {
+        vm.expectRevert("Zero address");
+        battleManager.setResolver(address(0));
+    }
+
+    function test_StakingFeePercent_Over100_Reverts() public {
+        vm.expectRevert("Exceeds 100%");
+        battleManager.setStakingFeePercent(10001);
+    }
+
+    function test_WithdrawFees_AccumulatesCorrectly() public {
+        // Create battle with bets, settle, claim — check fee accumulation
+        uint256 battleId = _createBattle();
+
+        vm.startPrank(spectator);
+        crownToken.approve(address(battleManager), BET_AMOUNT);
+        battleManager.placeBet(battleId, true, BET_AMOUNT);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        crownToken.approve(address(battleManager), 10 ether);
+        battleManager.placeBet(battleId, false, 10 ether);
+        vm.stopPrank();
+
+        _scoreRounds(battleId, 100, 80);
+        vm.prank(resolver);
+        battleManager.settleBattle(battleId);
+
+        // Winner claims
+        vm.prank(spectator);
+        battleManager.claimBet(battleId);
+
+        uint256 fees = battleManager.totalFeesCollected();
+        assertGt(fees, 0, "Fees should accumulate from claims");
+
+        // Withdraw fees
+        uint256 ownerBefore = crownToken.balanceOf(owner);
+        battleManager.withdrawFees(owner);
+
+        assertEq(crownToken.balanceOf(owner) - ownerBefore, fees, "Owner should receive all fees");
+        assertEq(battleManager.totalFeesCollected(), 0, "Fees should reset after withdrawal");
+    }
+
+    function test_WithdrawInsurance_ResetsToZero() public {
+        // Accumulate some insurance via claim
+        uint256 battleId = _createBattle();
+
+        vm.startPrank(spectator);
+        crownToken.approve(address(battleManager), BET_AMOUNT);
+        battleManager.placeBet(battleId, true, BET_AMOUNT);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        crownToken.approve(address(battleManager), 10 ether);
+        battleManager.placeBet(battleId, false, 10 ether);
+        vm.stopPrank();
+
+        _scoreRounds(battleId, 100, 80);
+        vm.prank(resolver);
+        battleManager.settleBattle(battleId);
+
+        vm.prank(spectator);
+        battleManager.claimBet(battleId);
+
+        uint256 insurance = battleManager.insuranceReserve();
+        assertGt(insurance, 0, "Insurance should accumulate");
+
+        battleManager.withdrawInsurance(owner);
+        assertEq(battleManager.insuranceReserve(), 0, "Insurance should reset after withdrawal");
+    }
+
+    function test_ELO_DrawBetweenUnequalRatings() public {
+        // First: make ratings diverge
+        uint256 b1 = _createBattle();
+        _scoreRounds(b1, 100, 80);
+        vm.prank(resolver);
+        battleManager.settleBattle(b1);
+
+        uint256 w1Before = battleManager.getWarriorRating(nft1Id).rating;
+        uint256 w2Before = battleManager.getWarriorRating(nft2Id).rating;
+        assertGt(w1Before, w2Before, "Ratings should be different");
+
+        // Then draw — higher-rated player should lose a bit, lower-rated should gain
+        uint256 b2 = _createBattle();
+        _scoreRounds(b2, 100, 100);
+        vm.prank(resolver);
+        battleManager.settleBattle(b2);
+
+        uint256 w1After = battleManager.getWarriorRating(nft1Id).rating;
+        uint256 w2After = battleManager.getWarriorRating(nft2Id).rating;
+
+        assertLt(w1After, w1Before, "Higher-rated warrior should lose rating in draw");
+        assertGt(w2After, w2Before, "Lower-rated warrior should gain rating in draw");
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FUZZ TESTS
+    // ═══════════════════════════════════════════════════════
+
+    function testFuzz_CreateBattle_Stakes(uint256 stakes) public {
+        vm.prank(user1);
+        crownToken.approve(address(battleManager), type(uint256).max);
+        vm.prank(user2);
+        crownToken.approve(address(battleManager), type(uint256).max);
+
+        if (stakes < 5 ether) {
+            vm.prank(user1);
+            vm.expectRevert(IStrategyBattleManager.BattleManager__InvalidStakes.selector);
+            battleManager.createBattle(nft1Id, nft2Id, stakes);
+        } else if (stakes <= crownToken.balanceOf(user1) && stakes <= crownToken.balanceOf(user2)) {
+            vm.prank(user1);
+            uint256 battleId = battleManager.createBattle(nft1Id, nft2Id, stakes);
+            assertGt(battleId, 0);
+        }
+        // else: transfer will revert (insufficient balance) — acceptable
+    }
+
+    function testFuzz_PlaceBet_Amount(uint256 amount) public {
+        uint256 battleId = _createBattle();
+
+        vm.startPrank(spectator);
+        crownToken.approve(address(battleManager), type(uint256).max);
+
+        if (amount == 0) {
+            vm.expectRevert(IStrategyBattleManager.BattleManager__InvalidBetAmount.selector);
+            battleManager.placeBet(battleId, true, amount);
+        } else if (amount <= crownToken.balanceOf(spectator)) {
+            battleManager.placeBet(battleId, true, amount);
+            IStrategyBattleManager.BetInfo memory bet = battleManager.getUserBet(battleId, spectator);
+            assertEq(bet.amount, amount);
+        }
+        vm.stopPrank();
+    }
+
+    function testFuzz_ELO_RatingNeverBelow100(uint8 rounds) public {
+        uint256 numBattles = uint256(rounds) % 20 + 1; // 1-20 battles
+
+        for (uint256 i = 0; i < numBattles; i++) {
+            uint256 bid = _createBattle();
+            // Warrior2 always loses
+            _scoreRounds(bid, 200, 10);
+            vm.prank(resolver);
+            battleManager.settleBattle(bid);
+        }
+
+        IStrategyBattleManager.WarriorRating memory r = battleManager.getWarriorRating(nft2Id);
+        assertGe(r.rating, 100, "Rating must never drop below 100");
+        assertEq(r.losses, numBattles);
+    }
+
+    function testFuzz_ClaimBet_PayoutBounded(uint96 betAmt, uint96 opposingBetAmt) public {
+        // Bound to reasonable range to avoid running out of balance
+        uint256 betAmount = uint256(betAmt) % 50 ether + 1 ether;
+        uint256 opposingAmount = uint256(opposingBetAmt) % 50 ether + 1 ether;
+
+        if (betAmount > crownToken.balanceOf(spectator)) return;
+        if (opposingAmount > crownToken.balanceOf(user2) - STAKE_AMOUNT) return;
+
+        uint256 battleId = _createBattle();
+
+        vm.startPrank(spectator);
+        crownToken.approve(address(battleManager), betAmount);
+        battleManager.placeBet(battleId, true, betAmount);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        crownToken.approve(address(battleManager), opposingAmount);
+        battleManager.placeBet(battleId, false, opposingAmount);
+        vm.stopPrank();
+
+        _scoreRounds(battleId, 100, 80);
+        vm.prank(resolver);
+        battleManager.settleBattle(battleId);
+
+        uint256 before_ = crownToken.balanceOf(spectator);
+        vm.prank(spectator);
+        battleManager.claimBet(battleId);
+        uint256 payout = crownToken.balanceOf(spectator) - before_;
+
+        // Payout can never exceed bet + entire losing pool
+        assertLe(payout, betAmount + opposingAmount, "Payout must not exceed bet + losing pool");
+    }
+
+    // ═══════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════
 
