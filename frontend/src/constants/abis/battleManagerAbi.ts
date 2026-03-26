@@ -215,6 +215,16 @@ export const BATTLE_MANAGER_ABI = [
     ],
   },
 
+  {
+    name: 'RatingUpdated',
+    type: 'event',
+    inputs: [
+      { name: 'warriorId', type: 'uint256', indexed: true },
+      { name: 'oldRating', type: 'uint256', indexed: false },
+      { name: 'newRating', type: 'uint256', indexed: false },
+    ],
+  },
+
   // ── Admin ───────────────────────────────────
   {
     name: 'setResolver',

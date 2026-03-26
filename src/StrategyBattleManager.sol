@@ -96,10 +96,11 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
         if (warrior1Id == warrior2Id) revert BattleManager__SameWarrior();
         if (stakes < MIN_STAKES) revert BattleManager__InvalidStakes();
 
-        // Validate ownership
+        // Validate ownership — warrior1 owner OR resolver/owner can create on behalf
         address w1Owner = warriorsNFT.ownerOf(warrior1Id);
         address w2Owner = warriorsNFT.ownerOf(warrior2Id);
-        if (w1Owner != msg.sender) revert BattleManager__NotWarriorOwner();
+        if (w1Owner != msg.sender && msg.sender != resolver && msg.sender != owner())
+            revert BattleManager__NotWarriorOwner();
 
         // Validate both have active vaults
         if (!strategyVault.isVaultActive(warrior1Id)) revert BattleManager__VaultNotActive();
