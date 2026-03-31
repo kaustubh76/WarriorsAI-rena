@@ -210,7 +210,7 @@ class StrategyArenaService {
     if (!vault2) throw ErrorResponses.badRequest(`No vault record for warrior #${warrior2Id}`);
 
     // Create battle + betting pool in an interactive transaction
-    const { battle, bettingPool } = await prisma.$transaction(async (tx) => {
+    let { battle, bettingPool } = await prisma.$transaction(async (tx) => {
       const battle = await tx.predictionBattle.create({
         data: {
           externalMarketId: `strategy_${warrior1Id}_vs_${warrior2Id}_${Date.now()}`,
@@ -258,13 +258,14 @@ class StrategyArenaService {
     // On-chain: link battle to BattleManager escrow
     if (params.txHash && params.onChainBattleId) {
       // Client already created the battle on-chain — store the references
-      await prisma.predictionBattle.update({
+      const updated = await prisma.predictionBattle.update({
         where: { id: battle.id },
         data: {
           onChainBattleId: params.onChainBattleId,
           txHash: params.txHash,
         },
       });
+      battle = updated;
       console.log(`[StrategyArena] On-chain battle linked: tx ${params.txHash}, onChainId ${params.onChainBattleId}`);
     } else if (isBattleManagerDeployed && BATTLE_MANAGER_ADDRESS) {
       // Server-side fallback: resolver creates on behalf (both users must have pre-approved)
@@ -298,13 +299,14 @@ class StrategyArenaService {
               // Not a BattleManager event, skip
             }
           }
-          await prisma.predictionBattle.update({
+          const updated = await prisma.predictionBattle.update({
             where: { id: battle.id },
             data: {
               onChainBattleId,
               txHash: createHash,
             },
           });
+          battle = updated;
           console.log(`[StrategyArena] On-chain battle created (server): tx ${createHash}`);
         }
       } catch (chainErr) {
