@@ -107,6 +107,7 @@ export function useCreateStrategyBattle(): UseCreateStrategyBattleReturn {
         abi: CRWN_TOKEN_ABI,
         functionName: 'approve',
         args: [BATTLE_MANAGER_ADDRESS, weiAmount],
+        gas: 5_000_000n,
       });
 
       if (approveHash && publicClient) {
@@ -120,6 +121,7 @@ export function useCreateStrategyBattle(): UseCreateStrategyBattleReturn {
         abi: BATTLE_MANAGER_ABI,
         functionName: 'createBattle',
         args: [BigInt(params.warrior1Id), BigInt(params.warrior2Id), weiAmount],
+        gas: 5_000_000n,
       });
 
       let onChainBattleId: string | null = null;

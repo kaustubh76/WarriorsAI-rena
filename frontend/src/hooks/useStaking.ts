@@ -185,6 +185,7 @@ export function useStaking(): UseStakingReturn {
         abi: CRWN_TOKEN_ABI,
         functionName: 'approve',
         args: [STAKING_ADDRESS, amountWei],
+        gas: 5_000_000n,
       });
 
       // 2. Stake
@@ -193,6 +194,7 @@ export function useStaking(): UseStakingReturn {
         abi: STAKING_ABI,
         functionName: 'stake',
         args: [amountWei],
+        gas: 5_000_000n,
       });
 
       // Wait for confirmation
@@ -225,6 +227,7 @@ export function useStaking(): UseStakingReturn {
         abi: STAKING_ABI,
         functionName: 'requestUnstake',
         args: [amountWei],
+        gas: 5_000_000n,
       });
 
       if (publicClient) {
@@ -253,6 +256,7 @@ export function useStaking(): UseStakingReturn {
         address: STAKING_ADDRESS,
         abi: STAKING_ABI,
         functionName: 'completeUnstake',
+        gas: 5_000_000n,
       });
 
       if (publicClient) {
@@ -301,6 +305,7 @@ export function useStaking(): UseStakingReturn {
         ] as const,
         functionName: 'approve',
         args: [STAKING_ADDRESS, BigInt(nftId)],
+        gas: 5_000_000n,
       });
 
       // 2. Stake warrior
@@ -309,6 +314,7 @@ export function useStaking(): UseStakingReturn {
         abi: STAKING_ABI,
         functionName: 'stakeWarrior',
         args: [BigInt(nftId)],
+        gas: 5_000_000n,
       });
 
       if (publicClient) {
@@ -337,6 +343,7 @@ export function useStaking(): UseStakingReturn {
         address: STAKING_ADDRESS,
         abi: STAKING_ABI,
         functionName: 'unstakeWarrior',
+        gas: 5_000_000n,
       });
 
       if (publicClient) {

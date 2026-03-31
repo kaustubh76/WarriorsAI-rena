@@ -171,6 +171,7 @@ export function useBattleBetting(
           abi: CRWN_TOKEN_ABI,
           functionName: 'approve',
           args: [effectiveContract, weiAmount],
+          gas: 5_000_000n,
         });
         if (approveHash && publicClient) {
           await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 30_000 });
@@ -185,6 +186,7 @@ export function useBattleBetting(
           abi: BATTLE_MANAGER_ABI,
           functionName: 'placeBet',
           args: [onChainId, betOnWarrior1, weiAmount],
+          gas: 5_000_000n,
         });
       } else {
         // BattleManager not deployed — do NOT fall back to direct transfer (would burn tokens)
@@ -269,6 +271,7 @@ export function useBattleBetting(
           abi: BATTLE_MANAGER_ABI,
           functionName: 'claimBet',
           args: [onChainId],
+          gas: 5_000_000n,
         });
       }
 

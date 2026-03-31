@@ -145,6 +145,7 @@ export function usePredictionArena(
             parseEther(params.stakes),
             BigInt(duration),
           ],
+          gas: 5_000_000n,
         });
       }
 
