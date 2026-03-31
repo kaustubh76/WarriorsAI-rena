@@ -111,48 +111,70 @@ export function useCreateStrategyBattle(): UseCreateStrategyBattleReturn {
       });
 
       if (approveHash && publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 30_000 });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 60_000 });
       }
 
-      // Step 3: Call BattleManager.createBattle()
+      // Step 3: Simulate createBattle to get the return value (battleId)
       setStage('creating');
+      let onChainBattleId: string | null = null;
+      const createArgs = [BigInt(params.warrior1Id), BigInt(params.warrior2Id), weiAmount] as const;
+
+      if (publicClient) {
+        try {
+          const { result } = await publicClient.simulateContract({
+            account: address,
+            address: BATTLE_MANAGER_ADDRESS,
+            abi: BATTLE_MANAGER_ABI,
+            functionName: 'createBattle',
+            args: createArgs,
+            gas: 5_000_000n,
+          });
+          onChainBattleId = String(result);
+        } catch (simErr) {
+          console.warn('[CreateBattle] simulateContract failed, will fall back to event logs:', simErr);
+        }
+      }
+
+      // Step 4: Execute createBattle on-chain
       const createHash = await writeContractAsync({
         address: BATTLE_MANAGER_ADDRESS,
         abi: BATTLE_MANAGER_ABI,
         functionName: 'createBattle',
-        args: [BigInt(params.warrior1Id), BigInt(params.warrior2Id), weiAmount],
+        args: createArgs,
         gas: 5_000_000n,
       });
 
-      let onChainBattleId: string | null = null;
+      // Step 5: Wait for receipt + fallback event extraction if simulate didn't give us the ID
       if (createHash && publicClient) {
-        const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash, timeout: 30_000 });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash, timeout: 60_000 });
 
-        // Extract battleId from BattleCreated event
-        for (const log of receipt.logs) {
-          try {
-            const decoded = decodeEventLog({
-              abi: BATTLE_MANAGER_ABI,
-              data: log.data,
-              topics: log.topics,
-            });
-            if (decoded.eventName === 'BattleCreated') {
-              onChainBattleId = String((decoded.args as { battleId: bigint }).battleId);
-              break;
+        if (!onChainBattleId) {
+          // Fallback: extract battleId from BattleCreated event log
+          for (const log of receipt.logs) {
+            try {
+              const decoded = decodeEventLog({
+                abi: BATTLE_MANAGER_ABI,
+                data: log.data,
+                topics: log.topics,
+              });
+              if (decoded.eventName === 'BattleCreated') {
+                onChainBattleId = String((decoded.args as { battleId: bigint }).battleId);
+                break;
+              }
+            } catch {
+              // Not our event, skip
             }
-          } catch {
-            // Not our event, skip
           }
-        }
 
-        // Fallback: extract from first indexed topic
-        if (!onChainBattleId && receipt.logs[0]?.topics?.[1]) {
-          onChainBattleId = String(BigInt(receipt.logs[0].topics[1]));
+          // Last resort: first indexed topic (battleId is topics[1] for BattleCreated)
+          if (!onChainBattleId && receipt.logs[0]?.topics?.[1]) {
+            onChainBattleId = String(BigInt(receipt.logs[0].topics[1]));
+          }
         }
       }
 
       if (!onChainBattleId) {
-        throw new Error('Battle created on-chain but could not extract battleId from event logs');
+        throw new Error('Battle created on-chain but could not extract battleId');
       }
 
       // Step 4: Record in API/DB

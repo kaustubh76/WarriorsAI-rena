@@ -31,7 +31,8 @@ let mockAddress: `0x${string}` | undefined = FAKE_ADDR;
 let mockWriteContractAsync: Mock;
 let mockReadContract: Mock;
 let mockWaitForTransactionReceipt: Mock;
-let mockPublicClient: { readContract: Mock; waitForTransactionReceipt: Mock } | undefined;
+let mockSimulateContract: Mock;
+let mockPublicClient: { readContract: Mock; waitForTransactionReceipt: Mock; simulateContract: Mock } | undefined;
 
 // ─── Mock wagmi ───────────────────────────────────────
 
@@ -122,9 +123,12 @@ describe('useCreateStrategyBattle', () => {
       logs: [createBattleCreatedLog()],
     });
 
+    mockSimulateContract = vi.fn().mockResolvedValue({ result: ON_CHAIN_BATTLE_ID });
+
     mockPublicClient = {
       readContract: mockReadContract,
       waitForTransactionReceipt: mockWaitForTransactionReceipt,
+      simulateContract: mockSimulateContract,
     };
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -198,7 +202,7 @@ describe('useCreateStrategyBattle', () => {
         callOrder.push('waitReceipt');
         return { logs: [createBattleCreatedLog()] };
       });
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       await createBattle(VALID_PARAMS);
@@ -286,35 +290,85 @@ describe('useCreateStrategyBattle', () => {
     });
   });
 
-  // ── Event log decoding ──────────────────────────────
+  // ── simulateContract (primary path) ──────────────────
 
-  describe('event log decoding', () => {
-    it('extracts battleId from BattleCreated event', async () => {
+  describe('simulateContract (primary battleId extraction)', () => {
+    it('gets battleId from simulateContract return value', async () => {
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
-      expect(result!.onChainBattleId).toBe('42');
+
+      expect(mockSimulateContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          account: FAKE_ADDR,
+          address: BM_ADDR,
+          functionName: 'createBattle',
+          gas: EXPECTED_GAS,
+        })
+      );
+      expect(result!.onChainBattleId).toBe(String(ON_CHAIN_BATTLE_ID));
     });
 
-    it('falls back to first indexed topic if event decode fails', async () => {
+    it('skips event log parsing when simulateContract succeeds', async () => {
+      // Even with empty logs, simulateContract provides the battleId
+      mockWaitForTransactionReceipt = vi.fn().mockResolvedValue({ logs: [] });
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
+
+      const { createBattle } = await setupHook();
+      const result = await createBattle(VALID_PARAMS);
+
+      expect(result).not.toBeNull();
+      expect(result!.onChainBattleId).toBe(String(ON_CHAIN_BATTLE_ID));
+    });
+
+    it('falls back to event logs when simulateContract fails', async () => {
+      mockSimulateContract = vi.fn().mockRejectedValue(new Error('Simulation failed'));
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
+
+      const { createBattle } = await setupHook();
+      const result = await createBattle(VALID_PARAMS);
+
+      expect(result).not.toBeNull();
+      expect(result!.onChainBattleId).toBe('42'); // extracted from event log
+    });
+
+    it('falls back to indexed topic when both simulate and event decode fail', async () => {
+      mockSimulateContract = vi.fn().mockRejectedValue(new Error('Simulation failed'));
       const fallbackBattleId = 99n;
       const paddedHex = viem.pad(viem.toHex(fallbackBattleId), { size: 32 });
       mockWaitForTransactionReceipt = vi.fn().mockResolvedValue({
         logs: [{ data: '0x', topics: [('0x' + 'f'.repeat(64)) as `0x${string}`, paddedHex] }],
       });
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
       expect(result!.onChainBattleId).toBe('99');
     });
 
-    it('returns null when no battleId can be extracted from empty logs', async () => {
+    it('returns null when all three extraction methods fail', async () => {
+      mockSimulateContract = vi.fn().mockRejectedValue(new Error('Simulation failed'));
       mockWaitForTransactionReceipt = vi.fn().mockResolvedValue({ logs: [] });
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
       expect(result).toBeNull();
+    });
+  });
+
+  // ── Event log decoding (fallback) ───────────────────
+
+  describe('event log decoding (fallback)', () => {
+    beforeEach(() => {
+      // Force simulate to fail so event extraction runs
+      mockSimulateContract = vi.fn().mockRejectedValue(new Error('sim fail'));
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
+    });
+
+    it('extracts battleId from BattleCreated event', async () => {
+      const { createBattle } = await setupHook();
+      const result = await createBattle(VALID_PARAMS);
+      expect(result!.onChainBattleId).toBe('42');
     });
 
     it('finds BattleCreated event when it is second log (not first)', async () => {
@@ -322,7 +376,7 @@ describe('useCreateStrategyBattle', () => {
       mockWaitForTransactionReceipt = vi.fn().mockResolvedValue({
         logs: [unrelatedLog, createBattleCreatedLog()],
       });
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
@@ -345,7 +399,7 @@ describe('useCreateStrategyBattle', () => {
 
     it('returns null when CRwN balance insufficient', async () => {
       mockReadContract = vi.fn().mockResolvedValue(viem.parseEther('1'));
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
@@ -405,7 +459,7 @@ describe('useCreateStrategyBattle', () => {
 
     it('proceeds when balance equals stakes exactly', async () => {
       mockReadContract = vi.fn().mockResolvedValue(viem.parseEther('100'));
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
@@ -451,7 +505,21 @@ describe('useCreateStrategyBattle', () => {
       expect(result).not.toBeNull();
     });
 
-    it('fails when createBattle hash is undefined (no battleId extractable)', async () => {
+    it('succeeds with simulate even when createBattle hash is undefined', async () => {
+      mockWriteContractAsync = vi.fn()
+        .mockResolvedValueOnce(FAKE_APPROVE_HASH)
+        .mockResolvedValueOnce(undefined);
+
+      const { createBattle } = await setupHook();
+      const result = await createBattle(VALID_PARAMS);
+      // simulateContract already got the battleId, so this succeeds
+      expect(result).not.toBeNull();
+      expect(result!.onChainBattleId).toBe(String(ON_CHAIN_BATTLE_ID));
+    });
+
+    it('fails when createBattle hash is undefined AND simulate fails', async () => {
+      mockSimulateContract = vi.fn().mockRejectedValue(new Error('sim fail'));
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
       mockWriteContractAsync = vi.fn()
         .mockResolvedValueOnce(FAKE_APPROVE_HASH)
         .mockResolvedValueOnce(undefined);
@@ -478,7 +546,7 @@ describe('useCreateStrategyBattle', () => {
       mockWaitForTransactionReceipt = vi.fn()
         .mockResolvedValueOnce({}) // approve receipt OK
         .mockRejectedValueOnce(new Error('Timed out waiting for transaction receipt'));
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
@@ -488,7 +556,7 @@ describe('useCreateStrategyBattle', () => {
     it('returns null when approve receipt wait times out (createBattle never called)', async () => {
       mockWaitForTransactionReceipt = vi.fn()
         .mockRejectedValueOnce(new Error('Timed out waiting for approve receipt'));
-      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt };
+      mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();
       const result = await createBattle(VALID_PARAMS);
