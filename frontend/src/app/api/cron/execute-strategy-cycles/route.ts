@@ -232,8 +232,8 @@ export const GET = composeMiddleware([
         status: 'active',
         currentRound: { lt: 5 },
       },
-      take: 3, // smaller batch for manual
-      orderBy: { createdAt: 'asc' },
+      take: 10,
+      orderBy: { createdAt: 'desc' }, // newest first so recent battles get cycles
     });
 
     const results = [];
