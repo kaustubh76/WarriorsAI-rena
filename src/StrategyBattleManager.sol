@@ -84,8 +84,10 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
     // ═══════════════════════════════════════════════════════
 
     /**
-     * @notice Create a strategy battle. Both warriors' stakes are escrowed.
-     * @dev Caller must own warrior1. Warrior2 owner must have approved stakes.
+     * @notice Create a strategy battle. Caller funds both sides' stakes.
+     * @dev Caller must own warrior1 (or be resolver/owner). Caller pays
+     *      stakes × 2 (escrowing for both sides). Settlement pays out to
+     *      the NFT owners recorded at creation time.
      *      Both warriors must have active vaults in StrategyVault.
      */
     function createBattle(
@@ -106,12 +108,10 @@ contract StrategyBattleManager is IStrategyBattleManager, Ownable, ReentrancyGua
         if (!strategyVault.isVaultActive(warrior1Id)) revert BattleManager__VaultNotActive();
         if (!strategyVault.isVaultActive(warrior2Id)) revert BattleManager__VaultNotActive();
 
-        // Escrow stakes from both owners
-        bool s1 = crownToken.transferFrom(w1Owner, address(this), stakes);
-        if (!s1) revert BattleManager__TransferFailed();
-
-        bool s2 = crownToken.transferFrom(w2Owner, address(this), stakes);
-        if (!s2) revert BattleManager__Warrior2NotApproved();
+        // Escrow stakes from the caller (msg.sender funds both sides)
+        uint256 totalEscrow = stakes * 2;
+        bool success = crownToken.transferFrom(msg.sender, address(this), totalEscrow);
+        if (!success) revert BattleManager__TransferFailed();
 
         // Initialize ratings if first battle
         _initRatingIfNeeded(warrior1Id);

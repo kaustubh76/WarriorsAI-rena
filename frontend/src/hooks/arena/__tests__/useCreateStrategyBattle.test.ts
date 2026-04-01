@@ -177,7 +177,7 @@ describe('useCreateStrategyBattle', () => {
       expect(call.functionName).toBe('approve');
       expect(call.address).toBe(CRWN_ADDR);
       expect(call.args[0]).toBe(BM_ADDR);
-      expect(call.args[1]).toBe(viem.parseEther('100'));
+      expect(call.args[1]).toBe(viem.parseEther('200')); // stakes × 2 (caller funds both sides)
     });
 
     it('calls createBattle with correct warrior IDs and stakes', async () => {
@@ -226,7 +226,7 @@ describe('useCreateStrategyBattle', () => {
       await createBattle({ ...VALID_PARAMS, stakes: '0.5' });
 
       const approveCall = mockWriteContractAsync.mock.calls[0][0];
-      expect(approveCall.args[1]).toBe(viem.parseEther('0.5'));
+      expect(approveCall.args[1]).toBe(viem.parseEther('1')); // 0.5 × 2 (caller funds both sides)
 
       const createCall = mockWriteContractAsync.mock.calls[1][0];
       expect(createCall.args[2]).toBe(viem.parseEther('0.5'));
@@ -457,8 +457,8 @@ describe('useCreateStrategyBattle', () => {
       );
     });
 
-    it('proceeds when balance equals stakes exactly', async () => {
-      mockReadContract = vi.fn().mockResolvedValue(viem.parseEther('100'));
+    it('proceeds when balance equals stakes × 2 exactly', async () => {
+      mockReadContract = vi.fn().mockResolvedValue(viem.parseEther('200')); // stakes × 2 (caller funds both sides)
       mockPublicClient = { readContract: mockReadContract, waitForTransactionReceipt: mockWaitForTransactionReceipt, simulateContract: mockSimulateContract };
 
       const { createBattle } = await setupHook();

@@ -269,6 +269,46 @@ export const BATTLE_MANAGER_ABI = [
     outputs: [],
   },
 
+  // ── Custom Errors ────────────────────────────
+  // BattleManager errors
+  { name: 'BattleManager__InvalidWarrior', type: 'error', inputs: [] },
+  { name: 'BattleManager__SameWarrior', type: 'error', inputs: [] },
+  { name: 'BattleManager__VaultNotActive', type: 'error', inputs: [] },
+  { name: 'BattleManager__NotWarriorOwner', type: 'error', inputs: [] },
+  { name: 'BattleManager__InvalidStakes', type: 'error', inputs: [] },
+  { name: 'BattleManager__BattleNotFound', type: 'error', inputs: [] },
+  { name: 'BattleManager__BattleNotActive', type: 'error', inputs: [] },
+  { name: 'BattleManager__BattleAlreadySettled', type: 'error', inputs: [] },
+  { name: 'BattleManager__BettingClosed', type: 'error', inputs: [] },
+  { name: 'BattleManager__BettingStillOpen', type: 'error', inputs: [] },
+  { name: 'BattleManager__InvalidBetAmount', type: 'error', inputs: [] },
+  { name: 'BattleManager__AlreadyClaimed', type: 'error', inputs: [] },
+  { name: 'BattleManager__NoBetFound', type: 'error', inputs: [] },
+  { name: 'BattleManager__NotSettled', type: 'error', inputs: [] },
+  { name: 'BattleManager__NotEnoughRounds', type: 'error', inputs: [] },
+  { name: 'BattleManager__Unauthorized', type: 'error', inputs: [] },
+  { name: 'BattleManager__TransferFailed', type: 'error', inputs: [] },
+  { name: 'BattleManager__Warrior2NotApproved', type: 'error', inputs: [] },
+  // OpenZeppelin ERC20 errors (thrown by CRwN token during transferFrom)
+  {
+    name: 'ERC20InsufficientAllowance',
+    type: 'error',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'allowance', type: 'uint256' },
+      { name: 'needed', type: 'uint256' },
+    ],
+  },
+  {
+    name: 'ERC20InsufficientBalance',
+    type: 'error',
+    inputs: [
+      { name: 'sender', type: 'address' },
+      { name: 'balance', type: 'uint256' },
+      { name: 'needed', type: 'uint256' },
+    ],
+  },
+
   // ── State Views ─────────────────────────────
   {
     name: 'resolver',

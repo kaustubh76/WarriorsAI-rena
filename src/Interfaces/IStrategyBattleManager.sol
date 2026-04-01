@@ -133,9 +133,11 @@ interface IStrategyBattleManager {
 
     /**
      * @notice Create a strategy battle with CRwN stakes escrowed on-chain.
+     * @dev Caller funds both sides (stakes × 2 pulled from msg.sender).
+     *      Settlement distributes to NFT owners recorded at creation time.
      * @param warrior1Id NFT ID of warrior 1 (caller must own)
      * @param warrior2Id NFT ID of warrior 2
-     * @param stakes CRwN amount each side puts up (total escrow = stakes * 2)
+     * @param stakes CRwN amount per side (total escrow = stakes × 2)
      * @return battleId The on-chain battle ID
      */
     function createBattle(

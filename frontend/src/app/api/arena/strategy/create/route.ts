@@ -42,10 +42,7 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('warrior1Owner and warrior2Owner must be valid EVM addresses (0x + 40 hex chars)');
     }
 
-    // Prevent self-battles
-    if (warrior1Owner.toLowerCase() === warrior2Owner.toLowerCase()) {
-      throw ErrorResponses.badRequest('Cannot create a battle between warriors owned by the same address');
-    }
+    // Note: same-owner battles are allowed (contract supports it — caller funds both sides)
 
     if (!stakes || isNaN(Number(stakes)) || Number(stakes) <= 0) {
       throw ErrorResponses.badRequest('stakes must be a positive number');

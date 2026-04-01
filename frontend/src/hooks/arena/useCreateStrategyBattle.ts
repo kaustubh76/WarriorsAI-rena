@@ -84,7 +84,10 @@ export function useCreateStrategyBattle(): UseCreateStrategyBattleReturn {
     try {
       const weiAmount = parseEther(params.stakes);
 
-      // Step 1: Check CRwN balance
+      // Contract pulls stakes × 2 from msg.sender (caller funds both sides)
+      const totalEscrow = weiAmount * 2n;
+
+      // Step 1: Check caller's CRwN balance covers both sides
       if (publicClient) {
         const balance = await publicClient.readContract({
           address: CRWN_TOKEN_ADDRESS,
@@ -93,20 +96,20 @@ export function useCreateStrategyBattle(): UseCreateStrategyBattleReturn {
           args: [address],
         }) as bigint;
 
-        if (balance < weiAmount) {
+        if (balance < totalEscrow) {
           throw new Error(
-            `Insufficient CRwN balance (have ${Number(balance / 10n ** 18n)}, need ${params.stakes})`
+            `Insufficient CRwN balance (have ${Number(balance / 10n ** 18n)}, need ${params.stakes} × 2 = ${Number(params.stakes) * 2})`
           );
         }
       }
 
-      // Step 2: Approve BattleManager to spend CRwN
+      // Step 2: Approve BattleManager to spend stakes × 2 from caller
       setStage('approving');
       const approveHash = await writeContractAsync({
         address: CRWN_TOKEN_ADDRESS,
         abi: CRWN_TOKEN_ABI,
         functionName: 'approve',
-        args: [BATTLE_MANAGER_ADDRESS, weiAmount],
+        args: [BATTLE_MANAGER_ADDRESS, totalEscrow],
         gas: 5_000_000n,
       });
 
@@ -130,7 +133,26 @@ export function useCreateStrategyBattle(): UseCreateStrategyBattleReturn {
             gas: 5_000_000n,
           });
           onChainBattleId = String(result);
-        } catch (simErr) {
+        } catch (simErr: unknown) {
+          // Parse known on-chain errors into user-friendly messages
+          const errMsg = simErr instanceof Error ? simErr.message : String(simErr);
+          const knownErrors: Record<string, string> = {
+            'ERC20InsufficientAllowance': 'CRwN approval insufficient. Please try again.',
+            'ERC20InsufficientBalance': 'Insufficient CRwN balance to cover stakes for both sides.',
+            'BattleManager__SameWarrior': 'Cannot battle the same warrior against itself.',
+            'BattleManager__InvalidStakes': 'Stakes must be at least 5 CRwN.',
+            'BattleManager__NotWarriorOwner': 'You do not own Warrior 1.',
+            'BattleManager__VaultNotActive': 'One or both warriors do not have an active strategy vault.',
+            'BattleManager__TransferFailed': 'CRwN transfer failed — check your balance and approval.',
+          };
+
+          for (const [errorName, userMessage] of Object.entries(knownErrors)) {
+            if (errMsg.includes(errorName)) {
+              throw new Error(userMessage);
+            }
+          }
+
+          // Unknown simulation error — fall back to event log extraction
           console.warn('[CreateBattle] simulateContract failed, will fall back to event logs:', simErr);
         }
       }

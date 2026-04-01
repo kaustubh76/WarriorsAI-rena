@@ -136,6 +136,7 @@ export const GET = composeMiddleware([
         currentRound: battle.currentRound,
         question: battle.question,
         stakes: battle.stakes,
+        onChainBattleId: battle.onChainBattleId ?? null,
         createdAt: battle.createdAt,
         completedAt: battle.completedAt,
         scheduledStartAt: battle.scheduledStartAt,

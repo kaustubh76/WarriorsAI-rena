@@ -244,7 +244,7 @@ export function useBattleBetting(
       setIsPlacingBet(false);
       setBetStage('idle');
     }
-  }, [battleId, address, contractAddress, writeContractAsync, publicClient, fetchBettingInfo]);
+  }, [battleId, address, contractAddress, onChainBattleId, writeContractAsync, publicClient, fetchBettingInfo]);
 
   /**
    * Claim winnings from completed battle
@@ -322,7 +322,7 @@ export function useBattleBetting(
     } finally {
       setIsClaiming(false);
     }
-  }, [battleId, address, contractAddress, writeContractAsync, fetchBettingInfo]);
+  }, [battleId, address, contractAddress, onChainBattleId, writeContractAsync, fetchBettingInfo]);
 
   // Initial fetch
   useEffect(() => {
