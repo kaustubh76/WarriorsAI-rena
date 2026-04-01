@@ -24,7 +24,7 @@ export const POST = composeMiddleware([
   async () => {
     console.log('[Cron] Starting strategy battle cycle execution...');
     const startTime = Date.now();
-    const BUDGET_MS = 45_000; // stop starting new work after 45s to stay under Vercel 60s
+    const BUDGET_MS = 270_000; // stop starting new work at 4.5min to stay under Vercel 5min cron limit
     const STUCK_BATTLE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
     // --- Stuck-battle catch-up (P4-11) ---
@@ -151,36 +151,50 @@ export const POST = composeMiddleware([
         console.warn(`[Cron] Budget exhausted (${Date.now() - startTime}ms) — skipping remaining battles`);
         break;
       }
-      try {
-        const cycleResult = await withCronTimeout(
-          strategyArenaService.executeCycle(battle.id),
-          cronConfig.battleExecutionTimeout || cronConfig.defaultApiTimeout,
-          `Strategy cycle timeout for battle ${battle.id}`
-        );
 
-        if (!cycleResult) {
-          throw new Error(`executeCycle returned empty result for battle ${battle.id}`);
+      // Run up to 5 remaining cycles per battle so one cron invocation
+      // can complete an entire battle (Hobby plan limits cron to daily/hourly)
+      const remainingCycles = 5 - battle.currentRound;
+      for (let cycle = 0; cycle < remainingCycles; cycle++) {
+        if (Date.now() - startTime > BUDGET_MS) {
+          console.warn(`[Cron] Budget exhausted mid-battle ${battle.id} — will resume next run`);
+          break;
         }
+        try {
+          const cycleResult = await withCronTimeout(
+            strategyArenaService.executeCycle(battle.id),
+            cronConfig.battleExecutionTimeout || cronConfig.defaultApiTimeout,
+            `Strategy cycle timeout for battle ${battle.id}`
+          );
 
-        executed++;
-        results.push({
-          battleId: battle.id,
-          round: cycleResult.roundNumber,
-          success: true,
-        });
+          if (!cycleResult) {
+            throw new Error(`executeCycle returned empty result for battle ${battle.id}`);
+          }
 
-        console.log(`[Cron] Battle ${battle.id} cycle ${cycleResult.roundNumber} complete${cycleResult.settled ? ' (SETTLED)' : ''}`);
-      } catch (error) {
-        failed++;
-        const errMsg = `Battle ${battle.id}: ${error instanceof Error ? error.message : String(error)}`;
-        errors.push(errMsg);
-        results.push({
-          battleId: battle.id,
-          round: battle.currentRound + 1,
-          success: false,
-          error: errMsg,
-        });
-        console.error(`[Cron] Strategy cycle failed:`, errMsg);
+          executed++;
+          results.push({
+            battleId: battle.id,
+            round: cycleResult.roundNumber,
+            success: true,
+          });
+
+          console.log(`[Cron] Battle ${battle.id} cycle ${cycleResult.roundNumber} complete${cycleResult.settled ? ' (SETTLED)' : ''}`);
+
+          // If battle settled at cycle 5, stop cycling this battle
+          if (cycleResult.settled) break;
+        } catch (error) {
+          failed++;
+          const errMsg = `Battle ${battle.id}: ${error instanceof Error ? error.message : String(error)}`;
+          errors.push(errMsg);
+          results.push({
+            battleId: battle.id,
+            round: battle.currentRound + cycle + 1,
+            success: false,
+            error: errMsg,
+          });
+          console.error(`[Cron] Strategy cycle failed:`, errMsg);
+          break; // Stop cycling this battle on error, move to next
+        }
       }
     }
 

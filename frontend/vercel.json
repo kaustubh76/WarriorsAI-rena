@@ -45,7 +45,7 @@
     },
     {
       "path": "/api/cron/execute-strategy-cycles",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     }
   ],
   "env": {
