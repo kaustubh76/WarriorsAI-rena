@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { useAccount, useWriteContract, useWatchContractEvent } from 'wagmi';
 import { parseEther } from 'viem';
 import '../home-glass.css';
@@ -510,6 +511,7 @@ const EnhancedArenaCard = ({
 };
 
 export default function ArenaPage() {
+  const router = useRouter();
   const { isConnected, address } = useAccount();
   const { arenasWithDetails, isLoading, error, refetch } = useArenas();
   const [selectedArena, setSelectedArena] = useState<Arena | null>(null);
@@ -1047,15 +1049,11 @@ export default function ArenaPage() {
         setCreateBattleStatus({ loading: false, error: createBattleOnChainError || 'Failed to create battle on-chain', success: null });
         return;
       }
-      setCreateBattleStatus({ loading: false, error: null, success: `Battle created on-chain! ID: ${result.battleId} (tx: ${result.txHash.slice(0, 10)}...)` });
+      setCreateBattleStatus({ loading: false, error: null, success: `Battle created! Redirecting...` });
       setCreateBattleForm({ nft1: '', nft2: '', nft2Owner: '', stakes: '100', scheduledStartAt: '' });
       setShowCreateBattle(false);
-      // Refresh strategy battles list
-      const listRes = await fetch('/api/arena/strategy/list');
-      if (listRes.ok) {
-        const listData = await listRes.json();
-        setStrategyBattles(listData.battles || []);
-      }
+      // Redirect to battle detail page — auto-execution starts there
+      router.push(`/arena/strategy/${result.battleId}`);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Failed to create battle';
       setCreateBattleStatus({ loading: false, error: errMsg, success: null });

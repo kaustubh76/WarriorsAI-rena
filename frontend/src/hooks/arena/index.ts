@@ -9,5 +9,6 @@ export { useWarriorArenaStats, useArenaLeaderboard } from './useWarriorArenaStat
 export { useBattleExecution } from './useBattleExecution';
 export { useBattleBetting, formatOdds, calculatePotentialPayout, formatMultiplier } from './useBattleBetting';
 export { useCreateStrategyBattle, type CreateBattleStage } from './useCreateStrategyBattle';
+export { useAutoExecuteBattle, type AutoExecutePhase } from './useAutoExecuteBattle';
 export { useArenaMarkets, type ArenaMarket, type MarketSourceFilter } from './useArenaMarkets';
 export { useMatchedMarkets, type MatchedMarketPair, type MatchedMarketsStats } from './useMatchedMarkets';

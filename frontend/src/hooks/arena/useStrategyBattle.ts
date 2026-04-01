@@ -127,15 +127,18 @@ export function useStrategyBattle(battleId: string): UseStrategyBattleReturn {
     fetchBattle();
   }, [fetchBattle]);
 
-  // Poll every 30s while battle is active (spectator mode — cron runs every ~60s)
+  // Poll while battle is active — 5s during cycle execution, 30s after completion
+  const isExecuting = battle?.status === 'active' && (battle?.currentRound ?? 0) < 5;
+  const pollInterval = isExecuting ? 5_000 : 30_000;
+
   useEffect(() => {
     if (battle?.status === 'active') {
-      pollingRef.current = setInterval(fetchBattle, 30_000);
+      pollingRef.current = setInterval(fetchBattle, pollInterval);
     }
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [battle?.status, fetchBattle]);
+  }, [battle?.status, pollInterval, fetchBattle]);
 
   return { battle, loading, error, refresh };
 }

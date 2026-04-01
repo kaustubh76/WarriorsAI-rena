@@ -7,6 +7,7 @@ import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStrategyBattle } from '@/hooks/arena/useStrategyBattle';
+import { useAutoExecuteBattle } from '@/hooks/arena/useAutoExecuteBattle';
 import { useBattleBetting, formatOdds, formatMultiplier } from '@/hooks/arena';
 import { useWarriorMessage } from '@/contexts/WarriorMessageContext';
 import { WARRIOR_MESSAGES } from '@/utils/warriorMessages';
@@ -316,7 +317,7 @@ function ScoreBadge({ score, leading, color }: { score: number; leading: boolean
 export default function StrategyBattlePage() {
   const params = useParams();
   const battleId = params?.id as string;
-  const { battle, loading, error } = useStrategyBattle(battleId);
+  const { battle, loading, error, refresh } = useStrategyBattle(battleId);
   const { address } = useAccount();
   const onChainId = battle?.onChainBattleId ? parseInt(battle.onChainBattleId) : undefined;
   const { pool, userBet, placeBet, claimWinnings, isPlacingBet, isClaiming, betStage, error: betError } = useBattleBetting(battleId, undefined, onChainId);
@@ -324,6 +325,37 @@ export default function StrategyBattlePage() {
   const explorerUrl = getFlowExplorerUrl();
   const microMarketBattleId = battle?.onChainBattleId ? BigInt(battle.onChainBattleId) : null;
   const { markets: microMarkets, groupedMarkets } = useBattleMicroMarkets(microMarketBattleId);
+
+  // Auto-execute cycles after battle creation
+  const {
+    phase: execPhase,
+    currentCycle: execCycle,
+    isExecuting: isAutoExecuting,
+    error: execError,
+    bettingTimeRemaining,
+    startExecution,
+  } = useAutoExecuteBattle(refresh);
+
+  // Auto-start execution if this is a fresh battle (round 0, created < 2 min ago)
+  const [autoStarted, setAutoStarted] = useState(false);
+  useEffect(() => {
+    if (
+      !autoStarted &&
+      battle &&
+      battle.status === 'active' &&
+      battle.currentRound === 0 &&
+      address &&
+      (battle.warrior1?.owner?.toLowerCase() === address.toLowerCase() ||
+       battle.warrior2?.owner?.toLowerCase() === address.toLowerCase())
+    ) {
+      const createdAt = new Date(battle.createdAt).getTime();
+      const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+      if (createdAt > twoMinutesAgo) {
+        setAutoStarted(true);
+        startExecution(battleId);
+      }
+    }
+  }, [battle, address, battleId, autoStarted, startExecution]);
 
   const [betAmount, setBetAmount] = useState('1');
   const [betSide, setBetSide] = useState<'warrior1' | 'warrior2'>('warrior1');
@@ -485,6 +517,61 @@ export default function StrategyBattlePage() {
           battlePath="/arena/strategy/"
         />
       </div>
+
+      {/* ═══ Auto-Execution Progress Banner ═══ */}
+      {isAutoExecuting && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-4 rounded-xl border border-purple-500/30 bg-purple-900/20"
+        >
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-purple-400 flex-shrink-0" />
+            <div className="flex-1">
+              {execPhase === 'betting-window' ? (
+                <>
+                  <p className="text-sm font-medium text-purple-300">Betting Window Open</p>
+                  <p className="text-xs text-gray-400">Place your bets now! Cycle execution starts in {bettingTimeRemaining}s...</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-purple-300">Executing Cycle {execCycle}/5</p>
+                  <p className="text-xs text-gray-400">0G AI inference + on-chain rebalance + VRF scoring...</p>
+                </>
+              )}
+            </div>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map(c => (
+                <div
+                  key={c}
+                  className={`w-2 h-2 rounded-full ${
+                    c < execCycle ? 'bg-green-400' :
+                    c === execCycle ? 'bg-purple-400 animate-pulse' :
+                    'bg-gray-600'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      )}
+      {execPhase === 'done' && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-4 rounded-xl border border-green-500/30 bg-green-900/20"
+        >
+          <div className="flex items-center gap-3">
+            <Trophy className="w-5 h-5 text-green-400" />
+            <p className="text-sm font-medium text-green-300">Battle Complete! All 5 cycles executed and settled on-chain.</p>
+          </div>
+        </motion.div>
+      )}
+      {execError && (
+        <div className="glass-panel p-4 rounded-xl border border-red-500/30 bg-red-900/20">
+          <p className="text-sm text-red-400">{execError}</p>
+        </div>
+      )}
 
       {/* ═══ Header ═══ */}
       <div className="glass-panel p-5 rounded-xl">
