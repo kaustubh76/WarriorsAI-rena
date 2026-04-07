@@ -17,7 +17,7 @@ import {
   type ReadContractParameters,
   type ReadContractReturnType,
 } from 'viem';
-import { avalancheFuji } from 'viem/chains';
+import { flowTestnet } from 'viem/chains';
 import { getChainId, getFlowRpcUrl, getFlowFallbackRpcUrl } from '@/constants';
 
 // ============================================================================
@@ -331,7 +331,7 @@ class SharedRPCClient {
   private constructor() {
     // Create viem public client with increased timeout
     this.publicClient = createPublicClient({
-      chain: avalancheFuji,
+      chain: flowTestnet,
       transport: http(CONFIG.RPC_URL, {
         batch: {
           batchSize: CONFIG.BATCH_SIZE,
@@ -344,7 +344,7 @@ class SharedRPCClient {
 
     // Create fallback client for when primary times out
     this.fallbackClient = createPublicClient({
-      chain: avalancheFuji,
+      chain: flowTestnet,
       transport: http(CONFIG.FALLBACK_RPC_URL, {
         batch: {
           batchSize: CONFIG.BATCH_SIZE,

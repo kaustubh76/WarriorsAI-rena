@@ -4,7 +4,7 @@
  */
 
 import { parseEther, formatEther, type Address, type WalletClient } from 'viem';
-import { avalancheFuji } from 'viem/chains';
+import { flowTestnet } from 'viem/chains';
 import { chainsToContracts, crownTokenAbi, CreatorRevenueShareAbi, MicroMarketFactoryAbi } from '../constants';
 import {
   createFlowPublicClient,
@@ -13,7 +13,7 @@ import {
 } from '@/lib/flowClient';
 
 // Flow Testnet configuration
-const FLOW_CHAIN_ID = 43113;
+const FLOW_CHAIN_ID = 545;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
 
 // Public client for read operations with fallback support
@@ -135,7 +135,7 @@ class MarketCreationService {
       functionName: 'approve',
       args: [contracts.microMarketFactory as Address, approveAmount],
       account: walletClient.account,
-      chain: avalancheFuji,
+      chain: flowTestnet,
     });
 
     // Wait for transaction confirmation
@@ -193,7 +193,7 @@ class MarketCreationService {
             functionName: 'registerCreator',
             args: [0], // CreatorType.MARKET_CREATOR
             account: walletClient.account,
-            chain: avalancheFuji,
+            chain: flowTestnet,
           });
           await executeWithFallback((client) =>
             client.waitForTransactionReceipt({ hash: registerHash })
@@ -239,7 +239,7 @@ class MarketCreationService {
           functionName: 'setMarketCreator',
           args: [onChainMarketId, params.creatorAddress],
           account: walletClient.account,
-          chain: avalancheFuji,
+          chain: flowTestnet,
         });
 
         await executeWithFallback((client) =>

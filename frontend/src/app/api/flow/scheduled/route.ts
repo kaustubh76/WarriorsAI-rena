@@ -359,7 +359,7 @@ export const POST = composeMiddleware([
           battleId,
           transactionId,
           status: txResult.status,
-          explorerUrl: `https://testnet.snowtrace.io/tx/${transactionId}`,
+          explorerUrl: `https://evm-testnet.flowscan.io/tx/${transactionId}`,
         },
       });
     } catch (error: any) {
@@ -569,7 +569,7 @@ export const PUT = composeMiddleware([
           battleId,
           transactionId,
           status: txResult.status,
-          explorerUrl: `https://testnet.snowtrace.io/tx/${transactionId}`,
+          explorerUrl: `https://evm-testnet.flowscan.io/tx/${transactionId}`,
         },
       });
     } catch (error: any) {
@@ -753,7 +753,7 @@ export const DELETE = composeMiddleware([
           battleId,
           transactionId,
           status: txResult.status,
-          explorerUrl: `https://testnet.snowtrace.io/tx/${transactionId}`,
+          explorerUrl: `https://evm-testnet.flowscan.io/tx/${transactionId}`,
         },
       });
     } catch (error: any) {

@@ -28,7 +28,7 @@ import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 import { prisma } from '@/lib/prisma';
 
-const FLOW_CHAIN_ID = 43113;
+const FLOW_CHAIN_ID = 545;
 
 // ============================================
 // TYPES
@@ -156,7 +156,7 @@ export const POST = composeMiddleware([
 
     // Get contract addresses
     const zeroGContracts = chainsToContracts[getZeroGChainId()];
-    const flowContracts = chainsToContracts[43113];
+    const flowContracts = chainsToContracts[545];
 
     const aiAgentINFTAddress = zeroGContracts?.aiAgentINFT as `0x${string}`;
     const externalMarketMirrorAddress = flowContracts?.externalMarketMirror as `0x${string}`;

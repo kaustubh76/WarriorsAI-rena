@@ -431,7 +431,7 @@ export const GET = composeMiddleware([
       serverWallet: serverWalletStatus,
       chains: {
         agentData: '0G Galileo Testnet (16602)',
-        tradeExecution: 'Avalanche Fuji (43113)'
+        tradeExecution: 'Flow Testnet (545)'
       },
       executionEndpoint: 'POST /api/copy-trade/execute'
     });

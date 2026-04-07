@@ -2,7 +2,7 @@
  * Complete ERC20 ABI for CRwN Token
  *
  * Contract Address (Flow Testnet): 0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6
- * Chain ID: 43113 (Avalanche Fuji)
+ * Chain ID: 545
  * Deployed: January 2026
  *
  * This is the SINGLE SOURCE OF TRUTH for the CRwN Token ABI.

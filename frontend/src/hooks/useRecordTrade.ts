@@ -8,10 +8,10 @@
 
 import { useState, useCallback } from 'react';
 import { useAccount, useWalletClient, useChainId, useSwitchChain } from 'wagmi';
-import { avalancheFuji } from 'viem/chains';
+import { flowTestnet } from 'viem/chains';
 import { chainsToContracts, AIAgentRegistryAbi, getChainId } from '../constants';
 
-const FLOW_CHAIN_ID = 43113;
+const FLOW_CHAIN_ID = 545;
 
 // ============================================================================
 // Types
@@ -98,7 +98,7 @@ export function useRecordAgentTrade(): UseRecordAgentTradeResult {
           functionName: 'recordTrade',
           args: [agentId, marketId, won, pnl, volume, confidence],
           account: address,
-          chain: avalancheFuji,
+          chain: flowTestnet,
         });
 
         console.log('Trade recorded:', hash);

@@ -69,7 +69,7 @@ interface NodeConfig<T> {
  * @example
  * ```typescript
  * const ring = new ConsistentHashRing<string>({ virtualNodes: 150 });
- * ring.addNode('flow-primary', 'https://api.avax-test.network/ext/bc/C/rpc', 3);
+ * ring.addNode('flow-primary', 'https://testnet.evm.nodes.onflow.org', 3);
  * ring.addNode('flow-backup', 'https://backup.flow.org', 1);
  *
  * // Same key always returns same node (deterministic)

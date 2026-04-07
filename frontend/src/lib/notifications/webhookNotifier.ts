@@ -42,7 +42,7 @@ export class WebhookNotifier {
         warrior2Id: battleData.warrior2Id,
         scheduledTime: battleData.scheduledTime.toISOString(),
         transactionId: battleData.transactionId,
-        explorerUrl: `https://testnet.snowtrace.io/tx/${battleData.transactionId}`,
+        explorerUrl: `https://evm-testnet.flowscan.io/tx/${battleData.transactionId}`,
       },
       timestamp: new Date().toISOString(),
     };
@@ -70,7 +70,7 @@ export class WebhookNotifier {
         winner: battleData.winner,
         transactionId: battleData.transactionId,
         attempts: battleData.attempts || 1,
-        explorerUrl: `https://testnet.snowtrace.io/tx/${battleData.transactionId}`,
+        explorerUrl: `https://evm-testnet.flowscan.io/tx/${battleData.transactionId}`,
       },
       timestamp: new Date().toISOString(),
     };

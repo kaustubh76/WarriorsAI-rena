@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { privateKeyToAccount } from 'viem/accounts';
-import { avalancheFuji } from 'viem/chains';
+import { flowTestnet } from 'viem/chains';
 import {
   createFlowPublicClient,
   createFlowFallbackClient,
@@ -243,7 +243,7 @@ async function startGame(arenaAddress: string): Promise<boolean> {
       address: arenaAddress as `0x${string}`,
       abi: ArenaAbi,
       functionName: 'startGame',
-      chain: avalancheFuji,
+      chain: flowTestnet,
     });
 
     console.log(`Game Master: Start game transaction sent: ${hash}`);
@@ -447,7 +447,7 @@ async function executeNextRound(arenaAddress: string): Promise<boolean> {
       abi: ArenaAbi,
       functionName: 'battle',
       args: [warriorsOneMove, warriorsTwoMove, signature as `0x${string}`],
-      chain: avalancheFuji,
+      chain: flowTestnet,
     });
 
     console.log(`Game Master: Battle transaction sent: ${hash}`);

@@ -146,7 +146,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
   }, [wagmiConfig]);
 
   // Custom hook to manage user NFTs
-  // Always use Avalanche Fuji (43113) for Warriors NFTs — they only exist on that chain
+  // Always use Flow Testnet (545) for Warriors NFTs — they only exist on that chain
   const { userNFTs, isLoadingNFTs, hasError: tokenIdsError, clearCache, debugState } = useUserNFTs(activeSection === 'manage', DEFAULT_CHAIN_ID);
 
   // Track when we just minted so we can clear cache AFTER manage tab becomes active
@@ -1650,7 +1650,7 @@ const WarriorsMinterPage = memo(function WarriorsMinterPage() {
                     className="text-yellow-300 text-xs"
                     style={{fontFamily: 'Press Start 2P, monospace'}}
                   >
-                    CONTRACTS NOT DEPLOYED ON CHAIN {chainId}. PLEASE SWITCH TO FLOW TESTNET (CHAIN 43113)
+                    CONTRACTS NOT DEPLOYED ON CHAIN {chainId}. PLEASE SWITCH TO FLOW TESTNET (CHAIN 545)
                   </p>
                 </div>
               )}

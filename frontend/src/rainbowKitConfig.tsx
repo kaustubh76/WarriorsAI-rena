@@ -1,7 +1,7 @@
 "use client"
 
 import {getDefaultConfig} from "@rainbow-me/rainbowkit"
-import {anvil, avalancheFuji, avalanche} from "wagmi/chains"
+import {anvil, flowTestnet, flowMainnet} from "wagmi/chains"
 import { zeroGGalileo } from '@/lib/zeroGClient';
 
 // Re-export for consumers that were importing from here
@@ -21,7 +21,7 @@ export function getConfig() {
     cachedConfig = getDefaultConfig({
       appName: "WarriorsAI-rena",
       projectId,
-      chains: [anvil, avalancheFuji, avalanche, zeroGGalileo],
+      chains: [anvil, flowTestnet, flowMainnet, zeroGGalileo],
       ssr: true
     });
   }

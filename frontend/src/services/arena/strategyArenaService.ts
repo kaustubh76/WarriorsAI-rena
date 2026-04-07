@@ -55,7 +55,7 @@ import { randomBytes } from 'crypto';
 
 // ─── Constants ────────────────────────────────────────
 
-const FLOW_CHAIN_ID = 43113;
+const FLOW_CHAIN_ID = 545;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
 const MAX_CYCLES = 5;
 

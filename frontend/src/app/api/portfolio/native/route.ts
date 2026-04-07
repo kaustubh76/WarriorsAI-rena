@@ -97,7 +97,7 @@ export const GET = composeMiddleware([
     }
 
     // Get contract address
-    const contracts = chainsToContracts[43113];
+    const contracts = chainsToContracts[545];
     const predictionMarketAddress = contracts?.predictionMarket as `0x${string}`;
 
     // Fetch current market data for each position
