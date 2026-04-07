@@ -67,7 +67,7 @@ export const POST = composeMiddleware([
       }
     }
 
-    // Default to chain 545 (Flow testnet) if no chainId provided
+    // Default to chain 43113 (Avalanche Fuji) if no chainId provided
     const targetChainId = chainId || 43113;
 
     // Get the chain configuration

@@ -27,7 +27,7 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest('Missing required parameters');
     }
 
-    // Default to chain 545 (Flow testnet) if no chainId provided (for backward compatibility)
+    // Default to chain 43113 (Avalanche Fuji) if no chainId provided (for backward compatibility)
     const targetChainId = chainId || 43113;
 
     // Get the chain configuration

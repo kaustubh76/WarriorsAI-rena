@@ -324,7 +324,7 @@ class VaultYieldService {
       const serverPrivateKey = process.env.SERVER_WALLET_PRIVATE_KEY;
       if (serverPrivateKey && contracts.aiAgentINFT && contracts.aiAgentINFT !== '0x0000000000000000000000000000000000000000') {
         const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
-        const wc = createWalletClient({ account, chain: avalancheFuji, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
+        const wc = createWalletClient({ account, chain: avalancheFuji, transport: http(process.env.FLOW_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc') });
         await wc.writeContract({
           address: contracts.aiAgentINFT as Address,
           abi: AIAgentINFTAbiJson,
@@ -408,7 +408,7 @@ class VaultYieldService {
 
     const publicClient = createPublicClient({
       chain: avalancheFuji,
-      transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
+      transport: http(process.env.FLOW_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc'),
     });
 
     // P3-13: Warn if server wallet is not the contract owner — rebalances will revert
@@ -430,7 +430,7 @@ class VaultYieldService {
     const walletClient = createWalletClient({
       account,
       chain: avalancheFuji,
-      transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
+      transport: http(process.env.FLOW_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc'),
     });
 
     const hash = await walletClient.writeContract({

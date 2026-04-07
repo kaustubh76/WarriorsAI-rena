@@ -96,7 +96,7 @@ export function initZeroGRpcRing(
 export function getFlowRpcForKey(key: string, defaultUrl?: string): string {
   const node = flowRpcRing.getNode(key);
   if (node) return node.url;
-  return defaultUrl || process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org';
+  return defaultUrl || process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc';
 }
 
 /**

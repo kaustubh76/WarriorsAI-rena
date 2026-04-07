@@ -543,7 +543,7 @@ export const GET = composeMiddleware([
         config: {
           contractAddress: EXTERNAL_MARKET_MIRROR,
           crwnToken: CRWN_TOKEN,
-          chain: 'flow-testnet',
+          chain: 'avalanche-fuji',
           chainId: avalancheFuji.id,
         },
       });
@@ -577,7 +577,7 @@ export const GET = composeMiddleware([
       config: {
         contractAddress: EXTERNAL_MARKET_MIRROR,
         crwnToken: CRWN_TOKEN,
-        chain: 'flow-testnet',
+        chain: 'avalanche-fuji',
         chainId: avalancheFuji.id,
       },
     });

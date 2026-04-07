@@ -4,7 +4,7 @@
  * Deposits CRwN across 3 DeFi pools based on AI-generated allocation.
  * One vault per Strategy NFT. Allocation in basis points summing to 10000.
  *
- * Chain ID: 545 (Flow Testnet)
+ * Chain ID: 43113 (Avalanche Fuji) (Flow Testnet)
  */
 
 export const STRATEGY_VAULT_ABI = [

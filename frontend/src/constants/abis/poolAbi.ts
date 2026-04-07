@@ -4,7 +4,7 @@
  * All 3 pools implement the same IPool interface via BasePool.
  * APY is in basis points (1800 = 18%). Balances in CRwN wei.
  *
- * Chain ID: 545 (Flow Testnet)
+ * Chain ID: 43113 (Avalanche Fuji) (Flow Testnet)
  */
 
 export const POOL_ABI = [

@@ -88,7 +88,7 @@ export const GET = composeMiddleware([
     });
 
     // Get contract addresses
-    const contracts = chainsToContracts[545];
+    const contracts = chainsToContracts[43113];
     const predictionMarketAddress = contracts?.predictionMarketAMM as `0x${string}`;
     const externalMarketMirrorAddress = contracts?.externalMarketMirror as `0x${string}`;
 

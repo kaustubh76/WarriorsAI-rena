@@ -129,7 +129,7 @@ export const GET = composeMiddleware([
         },
         chains: {
           copyTradeData: '0G Galileo Testnet (16602)',
-          marketData: 'Flow Testnet (545)'
+          marketData: 'Avalanche Fuji (43113)'
         },
         timestamp: new Date().toISOString()
       });
@@ -266,7 +266,7 @@ export const GET = composeMiddleware([
       },
       chains: {
         copyTradeData: '0G Galileo Testnet (16602)',
-        marketData: 'Flow Testnet (545)'
+        marketData: 'Avalanche Fuji (43113)'
       },
       timestamp: new Date().toISOString()
     });

@@ -258,7 +258,7 @@ export default function VaultCreatePage() {
               </p>
               {state.txHash && (
                 <a
-                  href={`https://evm-testnet.flowscan.io/tx/${state.txHash}`}
+                  href={`https://testnet.snowtrace.io/tx/${state.txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-400 hover:text-blue-300 text-sm mt-2 inline-block"
@@ -295,7 +295,7 @@ export default function VaultCreatePage() {
               </p>
               {state.txHash && (
                 <a
-                  href={`https://evm-testnet.flowscan.io/tx/${state.txHash}`}
+                  href={`https://testnet.snowtrace.io/tx/${state.txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-400 hover:text-blue-300 text-sm mt-2 inline-block"
@@ -305,7 +305,7 @@ export default function VaultCreatePage() {
               )}
               {state.schedulingTxHash && (
                 <a
-                  href={`https://testnet.flowscan.io/tx/${state.schedulingTxHash}`}
+                  href={`https://testnet.snowtrace.io/tx/${state.schedulingTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-purple-400 hover:text-purple-300 text-sm mt-1 inline-block"

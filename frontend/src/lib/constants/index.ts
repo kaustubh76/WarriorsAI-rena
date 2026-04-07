@@ -73,8 +73,8 @@ export const CHAINS = {
     name: 'Flow Testnet',
     symbol: 'FLOW',
     decimals: 18,
-    rpcUrl: 'https://testnet.evm.nodes.onflow.org',
-    explorerUrl: 'https://evm-testnet.flowscan.io',
+    rpcUrl: 'https://api.avax-test.network/ext/bc/C/rpc',
+    explorerUrl: 'https://testnet.snowtrace.io',
   },
   FLOW_MAINNET: {
     id: 747,

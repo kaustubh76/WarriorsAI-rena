@@ -11,7 +11,7 @@ import { initFlowRpcRing, initZeroGRpcRing, getFlowRpcForKey, getZeroGRpcForKey 
 // Chain RPCs
 // ============================================================================
 
-export const FLOW_RPC = process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org';
+export const FLOW_RPC = process.env.NEXT_PUBLIC_FLOW_RPC_URL || 'https://api.avax-test.network/ext/bc/C/rpc';
 export const ZEROG_RPC = process.env.NEXT_PUBLIC_0G_COMPUTE_RPC || 'https://evmrpc-testnet.0g.ai';
 
 // Chain IDs
@@ -29,7 +29,7 @@ export const ZEROG_CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_0G_CHAIN_ID || '1
  */
 export const FLOW_RPC_NODES = [
   { id: 'flow-primary', url: FLOW_RPC, weight: 3 },
-  { id: 'flow-public', url: 'https://testnet.evm.nodes.onflow.org', weight: 1 },
+  { id: 'flow-public', url: 'https://api.avax-test.network/ext/bc/C/rpc', weight: 1 },
 ];
 
 /**

@@ -5,7 +5,7 @@ import { ErrorResponses, RateLimitPresets } from '@/lib/api';
 import { composeMiddleware, withRateLimit } from '@/lib/api/middleware';
 
 // Flow Testnet Configuration
-const FLOW_RPC = 'https://testnet.evm.nodes.onflow.org';
+const FLOW_RPC = 'https://api.avax-test.network/ext/bc/C/rpc';
 const PREDICTION_MARKET = '0x1b26203A2752557ecD4763a9A8A26119AC5e18e4';
 
 // 0G Galileo Configuration for updating agent performance

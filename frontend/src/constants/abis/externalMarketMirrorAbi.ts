@@ -2,7 +2,7 @@
  * Complete ABI for ExternalMarketMirror Contract
  *
  * Contract Address (Flow Testnet): 0x7485019de6Eca5665057bAe08229F9E660ADEfDa
- * Chain ID: 545
+ * Chain ID: 43113 (Avalanche Fuji)
  * Deployed: January 2026
  *
  * This is the SINGLE SOURCE OF TRUTH for the ExternalMarketMirror ABI.
