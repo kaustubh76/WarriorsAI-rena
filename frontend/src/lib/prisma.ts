@@ -1,49 +1,38 @@
 /**
- * Prisma Client Singleton
- * Prevents multiple instances in development due to hot reloading
- * Includes connection pooling configuration for production
- */
-
-import { PrismaClient } from '@prisma/client';
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-/**
- * Create Prisma client with appropriate configuration
- * In production, connection pooling is managed via DATABASE_URL params
- * See: https://www.prisma.io/docs/concepts/components/prisma-client/working-with-prismaclient/connection-pool
+ * Database Layer — 0G Decentralized Storage
  *
- * For serverless environments, add to DATABASE_URL:
- * - connection_limit: limit concurrent connections (e.g., ?connection_limit=5)
- * - pool_timeout: time to wait for connection (e.g., &pool_timeout=10)
+ * Drop-in replacement for the Prisma singleton.
+ * All data is stored in-memory with periodic persistence to 0G Storage Network.
+ *
+ * All existing imports (`import { prisma } from '@/lib/prisma'`) continue to work
+ * with the same API — no changes needed in consuming files.
+ *
+ * To restore PostgreSQL: rename prisma.ts.bak → prisma.ts
  */
-function createPrismaClient(): PrismaClient {
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'development'
-      ? ['query', 'error', 'warn']
-      : ['error'],
-    // Connection pool settings are controlled via DATABASE_URL params
-    // This allows external configuration without code changes
-  });
-}
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+import { db } from '@/lib/0g/db';
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+// Re-export as 'prisma' for backwards compatibility with all 88+ consuming files
+export const prisma = db;
+
+// Start auto-flushing to 0G every 60 seconds
+if (typeof process !== 'undefined') {
+  db.$startAutoFlush(60_000);
 }
 
 /**
  * Graceful shutdown handler
- * Ensures database connections are properly closed
  */
 async function handleShutdown(): Promise<void> {
-  await prisma.$disconnect();
+  console.log('[0GStore] Flushing data before shutdown...');
+  try {
+    await db.$flush();
+  } catch (err) {
+    console.error('[0GStore] Flush on shutdown failed:', err);
+  }
+  await db.$disconnect();
 }
 
-// Handle various shutdown signals
 if (typeof process !== 'undefined') {
   process.on('beforeExit', handleShutdown);
 }

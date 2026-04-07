@@ -349,8 +349,8 @@ export default function StrategyBattlePage() {
        battle.warrior2?.owner?.toLowerCase() === address.toLowerCase())
     ) {
       const createdAt = new Date(battle.createdAt).getTime();
-      const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
-      if (createdAt > twoMinutesAgo) {
+      const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
+      if (createdAt > thirtyMinutesAgo) {
         setAutoStarted(true);
         startExecution(battleId);
       }
@@ -569,8 +569,46 @@ export default function StrategyBattlePage() {
       )}
       {execError && (
         <div className="glass-panel p-4 rounded-xl border border-red-500/30 bg-red-900/20">
-          <p className="text-sm text-red-400">{execError}</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              <p className="text-sm text-red-400">{execError}</p>
+            </div>
+            {battle.currentRound < 5 && (
+              <button
+                onClick={() => startExecution(battleId, true)}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex-shrink-0"
+              >
+                Retry
+              </button>
+            )}
+          </div>
         </div>
+      )}
+
+      {/* Manual Start Battle fallback */}
+      {isActive && battle.currentRound === 0 && !isAutoExecuting && execPhase !== 'done' && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-5 rounded-xl border border-orange-500/30 bg-orange-900/10 text-center"
+        >
+          <Swords className="w-8 h-8 text-orange-400 mx-auto mb-2" />
+          <h3 className="text-sm font-bold text-orange-300 mb-1">
+            {execPhase === 'error' ? 'Execution Failed' : 'Battle Ready'}
+          </h3>
+          <p className="text-xs text-gray-400 mb-3">
+            {execPhase === 'error'
+              ? 'Auto-execution encountered an error. Click below to retry.'
+              : 'Click below to begin the 5-cycle battle.'}
+          </p>
+          <button
+            onClick={() => startExecution(battleId)}
+            className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold rounded-lg transition-colors"
+          >
+            Start Battle
+          </button>
+        </motion.div>
       )}
 
       {/* ═══ Header ═══ */}

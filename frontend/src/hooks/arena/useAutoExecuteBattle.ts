@@ -18,7 +18,7 @@ interface UseAutoExecuteBattleReturn {
   isExecuting: boolean;
   error: string | null;
   bettingTimeRemaining: number; // seconds
-  startExecution: (battleId: string) => void;
+  startExecution: (battleId: string, skipBettingWindow?: boolean) => void;
 }
 
 export function useAutoExecuteBattle(
@@ -61,7 +61,7 @@ export function useAutoExecuteBattle(
     };
   }, []);
 
-  const startExecution = useCallback(async (battleId: string) => {
+  const startExecution = useCallback(async (battleId: string, skipBettingWindow = false) => {
     if (executingRef.current) return;
     executingRef.current = true;
 
@@ -74,18 +74,20 @@ export function useAutoExecuteBattle(
     setCurrentCycle(0);
 
     try {
-      // Phase 1: Betting window
-      setPhase('betting-window');
-      const bettingEnd = Date.now() + BETTING_WINDOW_MS;
+      // Phase 1: Betting window (skip on manual retry)
+      if (!skipBettingWindow) {
+        setPhase('betting-window');
+        const bettingEnd = Date.now() + BETTING_WINDOW_MS;
 
-      // Countdown timer
-      while (Date.now() < bettingEnd) {
-        if (controller.signal.aborted) return;
-        const remaining = Math.ceil((bettingEnd - Date.now()) / 1000);
-        setBettingTimeRemaining(remaining);
-        await new Promise(r => setTimeout(r, 1000));
+        // Countdown timer
+        while (Date.now() < bettingEnd) {
+          if (controller.signal.aborted) return;
+          const remaining = Math.ceil((bettingEnd - Date.now()) / 1000);
+          setBettingTimeRemaining(remaining);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        setBettingTimeRemaining(0);
       }
-      setBettingTimeRemaining(0);
 
       // Phase 2: Execute cycles 1-5
       setPhase('executing');
