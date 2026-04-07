@@ -313,6 +313,103 @@ export const arbitrageTrades = zeroGStore.collection<ArbitrageTradeDoc>(
   ['userId', 'status', 'settled']
 );
 
+// ─── Phase 2: Additional Model Collections ──────────────
+
+// AI & Debates
+export interface AIDebateDoc extends Document { id: string; [key: string]: unknown; }
+export interface AIDebateRoundDoc extends Document { id: string; debateId: string; [key: string]: unknown; }
+export interface AIPredictionScoreDoc extends Document { id: string; agentId: string; [key: string]: unknown; }
+
+// Trading & Markets
+export interface AgentTradeDoc extends Document { id: string; agentId: string; [key: string]: unknown; }
+export interface MarketBetDoc extends Document { id: string; userId: string; externalMarketId: string; [key: string]: unknown; }
+export interface UserCreatedMarketDoc extends Document { id: string; creatorAddress: string; [key: string]: unknown; }
+
+// Mirror Markets
+export interface MirrorMarketDoc extends Document { id: string; mirrorKey: string; source: string; [key: string]: unknown; }
+export interface MirrorTradeDoc extends Document { id: string; mirrorKey: string; agentId: string | null; [key: string]: unknown; }
+export interface MirrorCopyTradeDoc extends Document { id: string; userId: string; whaleAddress: string; [key: string]: unknown; }
+
+// Whale Tracking
+export interface WhaleTradeDoc extends Document { id: string; source: string; traderAddress: string | null; [key: string]: unknown; }
+export interface TrackedTraderDoc extends Document { id: string; address: string; source: string; [key: string]: unknown; }
+export interface WhaleFollowDoc extends Document { id: string; userAddress: string; whaleAddress: string; [key: string]: unknown; }
+
+// Escrow & Balance
+export interface EscrowLockDoc extends Document { id: string; userId: string; status: string; [key: string]: unknown; }
+export interface UserBalanceDoc extends Document { id: string; userId: string; [key: string]: unknown; }
+
+// Creator Economy
+export interface CreatorDoc extends Document { id: string; address: string; [key: string]: unknown; }
+export interface CreatorFeeEntryDoc extends Document { id: string; creatorAddress: string; [key: string]: unknown; }
+export interface CreatorRevenueDoc extends Document { id: string; creatorAddress: string; [key: string]: unknown; }
+
+// Topics & Stats
+export interface TopicAggregateDoc extends Document { id: string; category: string; [key: string]: unknown; }
+export interface UserTopicStatsDoc extends Document { id: string; userId: string; category: string; [key: string]: unknown; }
+
+// Verified Predictions & Snapshots
+export interface VerifiedPredictionDoc extends Document { id: string; marketId: string; [key: string]: unknown; }
+export interface MarketSnapshotDoc extends Document { id: string; rootHash: string; [key: string]: unknown; }
+
+// Scheduling & Sync
+export interface ScheduledTransactionDoc extends Document { id: string; status: string; [key: string]: unknown; }
+export interface ScheduledResolutionDoc extends Document { id: string; externalMarketId: string; [key: string]: unknown; }
+export interface SyncLogDoc extends Document { id: string; source: string; [key: string]: unknown; }
+export interface PriceSyncHistoryDoc extends Document { id: string; mirrorKey: string; [key: string]: unknown; }
+export interface SystemAuditDoc extends Document { id: string; eventType: string; [key: string]: unknown; }
+
+// Vault Deposits
+export interface VaultDepositDoc extends Document { id: string; vaultId: string; [key: string]: unknown; }
+
+// User Auth
+export interface UserExternalAuthDoc extends Document { id: string; userId: string; [key: string]: unknown; }
+export interface UserNotificationPrefsDoc extends Document { id: string; userAddress: string; [key: string]: unknown; }
+
+// Social
+export interface MarketCommentDoc extends Document { id: string; marketId: string; [key: string]: unknown; }
+export interface MarketShareDoc extends Document { id: string; marketId: string; [key: string]: unknown; }
+export interface PredictionOutcomeDoc extends Document { id: string; agentId: string; [key: string]: unknown; }
+export interface ArbitrageOpportunityDoc extends Document { id: string; status: string; [key: string]: unknown; }
+export interface MirroredMarketDoc extends Document { id: string; externalId: string; [key: string]: unknown; }
+
+// ── Collection instances for all new models ──
+
+export const aiDebates = zeroGStore.collection<AIDebateDoc>('aiDebates', ['marketId', 'status']);
+export const aiDebateRounds = zeroGStore.collection<AIDebateRoundDoc>('aiDebateRounds', ['debateId']);
+export const aiPredictionScores = zeroGStore.collection<AIPredictionScoreDoc>('aiPredictionScores', ['agentId']);
+export const agentTrades = zeroGStore.collection<AgentTradeDoc>('agentTrades', ['agentId', 'marketId']);
+export const marketBets = zeroGStore.collection<MarketBetDoc>('marketBets', ['userId', 'externalMarketId', 'status']);
+export const userCreatedMarkets = zeroGStore.collection<UserCreatedMarketDoc>('userCreatedMarkets', ['creatorAddress', 'status']);
+export const mirrorMarkets = zeroGStore.collection<MirrorMarketDoc>('mirrorMarkets', ['mirrorKey', 'source', 'isActive']);
+export const mirrorTrades = zeroGStore.collection<MirrorTradeDoc>('mirrorTrades', ['mirrorKey', 'agentId']);
+export const mirrorCopyTrades = zeroGStore.collection<MirrorCopyTradeDoc>('mirrorCopyTrades', ['userId', 'whaleAddress', 'status']);
+export const whaleTrades = zeroGStore.collection<WhaleTradeDoc>('whaleTrades', ['source', 'traderAddress']);
+export const trackedTraders = zeroGStore.collection<TrackedTraderDoc>('trackedTraders', ['address', 'source']);
+export const whaleFollows = zeroGStore.collection<WhaleFollowDoc>('whaleFollows', ['userAddress', 'whaleAddress', 'isActive']);
+export const escrowLocks = zeroGStore.collection<EscrowLockDoc>('escrowLocks', ['userId', 'status', 'referenceId']);
+export const userBalances = zeroGStore.collection<UserBalanceDoc>('userBalances', ['userId']);
+export const creators = zeroGStore.collection<CreatorDoc>('creators', ['address']);
+export const creatorFeeEntries = zeroGStore.collection<CreatorFeeEntryDoc>('creatorFeeEntries', ['creatorAddress']);
+export const creatorRevenues = zeroGStore.collection<CreatorRevenueDoc>('creatorRevenues', ['creatorAddress']);
+export const topicAggregates = zeroGStore.collection<TopicAggregateDoc>('topicAggregates', ['category']);
+export const userTopicStats = zeroGStore.collection<UserTopicStatsDoc>('userTopicStats', ['userId', 'category']);
+export const verifiedPredictions = zeroGStore.collection<VerifiedPredictionDoc>('verifiedPredictions', ['marketId', 'agentId']);
+export const marketSnapshots = zeroGStore.collection<MarketSnapshotDoc>('marketSnapshots', ['rootHash', 'marketId']);
+export const scheduledTransactions = zeroGStore.collection<ScheduledTransactionDoc>('scheduledTransactions', ['status']);
+export const scheduledResolutions = zeroGStore.collection<ScheduledResolutionDoc>('scheduledResolutions', ['externalMarketId', 'status']);
+export const syncLogs = zeroGStore.collection<SyncLogDoc>('syncLogs', ['source']);
+export const priceSyncHistory = zeroGStore.collection<PriceSyncHistoryDoc>('priceSyncHistory', ['mirrorKey']);
+export const systemAudits = zeroGStore.collection<SystemAuditDoc>('systemAudits', ['eventType']);
+export const vaultDeposits = zeroGStore.collection<VaultDepositDoc>('vaultDeposits', ['vaultId']);
+export const userExternalAuths = zeroGStore.collection<UserExternalAuthDoc>('userExternalAuths', ['userId']);
+export const userNotificationPrefs = zeroGStore.collection<UserNotificationPrefsDoc>('userNotificationPrefs', ['userAddress']);
+export const marketComments = zeroGStore.collection<MarketCommentDoc>('marketComments', ['marketId']);
+export const marketShares = zeroGStore.collection<MarketShareDoc>('marketShares', ['marketId']);
+export const predictionOutcomes = zeroGStore.collection<PredictionOutcomeDoc>('predictionOutcomes', ['agentId']);
+export const arbitrageOpportunities = zeroGStore.collection<ArbitrageOpportunityDoc>('arbitrageOpportunities', ['status']);
+export const mirroredMarkets = zeroGStore.collection<MirroredMarketDoc>('mirroredMarkets', ['externalId']);
+
 // ─── Helper: get rounds for a battle ────────────────────
 
 export function getBattleRounds(battleId: string): PredictionRoundDoc[] {

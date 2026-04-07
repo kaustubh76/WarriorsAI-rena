@@ -50,26 +50,33 @@ export async function GET(
       const [polymarketEnabled, kalshiEnabled, totalExternalTrades, totalExternalPnL] =
         onChainStats as [boolean, boolean, bigint, bigint] || [false, false, 0n, 0n];
 
-      // Get breakdown from database - query agent trades joined with mirror markets
-      const dbBreakdown = await prisma.$queryRaw<
-        Array<{
-          source: string;
-          tradeCount: bigint;
-          wins: bigint;
-          totalPnL: string;
-        }>
-      >`
-        SELECT
-          mm.source as source,
-          COUNT(*) as tradeCount,
-          SUM(CASE WHEN mt.pnl > 0 THEN 1 ELSE 0 END) as wins,
-          COALESCE(SUM(CAST(mt.pnl AS REAL)), 0) as totalPnL
-        FROM MirrorTrade mt
-        LEFT JOIN MirrorMarket mm ON mt.mirrorKey = mm.mirrorKey
-        WHERE mt.agentId = ${id}
-        AND mm.source IS NOT NULL
-        GROUP BY mm.source
-      `;
+      // Get breakdown via 0G collections — manual join of mirrorTrade + mirrorMarket
+      const trades = prisma.mirrorTrade.findMany({ where: { agentId: id } });
+      const mirrorKeys = [...new Set(trades.map((t: Record<string, unknown>) => t.mirrorKey as string))];
+      const markets = mirrorKeys.length > 0
+        ? prisma.mirrorMarket.findMany({ where: { mirrorKey: { in: mirrorKeys } } })
+        : [];
+      const sourceMap = new Map(markets.map((m: Record<string, unknown>) => [m.mirrorKey as string, m.source as string]));
+
+      const groupedBySource = new Map<string, { tradeCount: number; wins: number; totalPnL: number }>();
+      for (const trade of trades) {
+        const t = trade as Record<string, unknown>;
+        const source = sourceMap.get(t.mirrorKey as string);
+        if (!source) continue;
+        const entry = groupedBySource.get(source) ?? { tradeCount: 0, wins: 0, totalPnL: 0 };
+        entry.tradeCount++;
+        const pnl = parseFloat(String(t.pnl ?? 0));
+        if (pnl > 0) entry.wins++;
+        entry.totalPnL += pnl;
+        groupedBySource.set(source, entry);
+      }
+
+      const dbBreakdown = Array.from(groupedBySource.entries()).map(([source, data]) => ({
+        source,
+        tradeCount: BigInt(data.tradeCount),
+        wins: BigInt(data.wins),
+        totalPnL: data.totalPnL.toString(),
+      }));
 
       // Process database results
       const polymarketData = dbBreakdown.find((d) => d.source === 'polymarket');

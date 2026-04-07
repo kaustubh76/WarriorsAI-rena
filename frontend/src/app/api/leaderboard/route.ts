@@ -188,11 +188,11 @@ export const GET = composeMiddleware([
             roi: true,
           },
         }),
-        // Use raw SQL to efficiently sum volume without fetching all records
-        prisma.$queryRaw<[{ total: bigint | null }]>`
-          SELECT COALESCE(SUM(CAST("totalStaked" AS DECIMAL)), 0) as total
-          FROM "AIPredictionScore"
-        `.catch(() => [{ total: BigInt(0) }]),
+        // Sum totalStaked via aggregate
+        Promise.resolve(
+          prisma.aIPredictionScore.aggregate({ _sum: { totalStaked: true } })
+        ).then(r => [{ total: BigInt(Math.round((r as Record<string,unknown> & { _sum?: { totalStaked?: number | null } })._sum?.totalStaked ?? 0)) }])
+         .catch(() => [{ total: BigInt(0) }]),
       ]),
       60_000
     ) as [PromiseSettledResult<any>, PromiseSettledResult<any>];

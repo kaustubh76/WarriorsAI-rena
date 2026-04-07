@@ -7,7 +7,6 @@
 
 // Required for the application to function (no fallback defaults)
 const requiredServerEnvVars = [
-  'DATABASE_URL',
   'EXTERNAL_MARKET_MIRROR_ADDRESS', // Required for Flow mirror market operations
 ] as const;
 

@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { Prisma, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@/lib/0g/db';
 
 // ============================================
 // TYPES

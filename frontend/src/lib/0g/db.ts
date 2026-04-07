@@ -10,20 +10,24 @@
  */
 
 import {
-  battles,
-  rounds,
-  warriorStats,
-  battleBets,
-  bettingPools,
-  vaults,
-  vaultCycles,
-  settlements,
-  auditLogs,
-  externalMarkets,
-  matchedPairs,
-  arbitrageTrades,
-  zeroGStore,
-  generateId,
+  battles, rounds, warriorStats, battleBets, bettingPools,
+  vaults, vaultCycles, settlements, auditLogs,
+  externalMarkets, matchedPairs, arbitrageTrades,
+  // Phase 2: All additional collections
+  aiDebates, aiDebateRounds, aiPredictionScores,
+  agentTrades, marketBets, userCreatedMarkets,
+  mirrorMarkets, mirrorTrades, mirrorCopyTrades,
+  whaleTrades, trackedTraders, whaleFollows,
+  escrowLocks, userBalances,
+  creators, creatorFeeEntries, creatorRevenues,
+  topicAggregates, userTopicStats,
+  verifiedPredictions, marketSnapshots,
+  scheduledTransactions, scheduledResolutions,
+  syncLogs, priceSyncHistory, systemAudits,
+  vaultDeposits, userExternalAuths, userNotificationPrefs,
+  marketComments, marketShares, predictionOutcomes,
+  arbitrageOpportunities, mirroredMarkets,
+  zeroGStore, generateId,
 } from './collections';
 import type { Collection, Document } from './store';
 
@@ -281,9 +285,165 @@ function createModelAdapter<T extends Document>(
       return { count };
     },
 
-    groupBy(_args: Record<string, unknown>): unknown[] {
-      console.warn(`[0GDB] groupBy not fully implemented for ${collection.name}`);
-      return [];
+    groupBy(args: {
+      by: string[];
+      where?: Record<string, unknown>;
+      _count?: boolean | Record<string, boolean>;
+      _sum?: Record<string, boolean>;
+      _avg?: Record<string, boolean>;
+      orderBy?: Record<string, string> | Record<string, string>[];
+      having?: Record<string, unknown>;
+    }): unknown[] {
+      const docs = collection.findMany(args.where);
+      const groups = new Map<string, Document[]>();
+
+      for (const doc of docs) {
+        const keyParts = args.by.map(field => (doc as Record<string, unknown>)[field]);
+        const key = JSON.stringify(keyParts);
+        const group = groups.get(key) ?? [];
+        group.push(doc);
+        groups.set(key, group);
+      }
+
+      return Array.from(groups.entries()).map(([key, groupDocs]) => {
+        const result: Record<string, unknown> = {};
+        const keyParts = JSON.parse(key) as unknown[];
+        args.by.forEach((field, i) => { result[field] = keyParts[i]; });
+
+        if (args._count === true) {
+          result._count = groupDocs.length;
+        } else if (typeof args._count === 'object' && args._count !== null) {
+          const counts: Record<string, number> = {};
+          for (const f of Object.keys(args._count)) {
+            if ((args._count as Record<string, boolean>)[f]) {
+              counts[f] = groupDocs.filter(d => (d as Record<string, unknown>)[f] != null).length;
+            }
+          }
+          result._count = counts;
+        }
+
+        if (args._sum) {
+          const sums: Record<string, number | null> = {};
+          for (const f of Object.keys(args._sum)) {
+            if (!args._sum[f]) continue;
+            let sum = 0;
+            for (const d of groupDocs) {
+              const val = (d as Record<string, unknown>)[f];
+              if (val != null) {
+                const num = typeof val === 'number' ? val : parseFloat(String(val));
+                if (!isNaN(num)) sum += num;
+              }
+            }
+            sums[f] = sum;
+          }
+          result._sum = sums;
+        }
+
+        if (args._avg) {
+          const avgs: Record<string, number | null> = {};
+          for (const f of Object.keys(args._avg)) {
+            if (!args._avg[f]) continue;
+            let sum = 0, cnt = 0;
+            for (const d of groupDocs) {
+              const val = (d as Record<string, unknown>)[f];
+              if (val != null) {
+                const num = typeof val === 'number' ? val : parseFloat(String(val));
+                if (!isNaN(num)) { sum += num; cnt++; }
+              }
+            }
+            avgs[f] = cnt > 0 ? sum / cnt : null;
+          }
+          result._avg = avgs;
+        }
+
+        return result;
+      });
+    },
+
+    aggregate(args: {
+      where?: Record<string, unknown>;
+      _count?: boolean;
+      _sum?: Record<string, boolean>;
+      _avg?: Record<string, boolean>;
+      _min?: Record<string, boolean>;
+      _max?: Record<string, boolean>;
+    }): Record<string, unknown> {
+      const docs = collection.findMany(args.where);
+      const result: Record<string, unknown> = {};
+
+      if (args._count) {
+        result._count = docs.length;
+      }
+
+      if (args._sum) {
+        const sums: Record<string, number | null> = {};
+        for (const f of Object.keys(args._sum)) {
+          if (!args._sum[f]) continue;
+          let sum: number | null = null;
+          for (const d of docs) {
+            const val = (d as Record<string, unknown>)[f];
+            if (val != null) {
+              const num = typeof val === 'number' ? val : parseFloat(String(val));
+              if (!isNaN(num)) sum = (sum ?? 0) + num;
+            }
+          }
+          sums[f] = sum;
+        }
+        result._sum = sums;
+      }
+
+      if (args._avg) {
+        const avgs: Record<string, number | null> = {};
+        for (const f of Object.keys(args._avg)) {
+          if (!args._avg[f]) continue;
+          let sum = 0, cnt = 0;
+          for (const d of docs) {
+            const val = (d as Record<string, unknown>)[f];
+            if (val != null) {
+              const num = typeof val === 'number' ? val : parseFloat(String(val));
+              if (!isNaN(num)) { sum += num; cnt++; }
+            }
+          }
+          avgs[f] = cnt > 0 ? sum / cnt : null;
+        }
+        result._avg = avgs;
+      }
+
+      if (args._min) {
+        const mins: Record<string, number | null> = {};
+        for (const f of Object.keys(args._min)) {
+          if (!args._min[f]) continue;
+          let min: number | null = null;
+          for (const d of docs) {
+            const val = (d as Record<string, unknown>)[f];
+            if (val != null) {
+              const num = typeof val === 'number' ? val : parseFloat(String(val));
+              if (!isNaN(num) && (min === null || num < min)) min = num;
+            }
+          }
+          mins[f] = min;
+        }
+        result._min = mins;
+      }
+
+      if (args._max) {
+        const maxs: Record<string, number | null> = {};
+        for (const f of Object.keys(args._max)) {
+          if (!args._max[f]) continue;
+          let max: number | null = null;
+          for (const d of docs) {
+            const val = (d as Record<string, unknown>)[f];
+            if (val != null) {
+              const num = typeof val === 'number' ? val : parseFloat(String(val));
+              if (!isNaN(num) && (max === null || num > max)) max = num;
+            }
+          }
+          maxs[f] = max;
+        }
+        result._max = maxs;
+      }
+
+      return result;
     },
   };
 }
@@ -349,9 +509,56 @@ export const db = {
   externalMarket: createModelAdapter(externalMarkets, { uniqueFields: ['externalId'] }),
   matchedMarketPair: createModelAdapter(matchedPairs, { uniqueFields: [] }),
   arbitrageTrade: createModelAdapter(arbitrageTrades, { uniqueFields: [] }),
-  arbitrageOpportunity: createModelAdapter(arbitrageTrades, { uniqueFields: [] }),
+  arbitrageOpportunity: createModelAdapter(arbitrageOpportunities, { uniqueFields: [] }),
+
+  // Phase 2: All additional model accessors
+  aIDebate: createModelAdapter(aiDebates, { uniqueFields: [] }),
+  aiDebate: createModelAdapter(aiDebates, { uniqueFields: [] }),
+  aIDebateRound: createModelAdapter(aiDebateRounds, { uniqueFields: [] }),
+  aiDebateRound: createModelAdapter(aiDebateRounds, { uniqueFields: [] }),
+  aIPredictionScore: createModelAdapter(aiPredictionScores, { uniqueFields: ['agentId'] }),
+  agentTrade: createModelAdapter(agentTrades, { uniqueFields: [] }),
+  marketBet: createModelAdapter(marketBets, { uniqueFields: [] }),
+  userCreatedMarket: createModelAdapter(userCreatedMarkets, { uniqueFields: [] }),
+  mirrorMarket: createModelAdapter(mirrorMarkets, { uniqueFields: ['mirrorKey'] }),
+  mirrorTrade: createModelAdapter(mirrorTrades, { uniqueFields: [] }),
+  mirrorCopyTrade: createModelAdapter(mirrorCopyTrades, { uniqueFields: [] }),
+  whaleTrade: createModelAdapter(whaleTrades, { uniqueFields: [] }),
+  trackedTrader: createModelAdapter(trackedTraders, { uniqueFields: [] }),
+  whaleFollow: createModelAdapter(whaleFollows, { uniqueFields: [] }),
+  escrowLock: createModelAdapter(escrowLocks, { uniqueFields: [] }),
+  userBalance: createModelAdapter(userBalances, { uniqueFields: ['userId'] }),
+  creator: createModelAdapter(creators, { uniqueFields: ['address'] }),
+  creatorFeeEntry: createModelAdapter(creatorFeeEntries, { uniqueFields: [] }),
+  creatorRevenue: createModelAdapter(creatorRevenues, { uniqueFields: [] }),
+  topicAggregate: createModelAdapter(topicAggregates, { uniqueFields: [] }),
+  userTopicStats: createModelAdapter(userTopicStats, { uniqueFields: [] }),
+  verifiedPrediction: createModelAdapter(verifiedPredictions, { uniqueFields: [] }),
+  marketSnapshot: createModelAdapter(marketSnapshots, { uniqueFields: ['rootHash'] }),
+  scheduledTransaction: createModelAdapter(scheduledTransactions, { uniqueFields: [] }),
+  scheduledResolution: createModelAdapter(scheduledResolutions, { uniqueFields: [] }),
+  syncLog: createModelAdapter(syncLogs, { uniqueFields: [] }),
+  priceSyncHistory: createModelAdapter(priceSyncHistory, { uniqueFields: [] }),
+  systemAudit: createModelAdapter(systemAudits, { uniqueFields: [] }),
+  vaultDeposit: createModelAdapter(vaultDeposits, { uniqueFields: [] }),
+  userExternalAuth: createModelAdapter(userExternalAuths, { uniqueFields: [] }),
+  userNotificationPrefs: createModelAdapter(userNotificationPrefs, { uniqueFields: ['userAddress'] }),
+  marketComment: createModelAdapter(marketComments, { uniqueFields: [] }),
+  marketShare: createModelAdapter(marketShares, { uniqueFields: [] }),
+  predictionOutcome: createModelAdapter(predictionOutcomes, { uniqueFields: [] }),
+  mirroredMarket: createModelAdapter(mirroredMarkets, { uniqueFields: ['externalId'] }),
 
   $transaction,
+
+  async $executeRaw(..._args: unknown[]): Promise<number> {
+    console.warn('[0GDB] $executeRaw not supported in 0G mode — returning 0');
+    return 0;
+  },
+
+  async $queryRaw<T = unknown>(..._args: unknown[]): Promise<T> {
+    console.warn('[0GDB] $queryRaw not supported in 0G mode — returning []');
+    return [] as unknown as T;
+  },
 
   async $flush(): Promise<void> {
     await zeroGStore.flush();
