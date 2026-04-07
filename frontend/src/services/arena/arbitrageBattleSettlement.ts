@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { PredictionBattle, ArbitrageTrade } from '@prisma/client';
+import type { PredictionBattle, ArbitrageTrade } from '@prisma/client';
 import { escrowService } from '../escrow';
 
 // ============================================

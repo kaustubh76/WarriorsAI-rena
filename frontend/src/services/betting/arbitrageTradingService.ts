@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { ArbitrageTrade } from '@prisma/client';
+import type { ArbitrageTrade } from '@prisma/client';
 import { externalMarketsService } from '../externalMarkets';
 import { ArbitrageOpportunity } from '@/types/externalMarket';
 import { arbitrageCircuitBreaker } from './tradingCircuitBreaker';

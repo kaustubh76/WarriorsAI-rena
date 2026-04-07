@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { MarketBet } from '@prisma/client';
+import type { MarketBet } from '@prisma/client';
 import { polymarketService } from '../externalMarkets/polymarketService';
 import { kalshiService } from '../externalMarkets/kalshiService';
 import { kalshiCircuitBreaker, polymarketCircuitBreaker } from './tradingCircuitBreaker';
