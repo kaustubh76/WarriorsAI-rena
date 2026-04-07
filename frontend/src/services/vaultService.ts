@@ -5,7 +5,7 @@
  */
 
 import { parseEther, formatEther, type Address } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { avalancheFuji } from 'viem/chains';
 import { chainsToContracts, crownTokenAbi, warriorsNFTAbi } from '../constants';
 import { STRATEGY_VAULT_ABI } from '../constants/abis/strategyVaultAbi';
 import { POOL_ABI } from '../constants/abis/poolAbi';
@@ -16,7 +16,7 @@ import {
   isTimeoutError,
 } from '@/lib/flowClient';
 
-const FLOW_CHAIN_ID = 545;
+const FLOW_CHAIN_ID = 43113;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
 
 const publicClient = createFlowPublicClient();
@@ -291,7 +291,7 @@ class VaultService {
       abi: crownTokenAbi,
       functionName: 'approve' as const,
       args: [contracts.strategyVault as Address, amount],
-      chain: flowTestnet,
+      chain: avalancheFuji,
     };
   }
 
@@ -307,7 +307,7 @@ class VaultService {
       abi: STRATEGY_VAULT_ABI,
       functionName: 'deposit' as const,
       args: [BigInt(nftId), amount, allocation, aiProofHash],
-      chain: flowTestnet,
+      chain: avalancheFuji,
     };
   }
 
@@ -318,7 +318,7 @@ class VaultService {
       abi: STRATEGY_VAULT_ABI,
       functionName: 'withdraw' as const,
       args: [BigInt(nftId)],
-      chain: flowTestnet,
+      chain: avalancheFuji,
     };
   }
 

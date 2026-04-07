@@ -15,13 +15,13 @@ export const config = {
   baseUrl: process.env.NEXT_PUBLIC_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'),
 
   // Blockchain RPC URLs
-  flowTestnetRpc: process.env.NEXT_PUBLIC_FLOW_TESTNET_RPC || 'https://testnet.evm.nodes.onflow.org',
-  flowMainnetRpc: process.env.NEXT_PUBLIC_FLOW_MAINNET_RPC || 'https://mainnet.evm.nodes.onflow.org',
+  avalancheFujiRpc: process.env.NEXT_PUBLIC_AVALANCHE_FUJI_RPC || 'https://api.avax-test.network/ext/bc/C/rpc',
+  avalancheRpc: process.env.NEXT_PUBLIC_AVALANCHE_MAINNET_RPC || 'https://api.avax.network/ext/bc/C/rpc',
 
   // Chain IDs
   chainIds: {
-    flowTestnet: 545,
-    flowMainnet: 747,
+    avalancheFuji: 43113,
+    avalanche: 43114,
   },
 
   // WalletConnect Project ID

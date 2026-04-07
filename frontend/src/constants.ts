@@ -9,14 +9,14 @@ export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'ima
 /**
  * Supported chain IDs for the application
  */
-export type SupportedChainId = 545 | 16602 | 747 | 31337;
+export type SupportedChainId = 43113 | 16602 | 43114 | 31337;
 
 /**
  * Get the current chain ID from environment or default to Flow Testnet (545)
  * Use this instead of hardcoding chain IDs throughout the codebase
  */
 export const getChainId = (): SupportedChainId => {
-  const chainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '545', 10);
+  const chainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '43113', 10);
   return chainId as SupportedChainId;
 };
 
@@ -31,40 +31,43 @@ export const getChainId = (): SupportedChainId => {
  * Note: The fallback URL (access-testnet.onflow.org) is technically a Cadence REST
  * endpoint used as an EVM fallback — this is a pre-existing configuration.
  */
-export const FLOW_RPC_URLS = {
+export const AVALANCHE_RPC_URLS = {
   testnet: {
-    primary: 'https://testnet.evm.nodes.onflow.org',
-    fallback: 'https://access-testnet.onflow.org', // Updated: Official Flow access node
+    primary: 'https://api.avax-test.network/ext/bc/C/rpc',
+    fallback: 'https://rpc.ankr.com/avalanche_fuji',
   },
   mainnet: {
-    primary: 'https://mainnet.evm.nodes.onflow.org',
-    fallback: 'https://access-mainnet.onflow.org', // Updated: Official Flow access node
+    primary: 'https://api.avax.network/ext/bc/C/rpc',
+    fallback: 'https://rpc.ankr.com/avalanche',
   },
 };
 
+// Backwards-compat aliases
+export const FLOW_RPC_URLS = AVALANCHE_RPC_URLS;
+
 /**
- * Get Flow RPC URL from environment or default to testnet
+ * Get Avalanche RPC URL from environment or default to Fuji testnet
  */
 export const getFlowRpcUrl = (): string => {
-  return process.env.NEXT_PUBLIC_FLOW_RPC_URL || FLOW_RPC_URLS.testnet.primary;
+  return process.env.NEXT_PUBLIC_AVALANCHE_RPC_URL || process.env.NEXT_PUBLIC_FLOW_RPC_URL || AVALANCHE_RPC_URLS.testnet.primary;
 };
 
 /**
- * Get Flow fallback RPC URL for when primary times out
+ * Get fallback RPC URL
  */
 export const getFlowFallbackRpcUrl = (): string => {
   const chainId = getChainId();
-  if (chainId === 747) {
-    return process.env.NEXT_PUBLIC_FLOW_FALLBACK_RPC_URL || FLOW_RPC_URLS.mainnet.fallback;
+  if (chainId === 43114) {
+    return process.env.NEXT_PUBLIC_AVALANCHE_FALLBACK_RPC || AVALANCHE_RPC_URLS.mainnet.fallback;
   }
-  return process.env.NEXT_PUBLIC_FLOW_FALLBACK_RPC_URL || FLOW_RPC_URLS.testnet.fallback;
+  return process.env.NEXT_PUBLIC_AVALANCHE_FALLBACK_RPC || AVALANCHE_RPC_URLS.testnet.fallback;
 };
 
 /**
- * Get Flow Explorer URL from environment or default to testnet
+ * Get Explorer URL — Snowtrace for Avalanche
  */
 export const getFlowExplorerUrl = (): string => {
-  return process.env.NEXT_PUBLIC_FLOW_EXPLORER_URL || 'https://evm-testnet.flowscan.io';
+  return process.env.NEXT_PUBLIC_EXPLORER_URL || 'https://testnet.snowtrace.io';
 };
 
 /**
@@ -128,7 +131,7 @@ export const getApiBaseUrl = (): string => {
 };
 
 // Default chain ID constant for backwards compatibility
-export const DEFAULT_CHAIN_ID = 545;
+export const DEFAULT_CHAIN_ID = 43113;
 
 /**
  * Get contracts for the current chain
@@ -179,34 +182,32 @@ interface ContractsConfig {
 
 
 export const chainsToContracts: ContractsConfig = {
-    // Production/Testnet
-    545: {
-        // Deployed to Flow Testnet (Chain ID: 545) - January 2026
-        mockOracle: "0x56d7060B080A6d5bF77aB610600e5ab70365696A",
-        crownToken: "0x9Fd6CCEE1243EaC173490323Ed6B8b8E0c15e8e6",
-        warriorsNFT: "0x89f44bEefa27eC5199ddeB8fD16158d94296ED39",
-        ArenaFactory: "0xf77840febD42325F83cB93F9deaE0F8b14Eececf",
-        
-        outcomeToken: "0xb9BbdB84EaA159166B2c4eFE713F7Ea87700a81e",
-        aiAgentRegistry: "0xdc2b123Ec17c36E10c2Ca4628473E879194153D0",
-        microMarketFactory: "0xbF5286313cf5022c21c385ce3A87de600F616415",
-        aiDebateOracle: "0x31037D0EfB3E43E2914CCD21bE7A3AC4E52a1988",
-        creatorRevenueShare: "0x8B096E9b9D800BDbD353386865F55c1E2B3928aA",
-        predictionMarketAMM: "0x1b26203A2752557ecD4763a9A8A26119AC5e18e4",
+    // Production/Testnet — Avalanche C-Chain Fuji (Chain ID: 43113)
+    43113: {
+        mockOracle: "0xf986215373Bc8E5A1a698Be72270c0e1FC4716e3",
+        crownToken: "0xF0011ca65e3F6314B180a8848ae373042bAEc9b4",
+        warriorsNFT: "0x218d3efaB076bd03E278CDCf3B488AA107215b8a",
+        ArenaFactory: "0xe9faCA292CEF42489AF4d20266964Fb6425AE122",
+        outcomeToken: "0x578F5D284F1Ac91115293cC36eD2DF487550C1da",
+        aiAgentRegistry: "0x5e0Df8750114ecBC0850494fb1a2b9001b61254e",
+        microMarketFactory: "0xd81373eEd88FacE56c21CFA4787c80C325e0bC6E",
+        aiDebateOracle: "0x17f63e80bd0db1ed77f6dcf54d2bb7ae3fb43f7d",
+        creatorRevenueShare: "0x05Ca49f32B482e0Dce58e39A22F31e5f56A43Ee7",
+        predictionMarketAMM: "0xeBe1DB030bBFC5bCdD38593C69e4899887D2e487",
         zeroGOracle: "0xe796D8D16475C92c30caa59E9De2147726a80DF0",
-        // NOTE: iNFT contracts are deployed on 0G Galileo (16602) ONLY - not on Flow
-        // The agentINFTService reads from 0G chain directly
+        // iNFT contracts on 0G Galileo (16602) — not on Avalanche
         aiAgentINFT: "0x0000000000000000000000000000000000000000",
         agentINFTOracle: "0x0000000000000000000000000000000000000000",
-        // External Market Mirror Contracts (Polymarket/Kalshi integration) - Deployed January 2026
-        flowVRFOracle: "0xd81373eEd88FacE56c21CFA4787c80C325e0bC6E",
-        externalMarketMirror: "0x7485019de6Eca5665057bAe08229F9E660ADEfDa",
-        // Strategy Vault & DeFi Pool Contracts (Phase 2) — Deployed to Flow Testnet 2026-03-11
-        strategyVault: process.env.NEXT_PUBLIC_STRATEGY_VAULT_ADDRESS || "0xD7CbEC2D198357213b434E6b61CC4f80BB0feaCF",
-        highYieldPool: process.env.NEXT_PUBLIC_HIGH_YIELD_POOL_ADDRESS || "0x39d85759032fe730abaCDF7aAc403e8E8BB47cAb",
-        stablePool: process.env.NEXT_PUBLIC_STABLE_POOL_ADDRESS || "0x14746b6F08e9512F755FbCC64e63f06397dA155F",
-        lpPool: process.env.NEXT_PUBLIC_LP_POOL_ADDRESS || "0x89d5C59a281Da5BE624d3D592Ab9661B6B44451e",
-        // DeFi Hardening Phase 1-3 — deployed 2026-03
+        // External Market Mirror
+        externalMarketMirror: "0x1cfa9eD162f90B1eD6d9A01c504fFc28B7412473",
+        // Prediction Arena
+        flowVRFOracle: "0x0000000000000000000000000000000000000000",
+        // Strategy Vault & DeFi Pools
+        strategyVault: process.env.NEXT_PUBLIC_STRATEGY_VAULT_ADDRESS || "0x0000000000000000000000000000000000000000",
+        highYieldPool: process.env.NEXT_PUBLIC_HIGH_YIELD_POOL_ADDRESS || "0x0000000000000000000000000000000000000000",
+        stablePool: process.env.NEXT_PUBLIC_STABLE_POOL_ADDRESS || "0x0000000000000000000000000000000000000000",
+        lpPool: process.env.NEXT_PUBLIC_LP_POOL_ADDRESS || "0x0000000000000000000000000000000000000000",
+        // DeFi Hardening
         battleManager: process.env.NEXT_PUBLIC_BATTLE_MANAGER_ADDRESS || "0x0000000000000000000000000000000000000000",
         stakingContract: process.env.NEXT_PUBLIC_STAKING_ADDRESS || "0x0000000000000000000000000000000000000000",
         stCrwnToken: process.env.NEXT_PUBLIC_STCRWN_ADDRESS || "0x0000000000000000000000000000000000000000",

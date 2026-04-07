@@ -15,10 +15,10 @@
 import { useState, useCallback } from 'react';
 import { useAccount, useWalletClient, useChainId, useSwitchChain, useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { avalancheFuji } from 'viem/chains';
 import { chainsToContracts, warriorsNFTAbi } from '../constants';
 
-const FLOW_CHAIN_ID = 545;
+const FLOW_CHAIN_ID = 43113;
 
 // Rank enum matching the contract
 export enum WarriorRank {
@@ -108,7 +108,7 @@ export function usePromoteWarrior(): UsePromoteWarriorResult {
           functionName: 'promoteNFT',
           args: [tokenId],
           account: address,
-          chain: flowTestnet,
+          chain: avalancheFuji,
         });
 
         console.log('Warrior promoted:', hash);

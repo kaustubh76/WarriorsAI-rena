@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server';
 import { parseEther, formatEther, keccak256, encodeAbiParameters } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { flowTestnet } from 'viem/chains';
+import { avalancheFuji } from 'viem/chains';
 import {
   createFlowPublicClient,
   createFlowFallbackClient,
@@ -544,7 +544,7 @@ export const GET = composeMiddleware([
           contractAddress: EXTERNAL_MARKET_MIRROR,
           crwnToken: CRWN_TOKEN,
           chain: 'flow-testnet',
-          chainId: flowTestnet.id,
+          chainId: avalancheFuji.id,
         },
       });
     }
@@ -578,7 +578,7 @@ export const GET = composeMiddleware([
         contractAddress: EXTERNAL_MARKET_MIRROR,
         crwnToken: CRWN_TOKEN,
         chain: 'flow-testnet',
-        chainId: flowTestnet.id,
+        chainId: avalancheFuji.id,
       },
     });
   },

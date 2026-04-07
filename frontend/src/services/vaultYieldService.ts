@@ -11,13 +11,13 @@
 import { prisma } from '@/lib/prisma';
 import { vaultService } from '@/services/vaultService';
 import { createPublicClient, createWalletClient, http, type Address, formatEther } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { avalancheFuji } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainsToContracts } from '@/constants';
 import { STRATEGY_VAULT_ABI } from '@/constants/abis/strategyVaultAbi';
 import AIAgentINFTAbiJson from '@/constants/aiAgentINFTAbi.json';
 
-const FLOW_CHAIN_ID = 545;
+const FLOW_CHAIN_ID = 43113;
 const contracts = chainsToContracts[FLOW_CHAIN_ID];
 
 interface CycleResult {
@@ -324,7 +324,7 @@ class VaultYieldService {
       const serverPrivateKey = process.env.SERVER_WALLET_PRIVATE_KEY;
       if (serverPrivateKey && contracts.aiAgentINFT && contracts.aiAgentINFT !== '0x0000000000000000000000000000000000000000') {
         const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
-        const wc = createWalletClient({ account, chain: flowTestnet, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
+        const wc = createWalletClient({ account, chain: avalancheFuji, transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org') });
         await wc.writeContract({
           address: contracts.aiAgentINFT as Address,
           abi: AIAgentINFTAbiJson,
@@ -407,7 +407,7 @@ class VaultYieldService {
     const account = privateKeyToAccount(serverPrivateKey as `0x${string}`);
 
     const publicClient = createPublicClient({
-      chain: flowTestnet,
+      chain: avalancheFuji,
       transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
     });
 
@@ -429,7 +429,7 @@ class VaultYieldService {
 
     const walletClient = createWalletClient({
       account,
-      chain: flowTestnet,
+      chain: avalancheFuji,
       transport: http(process.env.FLOW_RPC_URL || 'https://testnet.evm.nodes.onflow.org'),
     });
 

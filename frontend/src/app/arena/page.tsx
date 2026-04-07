@@ -35,7 +35,7 @@ import { useBattleDataSync } from '../../hooks/useBattleDataSync';
 const ARENA_BACKEND_URL = getArenaBackendUrl();
 
 // Type for supported chain IDs
-type SupportedChainId = 545 | 16602 | 747 | 31337;
+type SupportedChainId = 43113 | 16602 | 43114 | 31337;
 const getTypedChainId = (): SupportedChainId => getChainId() as SupportedChainId;
 
 // PlayerMoves enum mapping (based on Kurukshetra.sol)

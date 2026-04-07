@@ -13,7 +13,7 @@
  */
 
 import { createPublicClient, createWalletClient, http, type PublicClient, type Account, type Chain } from 'viem';
-import { flowTestnet, flowMainnet } from 'viem/chains';
+import { avalancheFuji, avalanche } from 'viem/chains';
 import { getFlowRpcUrl, getFlowFallbackRpcUrl, getChainId } from '@/constants';
 import { getFlowRpcForKey } from '@/lib/hashing';
 
@@ -27,7 +27,7 @@ const RETRY_DELAY = 1000; // 1 second
  */
 export function getFlowChain(): Chain {
   const chainId = getChainId();
-  return chainId === 747 ? flowMainnet : flowTestnet;
+  return chainId === 43114 ? avalanche : avalancheFuji;
 }
 
 /**

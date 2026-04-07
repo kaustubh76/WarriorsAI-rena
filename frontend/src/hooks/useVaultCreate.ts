@@ -9,7 +9,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAccount, useWalletClient, useSwitchChain } from 'wagmi';
 import { parseEther, formatEther, type Address, keccak256, toHex } from 'viem';
-import { flowTestnet } from 'viem/chains';
+import { avalancheFuji } from 'viem/chains';
 import { vaultService } from '@/services/vaultService';
 import { useFlowWallet } from '@/contexts/FlowWalletContext';
 
@@ -76,7 +76,7 @@ const initialState: VaultCreateState = {
   isLoading: false,
 };
 
-const FLOW_CHAIN_ID = 545;
+const FLOW_CHAIN_ID = 43113;
 
 export function useVaultCreate() {
   const { address, isConnected, chainId } = useAccount();
@@ -196,7 +196,7 @@ export function useVaultCreate() {
           functionName: 'approve',
           args: [vaultAddr, amount],
           account: address,
-          chain: flowTestnet,
+          chain: avalancheFuji,
           gas: 5_000_000n,
         });
 
@@ -231,7 +231,7 @@ export function useVaultCreate() {
         functionName: 'deposit',
         args: [BigInt(state.selectedNftId), amount, allocationBps, proofHash],
         account: address,
-        chain: flowTestnet,
+        chain: avalancheFuji,
         gas: 5_000_000n,
       });
 

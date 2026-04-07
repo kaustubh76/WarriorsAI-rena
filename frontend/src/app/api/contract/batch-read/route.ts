@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createPublicClient, http } from 'viem';
 import { Chain } from 'viem';
-import { anvil, flowTestnet, flowMainnet } from 'viem/chains';
+import { anvil, avalancheFuji, avalanche } from 'viem/chains';
 import {
   executeWithFlowFallbackForKey,
   RPC_TIMEOUT,
@@ -13,8 +13,8 @@ const MAX_BATCH_SIZE = 20;
 
 // Define supported chains
 const SUPPORTED_CHAINS: Record<number, Chain> = {
-  [flowTestnet.id]: flowTestnet, // Chain ID 545
-  [flowMainnet.id]: flowMainnet, // Chain ID 747
+  [avalancheFuji.id]: avalancheFuji, // Chain ID 43113
+  [avalanche.id]: avalanche, // Chain ID 43114
   [anvil.id]: anvil, // Chain ID 31337
   [zeroGGalileo.id]: zeroGGalileo, // Chain ID 16602 - 0G Galileo for iNFTs
 };
@@ -68,7 +68,7 @@ export const POST = composeMiddleware([
     }
 
     // Default to chain 545 (Flow testnet) if no chainId provided
-    const targetChainId = chainId || 545;
+    const targetChainId = chainId || 43113;
 
     // Get the chain configuration
     const chain = SUPPORTED_CHAINS[targetChainId];
@@ -76,7 +76,7 @@ export const POST = composeMiddleware([
       throw ErrorResponses.badRequest(`Unsupported chain ID: ${targetChainId}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(', ')}`);
     }
 
-    const isFlowChain = targetChainId === 545 || targetChainId === 747;
+    const isFlowChain = targetChainId === 43113 || targetChainId === 43114;
 
     // Non-Flow client (only created if needed)
     const nonFlowClient = !isFlowChain ? createPublicClient({
